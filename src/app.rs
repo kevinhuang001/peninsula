@@ -1,5 +1,7 @@
 use crate::metrics::{MetricsSampler, Snapshot};
-use eframe::egui::{self, Color32, Pos2, Rect, Vec2};
+#[cfg(not(target_os = "macos"))]
+use eframe::egui::Pos2;
+use eframe::egui::{self, Color32, Vec2};
 use std::{
     sync::mpsc::Receiver,
     time::{Duration, Instant},
@@ -9,10 +11,12 @@ mod animation;
 mod battery;
 mod capsule;
 mod fonts;
+mod indicator;
 mod mascot;
 mod platform;
 mod settings;
 mod state;
+mod trackpad;
 mod widgets;
 
 use mascot::Mascot;
@@ -34,6 +38,9 @@ struct IslandApp {
     settings_panel: SettingsPanel,
     settings_open: bool,
     active_tab: IslandTab,
+    indicator: indicator::Indicator,
+    widget_height: animation::Spring,
+    trackpad_swipe: trackpad::TrackpadSwipe,
     pomodoro: Pomodoro,
     last_platform_check: Option<Instant>,
     native_size: [f32; 2],
@@ -50,6 +57,9 @@ impl Default for IslandApp {
             settings_panel: SettingsPanel::default(),
             settings_open: false,
             active_tab: IslandTab::default(),
+            indicator: indicator::Indicator::default(),
+            widget_height: animation::Spring::new(IslandTab::Performance.extra_height()),
+            trackpad_swipe: trackpad::TrackpadSwipe::default(),
             pomodoro: Pomodoro::default(),
             last_platform_check: None,
             native_size: COLLAPSED_SIZE,
@@ -69,6 +79,7 @@ impl eframe::App for IslandApp {
             egui::Visuals::dark()
         });
         let now = Instant::now();
+        let previous_tab = self.active_tab;
         if self
             .last_platform_check
             .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(1))
@@ -86,6 +97,8 @@ impl eframe::App for IslandApp {
             .set_compact_width(self.preferences.compact_width());
         let dt = ctx.input(|input| input.stable_dt).clamp(0.0, 0.05);
         let (pill_width, progress) = self.state.advance(dt);
+        self.widget_height.target(self.active_tab.extra_height());
+        self.widget_height.step(dt);
         if self.pomodoro.advance(dt) {
             ctx.request_repaint();
         }
@@ -93,6 +106,7 @@ impl eframe::App for IslandApp {
             self.mascot.advance(dt, false);
         }
         let mut interactive_rect = None;
+        let mut drag_started = false;
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(if self.settings_open {
                 Color32::from_rgb(247, 247, 249)
@@ -120,22 +134,25 @@ impl eframe::App for IslandApp {
                 } else {
                     ui.vertical_centered(|ui| {
                         ui.add_space(4.0);
-                        let (rect, open_settings) = capsule::show(
+                        let (rect, open_settings, start_drag) = capsule::show(
                             ui,
                             ctx,
                             pill_width,
                             progress,
+                            self.widget_height.value,
                             capsule::CapsuleWidgets {
                                 metrics: &self.metrics,
                                 mascot: &mut self.mascot,
                                 preferences: &self.preferences,
                                 active_tab: &mut self.active_tab,
                                 timer: &mut self.pomodoro,
+                                indicator_opacity: self.indicator.opacity(now),
                             },
                         );
                         if open_settings {
                             self.settings_open = true;
                         }
+                        drag_started = start_drag;
                         interactive_rect = Some(rect);
                     });
                 }
@@ -147,15 +164,20 @@ impl eframe::App for IslandApp {
         let pointer = ctx.input(|input| input.pointer.hover_pos());
         let hovering =
             pointer.is_some_and(|point| interactive_rect.is_some_and(|rect| rect.contains(point)));
-        let should_drag = ctx.input(|input| {
-            should_start_drag(
-                interactive_rect,
-                input.pointer.interact_pos(),
-                input.pointer.button_down(egui::PointerButton::Primary),
-                input.pointer.delta(),
-            )
-        });
-        if should_drag && !self.settings_open && !self.state.expanded {
+        let (scroll, time, modifiers) =
+            ctx.input(|input| (input.raw_scroll_delta, input.time, input.modifiers));
+        if self.trackpad_swipe.update(
+            scroll,
+            time,
+            hovering
+                && self.state.expanded
+                && !self.settings_open
+                && modifiers == egui::Modifiers::NONE,
+        ) {
+            self.active_tab = self.active_tab.other();
+            ctx.request_repaint();
+        }
+        if drag_started && !self.settings_open {
             ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
         }
         if !self.settings_open && self.state.expanded && !ctx.wants_keyboard_input() {
@@ -170,13 +192,12 @@ impl eframe::App for IslandApp {
         if !self.settings_open && self.state.observe_hover(hovering, dt) {
             ctx.request_repaint();
         }
+        if self.active_tab != previous_tab {
+            self.indicator.show(now);
+            ctx.request_repaint();
+        }
         ctx.request_repaint_after(Duration::from_millis(16));
     }
-}
-
-fn should_start_drag(rect: Option<Rect>, pointer: Option<Pos2>, held: bool, delta: Vec2) -> bool {
-    held && delta.length_sq() > 1.0
-        && pointer.is_some_and(|point| rect.is_some_and(|bounds| bounds.contains(point)))
 }
 
 fn window_target_size(

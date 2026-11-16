@@ -9,7 +9,6 @@ use super::{
 };
 
 const CAPSULE_HEIGHT: f32 = 52.0;
-const EXPANDED_HEIGHT: f32 = 126.0;
 const BLACK: Color32 = Color32::from_rgb(15, 16, 19);
 const MUTED: Color32 = Color32::from_rgb(139, 145, 157);
 
@@ -19,6 +18,7 @@ pub(super) struct CapsuleWidgets<'a> {
     pub preferences: &'a CompactPreferences,
     pub active_tab: &'a mut IslandTab,
     pub timer: &'a mut pomodoro::Pomodoro,
+    pub indicator_opacity: f32,
 }
 
 pub(super) fn show(
@@ -26,16 +26,24 @@ pub(super) fn show(
     context: &egui::Context,
     width: f32,
     progress: f32,
+    expanded_height: f32,
     content: CapsuleWidgets<'_>,
-) -> (Rect, bool) {
-    let height = CAPSULE_HEIGHT + EXPANDED_HEIGHT * progress;
+) -> (Rect, bool, bool) {
+    let height = CAPSULE_HEIGHT + expanded_height * progress;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     let capsule = ui.interact(
         rect,
         egui::Id::new("island-capsule"),
         Sense::click_and_drag(),
     );
-    if progress > 0.9 && capsule.drag_stopped() && capsule.drag_delta().x.abs() > 35.0 {
+    let drag_area = drag_handle_bounds(rect, progress);
+    let handle = ui.interact(
+        drag_area,
+        egui::Id::new("island-drag-handle"),
+        Sense::drag(),
+    );
+    let drag_started = handle.drag_started();
+    if progress > 0.9 && swipe_finished(context, &capsule) {
         *content.active_tab = content.active_tab.other();
         context.request_repaint();
     }
@@ -58,6 +66,7 @@ pub(super) fn show(
             progress,
             content.active_tab,
             content.timer,
+            content.indicator_opacity,
         )
     };
     capsule.context_menu(|ui| {
@@ -65,7 +74,36 @@ pub(super) fn show(
             context.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     });
-    (rect, settings)
+    (rect, settings, drag_started)
+}
+
+fn swipe_finished(context: &egui::Context, response: &egui::Response) -> bool {
+    let id = egui::Id::new("island-swipe-origin");
+    if response.drag_started() {
+        if let Some(origin) = context.input(|input| input.pointer.press_origin()) {
+            context.data_mut(|data| data.insert_temp(id, origin));
+        }
+    }
+    if response.drag_stopped() {
+        let origin = context.data_mut(|data| data.remove_temp::<Pos2>(id));
+        let end = context.input(|input| input.pointer.interact_pos());
+        return origin.zip(end).is_some_and(|(start, end)| {
+            let delta = end - start;
+            delta.x.abs() > 35.0 && delta.x.abs() > delta.y.abs()
+        });
+    }
+    false
+}
+
+#[cfg(test)]
+mod drag_tests;
+
+fn drag_handle_bounds(rect: Rect, progress: f32) -> Rect {
+    if progress >= 0.9 {
+        Rect::from_min_max(rect.min, Pos2::new(rect.right() - 48.0, rect.top() + 43.0))
+    } else {
+        rect
+    }
 }
 
 fn paint_shell(ui: &egui::Ui, rect: Rect, progress: f32) {
@@ -91,6 +129,7 @@ fn paint_expanded(
     progress: f32,
     active_tab: &mut IslandTab,
     timer: &mut pomodoro::Pomodoro,
+    indicator_opacity: f32,
 ) -> bool {
     let reveal = progress.clamp(0.0, 1.0);
     let title = if *active_tab == IslandTab::Performance {
@@ -122,12 +161,14 @@ fn paint_expanded(
     } else {
         pomodoro::show(ui, body, timer);
     }
-    paint_tabs(ui, rect, active_tab);
+    if indicator_opacity > 0.0 {
+        paint_tabs(ui, rect, active_tab, indicator_opacity);
+    }
     settings
 }
 
-fn paint_tabs(ui: &mut egui::Ui, rect: Rect, active_tab: &mut IslandTab) {
-    let center = Pos2::new(rect.center().x, rect.bottom() - 8.0);
+fn paint_tabs(ui: &mut egui::Ui, rect: Rect, active_tab: &mut IslandTab, opacity: f32) {
+    let center = Pos2::new(rect.center().x, rect.top() + 13.0);
     for (index, tab) in IslandTab::ALL.into_iter().enumerate() {
         let point = Pos2::new(center.x + (index as f32 - 0.5) * 16.0, center.y);
         let size = if *active_tab == tab {
@@ -143,7 +184,8 @@ fn paint_tabs(ui: &mut egui::Ui, rect: Rect, active_tab: &mut IslandTab) {
                 Color32::WHITE
             } else {
                 MUTED
-            },
+            }
+            .linear_multiply(opacity),
         );
         if ui
             .interact(
@@ -160,7 +202,7 @@ fn paint_tabs(ui: &mut egui::Ui, rect: Rect, active_tab: &mut IslandTab) {
 
 #[cfg(test)]
 mod tests {
-    use super::{corner_radius, show, CapsuleWidgets};
+    use super::{corner_radius, drag_handle_bounds, show, CapsuleWidgets};
     use crate::{
         app::{
             mascot::Mascot,
@@ -193,12 +235,14 @@ mod tests {
                                 context,
                                 220.0,
                                 0.5,
+                                126.0,
                                 CapsuleWidgets {
                                     metrics: &Snapshot::default(),
                                     mascot: &mut mascot,
                                     preferences: &CompactPreferences::default(),
                                     active_tab: &mut tab,
                                     timer: &mut timer,
+                                    indicator_opacity: 1.0,
                                 },
                             )
                             .0;
@@ -216,5 +260,15 @@ mod tests {
         assert_eq!(corner_radius(0.0), 26.0);
         assert_eq!(corner_radius(1.0), 34.0);
         assert!(corner_radius(1.0) < 52.0);
+    }
+
+    #[test]
+    fn expanded_drag_handle_excludes_settings_and_widget_contents() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(320.0, 178.0));
+        let handle = drag_handle_bounds(rect, 1.0);
+        assert!(handle.contains(Pos2::new(100.0, 20.0)));
+        assert!(!handle.contains(Pos2::new(295.0, 26.0)));
+        assert!(!handle.contains(Pos2::new(160.0, 90.0)));
+        assert_eq!(drag_handle_bounds(rect, 0.0), rect);
     }
 }
