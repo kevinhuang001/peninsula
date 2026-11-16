@@ -1,12 +1,14 @@
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Stroke, Vec2};
 
 use super::{Phase, Pomodoro};
+use std::time::Instant;
 
 const FOCUS: Color32 = Color32::from_rgb(255, 117, 107);
 const REST: Color32 = Color32::from_rgb(106, 224, 180);
 const MUTED: Color32 = Color32::from_rgb(239, 242, 247);
 
 pub fn show(ui: &mut egui::Ui, rect: Rect, timer: &mut Pomodoro) {
+    let now = Instant::now();
     let (center, radius, control_top) = timer_layout(rect);
     let color = if timer.phase == Phase::Focus {
         FOCUS
@@ -18,16 +20,16 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, timer: &mut Pomodoro) {
     painter.circle_stroke(
         center,
         radius,
-        Stroke::new(3.0, Color32::from_rgb(55, 59, 68)),
+        Stroke::new(3.0_f32, Color32::from_rgb(55, 59, 68)),
     );
     painter.add(egui::Shape::line(
-        progress_points(center, radius, timer.progress()),
-        Stroke::new(3.0, color),
+        progress_points(center, radius, timer.progress_at(now)),
+        Stroke::new(3.0_f32, color),
     ));
     painter.text(
         center + Vec2::new(0.0, -3.0),
         Align2::CENTER_CENTER,
-        format_time(timer.remaining_seconds),
+        format_time(timer.remaining_at(now)),
         FontId::proportional(19.0),
         Color32::WHITE,
     );
@@ -80,7 +82,7 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, timer: &mut Pomodoro) {
         )
         .clicked()
     {
-        timer.toggle();
+        timer.toggle_at(now);
     }
 }
 
@@ -99,7 +101,7 @@ fn phase_button(active: bool, label: &str, color: Color32) -> egui::Button<'stat
             Color32::TRANSPARENT
         })
         .stroke(Stroke::new(
-            1.0,
+            1.0_f32,
             if active {
                 color
             } else {

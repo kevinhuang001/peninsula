@@ -1,34 +1,39 @@
-use std::{fs, io, path::PathBuf};
-
-use super::{
-    model::OptionItem,
-    quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS},
+use std::{
+    collections::{HashMap, HashSet},
+    fs, io,
+    path::PathBuf,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+use crate::extension::{builtins, ExtensionId, ExtensionKind};
+
+use super::quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompactItemPreference {
+    pub id: ExtensionId,
+    pub enabled: bool,
+    pub order: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompactPreferences {
-    pub mascot: bool,
-    pub battery: bool,
-    pub cpu: bool,
-    pub gpu: bool,
-    pub network: bool,
-    pub downloads: bool,
-    pub time: bool,
-    pub compact_order: [u8; 7],
+    pub compact_items: Vec<CompactItemPreference>,
     pub quiet_hours: QuietHours,
 }
 
 impl Default for CompactPreferences {
     fn default() -> Self {
+        let compact_items = builtins()
+            .by_kind(ExtensionKind::Compact)
+            .into_iter()
+            .map(|descriptor| CompactItemPreference {
+                id: descriptor.id.clone(),
+                enabled: descriptor.default_enabled,
+                order: descriptor.default_order,
+            })
+            .collect();
         Self {
-            mascot: true,
-            battery: true,
-            cpu: false,
-            gpu: false,
-            network: false,
-            downloads: false,
-            time: false,
-            compact_order: std::array::from_fn(|index| index as u8),
+            compact_items,
             quiet_hours: QuietHours::default(),
         }
     }
@@ -37,12 +42,40 @@ impl Default for CompactPreferences {
 impl CompactPreferences {
     pub fn parse(source: &str) -> Self {
         let mut settings = Self::default();
+        let mut explicit_ids = HashSet::new();
+        let mut legacy_values = HashMap::new();
+        let mut legacy_order = None;
         for line in source.lines() {
             let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
             match key.trim() {
-                "compact_order" => settings.compact_order = parse_order(value),
+                "extension" => {
+                    let mut fields = value.split('|');
+                    let (Some(id), Some(enabled), Some(order)) =
+                        (fields.next(), fields.next(), fields.next())
+                    else {
+                        continue;
+                    };
+                    let (Ok(id), Some(enabled), Ok(order)) = (
+                        ExtensionId::new(id.trim()),
+                        parse_bool(enabled),
+                        order.trim().parse::<u32>(),
+                    ) else {
+                        continue;
+                    };
+                    explicit_ids.insert(id.clone());
+                    if let Some(item) = settings.compact_items.iter_mut().find(|item| item.id == id)
+                    {
+                        item.enabled = enabled;
+                        item.order = order;
+                    } else {
+                        settings
+                            .compact_items
+                            .push(CompactItemPreference { id, enabled, order });
+                    }
+                }
+                "compact_order" => legacy_order = Some(parse_legacy_order(value)),
                 "quiet_periods" => {
                     let manual = settings.quiet_hours.manual_enabled;
                     settings.quiet_hours = parse_periods(value);
@@ -52,37 +85,48 @@ impl CompactPreferences {
                     let Some(value) = parse_bool(value) else {
                         continue;
                     };
-                    match key {
-                        "mascot" => settings.mascot = value,
-                        "battery" => settings.battery = value,
-                        "cpu" => settings.cpu = value,
-                        "gpu" => settings.gpu = value,
-                        "network" => settings.network = value,
-                        "downloads" => settings.downloads = value,
-                        "time" => settings.time = value,
-                        "quiet_manual" => settings.quiet_hours.manual_enabled = value,
-                        _ => {}
+                    if key == "quiet_manual" {
+                        settings.quiet_hours.manual_enabled = value;
+                    } else if let Some(id) = legacy_compact_id(key) {
+                        legacy_values.insert(id, value);
                     }
                 }
             }
         }
+        for (id, enabled) in legacy_values {
+            if let Some(item) = settings
+                .compact_items
+                .iter_mut()
+                .find(|item| item.id == id && !explicit_ids.contains(&item.id))
+            {
+                item.enabled = enabled;
+            }
+        }
+        if let Some(ids) = legacy_order {
+            for (order, id) in ids.into_iter().enumerate() {
+                if let Some(item) = settings.compact_items.iter_mut().find(|item| item.id == id) {
+                    if !explicit_ids.contains(&id) {
+                        item.order = order as u32;
+                    }
+                }
+            }
+        }
+        settings.normalize_order();
         settings
     }
 
-    pub fn encode(self) -> String {
-        format!(
-            "mascot={}\nbattery={}\ncpu={}\ngpu={}\nnetwork={}\ndownloads={}\ntime={}\ncompact_order={}\nquiet_manual={}\nquiet_periods={}\n",
-            self.mascot,
-            self.battery,
-            self.cpu,
-            self.gpu,
-            self.network,
-            self.downloads,
-            self.time,
-            self.compact_order.map(|id| id.to_string()).join(","),
-            self.quiet_hours.manual_enabled,
+    pub fn encode(&self) -> String {
+        let mut lines: Vec<_> = self
+            .ordered_compact_items()
+            .into_iter()
+            .map(|item| format!("extension={}|{}|{}", item.id, item.enabled, item.order))
+            .collect();
+        lines.push(format!("quiet_manual={}", self.quiet_hours.manual_enabled));
+        lines.push(format!(
+            "quiet_periods={}",
             encode_periods(&self.quiet_hours)
-        )
+        ));
+        format!("{}\n", lines.join("\n"))
     }
 
     pub fn load() -> Self {
@@ -91,14 +135,14 @@ impl CompactPreferences {
             .map_or_else(Self::default, |source| Self::parse(&source))
     }
 
-    pub fn save(self) -> io::Result<()> {
+    pub fn save(&self) -> io::Result<()> {
         let Some(path) = preference_path() else {
             return Err(io::Error::new(io::ErrorKind::NotFound, "无法找到设置目录"));
         };
         self.save_to(&path)
     }
 
-    fn save_to(self, path: &std::path::Path) -> io::Result<()> {
+    fn save_to(&self, path: &std::path::Path) -> io::Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -107,49 +151,128 @@ impl CompactPreferences {
         fs::rename(&temporary, path)
     }
 
-    pub fn compact_width(self, downloading: bool) -> f32 {
-        super::super::compact_layout::width(&self, downloading)
+    pub fn compact_width(&self, downloading: bool) -> f32 {
+        super::super::compact_layout::width(self, downloading)
     }
 
-    pub fn ordered_compact_items(self) -> [OptionItem; 7] {
-        std::array::from_fn(|index| OptionItem::from_id(self.compact_order[index]).unwrap())
-    }
-
-    pub fn move_compact_item(&mut self, item: OptionItem, offset: isize) -> bool {
-        let Some(index) = self
-            .ordered_compact_items()
+    pub fn is_enabled(&self, id: &ExtensionId) -> bool {
+        self.compact_items
             .iter()
-            .position(|candidate| *candidate == item)
-        else {
+            .find(|item| &item.id == id)
+            .is_some_and(|item| item.enabled)
+    }
+
+    pub fn set_enabled(&mut self, id: &ExtensionId, enabled: bool) {
+        if let Some(item) = self.compact_items.iter_mut().find(|item| &item.id == id) {
+            item.enabled = enabled;
+        }
+    }
+
+    pub fn ordered_compact_items(&self) -> Vec<&CompactItemPreference> {
+        let mut items: Vec<_> = self.compact_items.iter().collect();
+        items.sort_by_key(|item| (item.order, item.id.clone()));
+        items
+    }
+
+    pub fn move_compact_item(&mut self, id: &ExtensionId, offset: isize) -> bool {
+        let ordered: Vec<_> = self
+            .ordered_compact_items()
+            .into_iter()
+            .map(|item| item.id.clone())
+            .collect();
+        let Some(index) = ordered.iter().position(|candidate| candidate == id) else {
             return false;
         };
         let target = index
             .saturating_add_signed(offset)
-            .min(self.compact_order.len() - 1);
+            .min(ordered.len().saturating_sub(1));
         if target == index {
             return false;
         }
-        self.compact_order.swap(index, target);
+        let left = ordered[index].clone();
+        let right = ordered[target].clone();
+        let left_order = self
+            .compact_items
+            .iter()
+            .find(|item| item.id == left)
+            .map(|item| item.order)
+            .unwrap_or(index as u32);
+        let right_order = self
+            .compact_items
+            .iter()
+            .find(|item| item.id == right)
+            .map(|item| item.order)
+            .unwrap_or(target as u32);
+        if let Some(item) = self.compact_items.iter_mut().find(|item| item.id == left) {
+            item.order = right_order;
+        }
+        if let Some(item) = self.compact_items.iter_mut().find(|item| item.id == right) {
+            item.order = left_order;
+        }
+        self.normalize_order();
         true
+    }
+
+    fn normalize_order(&mut self) {
+        let mut ordered: Vec<_> = self
+            .compact_items
+            .iter()
+            .map(|item| item.id.clone())
+            .collect();
+        ordered.sort_by_key(|id| {
+            self.compact_items
+                .iter()
+                .find(|item| &item.id == id)
+                .map(|item| (item.order, item.id.clone()))
+        });
+        for (order, id) in ordered.into_iter().enumerate() {
+            if let Some(item) = self.compact_items.iter_mut().find(|item| item.id == id) {
+                item.order = order as u32;
+            }
+        }
     }
 }
 
-fn parse_order(value: &str) -> [u8; 7] {
-    let mut ids = Vec::with_capacity(7);
-    for id in value
+fn legacy_compact_id(key: &str) -> Option<ExtensionId> {
+    Some(ExtensionId::builtin(match key {
+        "mascot" => "builtin.mascot/face",
+        "battery" => "builtin.system-monitor/battery",
+        "cpu" => "builtin.system-monitor/cpu",
+        "gpu" => "builtin.system-monitor/gpu",
+        "network" => "builtin.system-monitor/network",
+        "downloads" => "builtin.downloads/status",
+        "time" => "builtin.clock/time",
+        _ => return None,
+    }))
+}
+
+fn parse_legacy_order(value: &str) -> Vec<ExtensionId> {
+    let defaults = [
+        "builtin.mascot/face",
+        "builtin.system-monitor/battery",
+        "builtin.system-monitor/cpu",
+        "builtin.system-monitor/gpu",
+        "builtin.system-monitor/network",
+        "builtin.downloads/status",
+        "builtin.clock/time",
+    ];
+    let mut ids = Vec::new();
+    for index in value
         .split(',')
-        .filter_map(|part| part.trim().parse::<u8>().ok())
+        .filter_map(|part| part.trim().parse::<usize>().ok())
     {
-        if usize::from(id) < 7 && !ids.contains(&id) {
-            ids.push(id);
+        if let Some(id) = defaults.get(index).map(|id| ExtensionId::builtin(id)) {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
         }
     }
-    for id in 0..7 {
+    for id in defaults.map(ExtensionId::builtin) {
         if !ids.contains(&id) {
             ids.push(id);
         }
     }
-    std::array::from_fn(|index| ids[index])
+    ids
 }
 
 fn parse_periods(value: &str) -> QuietHours {

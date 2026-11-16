@@ -135,7 +135,7 @@ impl Icons {
 
 fn paint_cpu(painter: &Painter, rect: Rect, color: Color32) {
     let body = Rect::from_center_size(rect.center(), Vec2::splat(rect.width() * 0.52));
-    let stroke = Stroke::new(1.15, color);
+    let stroke = Stroke::new(1.15_f32, color);
     painter.rect_stroke(body, 1.5, stroke, egui::StrokeKind::Inside);
     painter.rect_stroke(body.shrink(2.0), 0.5, stroke, egui::StrokeKind::Inside);
     for offset in [-2.0_f32, 0.0, 2.0] {
@@ -168,7 +168,7 @@ fn paint_gpu(painter: &Painter, rect: Rect, color: Color32) {
         rect.center(),
         Vec2::new(rect.width() * 0.9, rect.height() * 0.66),
     );
-    let stroke = Stroke::new(1.15, color);
+    let stroke = Stroke::new(1.15_f32, color);
     painter.rect_stroke(body, 1.5, stroke, egui::StrokeKind::Inside);
     let fan = Pos2::new(body.left() + body.width() * 0.38, body.center().y);
     painter.circle_stroke(fan, rect.width() * 0.16, stroke);

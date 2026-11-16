@@ -1,11 +1,12 @@
 use super::{
-    model::{OptionItem, Section},
+    model::Section,
     quiet_view::{self, QuietDialog},
     theme::{
         ACCENT, ACCENT_SELECTED, BACKGROUND, BORDER, PANEL, ROW, SECONDARY_TEXT, SWITCH_OFF, TEXT,
     },
     CompactPreferences,
 };
+use crate::extension::{builtins, ExtensionId};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
 const COMPACT_ROW_TOP: f32 = 43.0;
@@ -146,9 +147,23 @@ fn paint_compact_options(
     preferences: &mut CompactPreferences,
 ) -> bool {
     let mut changed = false;
-    for (index, item) in preferences.ordered_compact_items().into_iter().enumerate() {
+    let registry = builtins();
+    let items: Vec<_> = preferences
+        .ordered_compact_items()
+        .into_iter()
+        .filter_map(|item| {
+            registry.get(&item.id).map(|descriptor| {
+                (
+                    item.id.clone(),
+                    descriptor.title.clone(),
+                    preferences.is_enabled(&item.id),
+                )
+            })
+        })
+        .collect();
+    for (index, (id, title, enabled)) in items.into_iter().enumerate() {
         let row = compact_row(panel, index);
-        changed |= paint_option(ui, row, preferences, item);
+        changed |= paint_option(ui, row, preferences, id, &title, enabled);
     }
     changed
 }
@@ -168,7 +183,7 @@ fn paint_panel(ui: &egui::Ui, rect: Rect, fill: Color32) {
     ui.painter().rect_stroke(
         rect,
         10.0,
-        Stroke::new(1.0, BORDER),
+        Stroke::new(1.0_f32, BORDER),
         egui::StrokeKind::Inside,
     );
 }
@@ -177,13 +192,15 @@ fn paint_option(
     ui: &mut egui::Ui,
     rect: Rect,
     preferences: &mut CompactPreferences,
-    option: OptionItem,
+    option: ExtensionId,
+    title: &str,
+    enabled: bool,
 ) -> bool {
     ui.painter().rect_filled(rect, 7.0, ROW);
     ui.painter().text(
         Pos2::new(rect.left() + 9.0, rect.center().y),
         Align2::LEFT_CENTER,
-        option.label(),
+        title,
         FontId::proportional(11.0),
         TEXT,
     );
@@ -193,7 +210,7 @@ fn paint_option(
             Pos2::new(rect.right() - 67.0, rect.center().y),
             Vec2::new(18.0, 22.0),
         ),
-        ("compact-order-up", option),
+        ("compact-order-up", option.clone()),
         "↑",
     );
     let down = text_button(
@@ -202,7 +219,7 @@ fn paint_option(
             Pos2::new(rect.right() - 47.0, rect.center().y),
             Vec2::new(18.0, 22.0),
         ),
-        ("compact-order-down", option),
+        ("compact-order-down", option.clone()),
         "↓",
     );
     let switch = Rect::from_center_size(
@@ -211,13 +228,12 @@ fn paint_option(
     );
     let toggle = ui.interact(
         switch,
-        egui::Id::new(("settings-option", option)),
+        egui::Id::new(("settings-option", option.clone())),
         Sense::click(),
     );
     if toggle.clicked() {
-        option.toggle(preferences);
+        preferences.set_enabled(&option, !enabled);
     }
-    let enabled = option.enabled(preferences);
     ui.painter()
         .rect_filled(switch, 9.0, if enabled { ACCENT } else { SWITCH_OFF });
     ui.painter().circle_filled(
@@ -234,10 +250,10 @@ fn paint_option(
     );
     let mut changed = toggle.clicked();
     if up {
-        changed |= preferences.move_compact_item(option, -1);
+        changed |= preferences.move_compact_item(&option, -1);
     }
     if down {
-        changed |= preferences.move_compact_item(option, 1);
+        changed |= preferences.move_compact_item(&option, 1);
     }
     changed
 }

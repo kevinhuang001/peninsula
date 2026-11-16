@@ -1,18 +1,20 @@
 use crate::{
     app::settings::{CompactPreferences, SettingsView},
     downloads::Download,
+    extension::{ExtensionId, Notification},
     metrics::Snapshot,
 };
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
 mod compact;
 mod expanded;
+mod renderer;
 
 use super::{
     compact_layout::CAPSULE_HEIGHT,
     icons::Icons,
     mascot::Mascot,
-    widgets::{paint_metrics, pomodoro, IslandTab},
+    widgets::{self, pomodoro},
 };
 
 const BLACK: Color32 = Color32::from_rgb(15, 16, 19);
@@ -28,7 +30,10 @@ pub(super) fn draw_compact_chip(ui: &egui::Ui, rect: Rect, opacity: f32) {
     painter.rect_stroke(
         rect,
         rect.height() * 0.5,
-        Stroke::new(1.0, Color32::from_rgb(66, 73, 85).linear_multiply(opacity)),
+        Stroke::new(
+            1.0_f32,
+            Color32::from_rgb(66, 73, 85).linear_multiply(opacity),
+        ),
         egui::StrokeKind::Inside,
     );
 }
@@ -39,14 +44,27 @@ pub(super) struct CapsuleWidgets<'a> {
     pub preferences: &'a mut CompactPreferences,
     pub settings_open: bool,
     pub settings_view: &'a mut SettingsView,
-    pub active_tab: &'a mut IslandTab,
+    pub active_widget: &'a mut ExtensionId,
+    pub notification_unread: bool,
+    pub unread_notifications: &'a [Notification],
     pub timer: &'a mut pomodoro::Pomodoro,
     pub pinned: bool,
     pub icons: &'a Icons,
     pub download: Option<&'a Download>,
-    pub notification: Option<&'a Download>,
+    pub notification: Option<&'a Notification>,
     pub do_not_disturb: bool,
 }
+
+pub(super) type CapsuleResult = (
+    Rect,
+    bool,
+    bool,
+    bool,
+    bool,
+    bool,
+    bool,
+    Option<(ExtensionId, String)>,
+);
 
 pub(super) fn show(
     ui: &mut egui::Ui,
@@ -55,7 +73,7 @@ pub(super) fn show(
     progress: f32,
     expanded_height: f32,
     content: CapsuleWidgets<'_>,
-) -> (Rect, bool, bool, bool, bool, bool, bool) {
+) -> CapsuleResult {
     let height = capsule_height(progress, expanded_height);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     let capsule = ui.interact(
@@ -75,12 +93,17 @@ pub(super) fn show(
         && content.notification.is_none()
         && swipe_finished(context, &capsule)
     {
-        *content.active_tab = content.active_tab.other();
+        *content.active_widget = widgets::next_widget(
+            content.active_widget,
+            &widgets::widget_ids(content.notification_unread),
+            1,
+        );
         context.request_repaint();
     }
     paint_shell(ui, rect, progress);
     let mut dismiss_notification = false;
     let mut settings_changed = false;
+    let mut notification_read = None;
     let mut quiet_toggled = false;
     let (settings, pin_toggled) = if progress < 0.9 {
         (
@@ -103,13 +126,15 @@ pub(super) fn show(
         dismiss_notification = super::notification::show(ui, rect, notification, content.icons);
         (false, false)
     } else {
-        let (settings, pin_toggled, quiet, changed) = paint_expanded(
+        let (settings, pin_toggled, quiet, changed, read) = paint_expanded(
             ui,
             rect,
             progress,
             ExpandedContent {
                 metrics: content.metrics,
-                active_tab: content.active_tab,
+                active_widget: content.active_widget,
+                notification_unread: content.notification_unread,
+                unread_notifications: content.unread_notifications,
                 timer: content.timer,
                 pinned: content.pinned,
                 do_not_disturb: content.do_not_disturb,
@@ -121,6 +146,7 @@ pub(super) fn show(
         );
         settings_changed = changed;
         quiet_toggled = quiet;
+        notification_read = read;
         (settings, pin_toggled)
     };
     capsule.context_menu(|ui| {
@@ -136,6 +162,7 @@ pub(super) fn show(
         pin_toggled,
         quiet_toggled,
         settings_changed,
+        notification_read,
     )
 }
 
@@ -183,7 +210,7 @@ fn paint_shell(ui: &egui::Ui, rect: Rect, progress: f32) {
     painter.rect_stroke(
         rect,
         corner_radius,
-        Stroke::new(1.0, Color32::from_rgb(44, 47, 54)),
+        Stroke::new(1.0_f32, Color32::from_rgb(44, 47, 54)),
         egui::StrokeKind::Inside,
     );
 }
@@ -194,7 +221,9 @@ fn corner_radius(progress: f32) -> f32 {
 
 struct ExpandedContent<'a> {
     metrics: &'a Snapshot,
-    active_tab: &'a mut IslandTab,
+    active_widget: &'a mut ExtensionId,
+    notification_unread: bool,
+    unread_notifications: &'a [Notification],
     timer: &'a mut pomodoro::Pomodoro,
     pinned: bool,
     do_not_disturb: bool,
@@ -209,10 +238,12 @@ fn paint_expanded(
     rect: Rect,
     progress: f32,
     content: ExpandedContent<'_>,
-) -> (bool, bool, bool, bool) {
+) -> (bool, bool, bool, bool, Option<(ExtensionId, String)>) {
     let ExpandedContent {
         metrics,
-        active_tab,
+        active_widget,
+        notification_unread,
+        unread_notifications,
         timer,
         pinned,
         do_not_disturb,
@@ -223,17 +254,15 @@ fn paint_expanded(
     } = content;
     let reveal = progress.clamp(0.0, 1.0);
     let title = if settings_open {
-        "设置"
-    } else if *active_tab == IslandTab::Performance {
-        "性能监控"
+        "设置".to_owned()
     } else {
-        "番茄钟"
+        widgets::widget_title(active_widget)
     };
     let (pin_toggled, quiet_toggled, settings) = expanded::paint_header(
         ui,
         rect,
         expanded::HeaderContent {
-            title,
+            title: &title,
             pinned,
             do_not_disturb,
             settings_open,
@@ -241,6 +270,7 @@ fn paint_expanded(
             opacity: reveal,
         },
     );
+    let mut notification_read = None;
     let settings_changed = if settings_open {
         settings_view.show(ui, rect, preferences)
     } else {
@@ -248,17 +278,31 @@ fn paint_expanded(
             Pos2::new(rect.left() + 10.0, rect.top() + 48.0),
             Pos2::new(rect.right() - 10.0, rect.bottom() - 15.0),
         );
-        if *active_tab == IslandTab::Performance {
-            let _ = paint_metrics(ui, body, metrics, reveal, icons);
-        } else {
-            pomodoro::show(ui, body, timer);
-        }
+        notification_read = renderer::show_widget(
+            ui,
+            body,
+            renderer::WidgetRenderContext {
+                extension_id: active_widget,
+                metrics,
+                timer,
+                notifications: unread_notifications,
+                icons,
+                opacity: reveal,
+            },
+        );
         false
     };
     if !settings_open {
-        expanded::paint_tabs(ui, rect, active_tab, reveal);
+        let ids = widgets::widget_ids(notification_unread);
+        expanded::paint_tabs(ui, rect, active_widget, &ids, reveal);
     }
-    (settings, pin_toggled, quiet_toggled, settings_changed)
+    (
+        settings,
+        pin_toggled,
+        quiet_toggled,
+        settings_changed,
+        notification_read,
+    )
 }
 
 #[cfg(test)]

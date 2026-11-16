@@ -1,3 +1,4 @@
+use crate::extension::{Dispatcher, Event, ExtensionId, HostScheduler};
 use crate::metrics::{MetricsSampler, Snapshot};
 use eframe::egui::{self, Vec2};
 use std::{
@@ -23,7 +24,7 @@ use icons::Icons;
 use mascot::Mascot;
 use settings::{CompactPreferences, SettingsView};
 use state::IslandState;
-use widgets::{expanded_width, pomodoro::Pomodoro, IslandTab};
+use widgets::{expanded_width, pomodoro::Pomodoro};
 
 const WINDOW_SIZE: [f32; 2] = [420.0, 340.0];
 
@@ -33,6 +34,7 @@ struct IslandApp {
     downloads: Receiver<crate::downloads::Snapshot>,
     download_snapshot: crate::downloads::Snapshot,
     notifications: notification::Notifications,
+    dispatcher: Dispatcher,
     state: IslandState,
     icons: Icons,
     mascot: Mascot,
@@ -40,10 +42,11 @@ struct IslandApp {
     settings_view: SettingsView,
     settings_open: bool,
     window_drag: platform::WindowDrag,
-    active_tab: IslandTab,
+    active_widget: ExtensionId,
     widget_height: animation::Spring,
     trackpad_swipe: trackpad::TrackpadSwipe,
     pomodoro: Pomodoro,
+    pomodoro_scheduled_deadline: Option<Instant>,
     quiet_bypassed: bool,
     last_platform_check: Option<Instant>,
 }
@@ -56,6 +59,7 @@ impl IslandApp {
             downloads: crate::downloads::start(),
             download_snapshot: crate::downloads::Snapshot::default(),
             notifications: notification::Notifications::default(),
+            dispatcher: Dispatcher::default(),
             state: IslandState::default(),
             icons: Icons::load(context),
             mascot: Mascot::default(),
@@ -63,10 +67,13 @@ impl IslandApp {
             settings_view: SettingsView::default(),
             settings_open: false,
             window_drag: platform::WindowDrag::default(),
-            active_tab: IslandTab::default(),
-            widget_height: animation::Spring::new(IslandTab::Performance.extra_height()),
+            active_widget: widgets::default_widget_id(),
+            widget_height: animation::Spring::new(widgets::widget_height(
+                &widgets::default_widget_id(),
+            )),
             trackpad_swipe: trackpad::TrackpadSwipe::default(),
             pomodoro: Pomodoro::default(),
+            pomodoro_scheduled_deadline: None,
             quiet_bypassed: false,
             last_platform_check: None,
         }
@@ -89,10 +96,27 @@ impl eframe::App for IslandApp {
         }
         while let Ok(snapshot) = self.snapshots.try_recv() {
             self.metrics = snapshot;
+            self.dispatcher
+                .invalidate(&ExtensionId::builtin("builtin.system-monitor/overview"));
+            self.dispatcher.on_event(Event::SnapshotUpdated);
         }
         while let Ok(mut snapshot) = self.downloads.try_recv() {
-            self.notifications.push(snapshot.completed.drain(..));
+            let completed = !snapshot.completed.is_empty();
+            self.notifications
+                .push_downloads(snapshot.completed.drain(..));
             self.download_snapshot = snapshot;
+            self.dispatcher
+                .invalidate(&ExtensionId::builtin("builtin.downloads/status"));
+            if completed {
+                self.dispatcher.on_event(Event::DownloadCompleted);
+            }
+        }
+        for task_id in self.dispatcher.due_tasks(now) {
+            if task_id == "builtin.pomodoro/timer" && self.pomodoro.update(now) {
+                self.dispatcher
+                    .invalidate(&ExtensionId::builtin("builtin.pomodoro/timer"));
+                self.dispatcher.on_event(Event::TimerElapsed);
+            }
         }
         let scheduled_quiet = self.preferences.quiet_hours.is_scheduled_now();
         if !scheduled_quiet {
@@ -107,6 +131,11 @@ impl eframe::App for IslandApp {
             ctx.request_repaint();
         }
         let notice = self.notifications.current().cloned();
+        let widget_ids = widgets::widget_ids(self.notifications.has_unread());
+        if !widget_ids.contains(&self.active_widget) {
+            self.active_widget = widgets::default_widget_id();
+        }
+        let unread_notifications: Vec<_> = self.notifications.unread().cloned().collect();
 
         let width = if self.settings_open {
             SettingsView::WIDTH
@@ -125,12 +154,9 @@ impl eframe::App for IslandApp {
         } else if self.settings_open {
             self.settings_view.extra_height()
         } else {
-            self.active_tab.extra_height()
+            widgets::widget_height(&self.active_widget)
         });
         self.widget_height.step(dt);
-        if self.pomodoro.advance(dt) {
-            ctx.request_repaint();
-        }
         if progress < 0.99 {
             self.mascot.advance(dt, false);
         }
@@ -150,6 +176,7 @@ impl eframe::App for IslandApp {
                         pin_toggled,
                         quiet_toggled,
                         preferences_changed,
+                        notification_read,
                     ) = capsule::show(
                         ui,
                         ctx,
@@ -162,7 +189,9 @@ impl eframe::App for IslandApp {
                             preferences: &mut self.preferences,
                             settings_open: self.settings_open,
                             settings_view: &mut self.settings_view,
-                            active_tab: &mut self.active_tab,
+                            active_widget: &mut self.active_widget,
+                            notification_unread: self.notifications.has_unread(),
+                            unread_notifications: &unread_notifications,
                             timer: &mut self.pomodoro,
                             pinned: self.state.is_pinned(),
                             icons: &self.icons,
@@ -173,6 +202,9 @@ impl eframe::App for IslandApp {
                     );
                     if dismiss_notification {
                         self.notifications.dismiss();
+                    }
+                    if let Some(key) = notification_read {
+                        self.notifications.mark_seen(&key.0, &key.1);
                     }
                     if pin_toggled {
                         self.state.toggle_pin();
@@ -197,7 +229,7 @@ impl eframe::App for IslandApp {
                         self.widget_height.target(if self.settings_open {
                             self.settings_view.extra_height()
                         } else {
-                            self.active_tab.extra_height()
+                            widgets::widget_height(&self.active_widget)
                         });
                     }
                     if preferences_changed {
@@ -228,7 +260,7 @@ impl eframe::App for IslandApp {
                 && !self.settings_open
                 && modifiers == egui::Modifiers::NONE,
         ) {
-            self.active_tab = self.active_tab.other();
+            self.active_widget = widgets::next_widget(&self.active_widget, &widget_ids, 1);
             ctx.request_repaint();
         }
         if drag_started {
@@ -243,7 +275,7 @@ impl eframe::App for IslandApp {
                 input.key_pressed(egui::Key::ArrowLeft) || input.key_pressed(egui::Key::ArrowRight)
             });
             if switch {
-                self.active_tab = self.active_tab.other();
+                self.active_widget = widgets::next_widget(&self.active_widget, &widget_ids, 1);
                 ctx.request_repaint();
             }
         }
@@ -251,6 +283,24 @@ impl eframe::App for IslandApp {
             .state
             .observe_hover(hovering || dragging || notice.is_some(), dt)
         {
+            ctx.request_repaint();
+        }
+        let deadline = self.pomodoro.deadline();
+        if deadline != self.pomodoro_scheduled_deadline {
+            if let Some(deadline) = deadline {
+                self.dispatcher
+                    .schedule_at("builtin.pomodoro/timer", deadline);
+            } else {
+                self.dispatcher.cancel("builtin.pomodoro/timer");
+            }
+            self.pomodoro_scheduled_deadline = deadline;
+        }
+        for event in self.dispatcher.drain_events() {
+            if event == Event::TimerElapsed {
+                ctx.request_repaint();
+            }
+        }
+        if !self.dispatcher.take_invalidated().is_empty() {
             ctx.request_repaint();
         }
         ctx.request_repaint_after(Duration::from_millis(16));

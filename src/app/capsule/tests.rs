@@ -3,7 +3,7 @@ use crate::{
     app::{
         mascot::Mascot,
         settings::{CompactPreferences, SettingsView},
-        widgets::{pomodoro::Pomodoro, IslandTab},
+        widgets::pomodoro::Pomodoro,
     },
     metrics::Snapshot,
 };
@@ -24,7 +24,7 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                 .show(context, |ui| {
                     ui.vertical_centered(|ui| {
                         let mut mascot = Mascot::default();
-                        let mut tab = IslandTab::default();
+                        let mut tab = crate::app::widgets::default_widget_id();
                         let mut timer = Pomodoro::default();
                         let mut preferences = CompactPreferences::default();
                         let mut settings_view = SettingsView::default();
@@ -41,7 +41,9 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 settings_view: &mut settings_view,
-                                active_tab: &mut tab,
+                                active_widget: &mut tab,
+                                notification_unread: false,
+                                unread_notifications: &[],
                                 timer: &mut timer,
                                 pinned: false,
                                 icons: &icons,
@@ -83,7 +85,7 @@ fn in_capsule_settings_toggle_updates_compact_preferences() {
 
     let context = egui::Context::default();
     let mut mascot = Mascot::default();
-    let mut tab = IslandTab::default();
+    let mut tab = crate::app::widgets::default_widget_id();
     let mut timer = Pomodoro::default();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
@@ -113,7 +115,9 @@ fn in_capsule_settings_toggle_updates_compact_preferences() {
                                 preferences: &mut preferences,
                                 settings_open: true,
                                 settings_view: &mut settings_view,
-                                active_tab: &mut tab,
+                                active_widget: &mut tab,
+                                notification_unread: false,
+                                unread_notifications: &[],
                                 timer: &mut timer,
                                 pinned: false,
                                 icons: &icons,
@@ -136,7 +140,11 @@ fn in_capsule_settings_toggle_updates_compact_preferences() {
     frame(vec![Event::PointerMoved(point)]);
     frame(vec![button(true)]);
     frame(vec![button(false)]);
-    assert!(!preferences.mascot);
+    assert!(
+        !preferences.is_enabled(&crate::extension::ExtensionId::builtin(
+            "builtin.mascot/face"
+        ))
+    );
     assert!(changed);
 }
 
@@ -146,7 +154,7 @@ fn settings_close_button_returns_to_the_active_widget() {
 
     let context = egui::Context::default();
     let mut mascot = Mascot::default();
-    let mut tab = IslandTab::Performance;
+    let mut tab = crate::extension::ExtensionId::builtin(crate::app::widgets::PERFORMANCE_ID);
     let mut timer = Pomodoro::default();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
@@ -176,7 +184,9 @@ fn settings_close_button_returns_to_the_active_widget() {
                                 preferences: &mut preferences,
                                 settings_open: true,
                                 settings_view: &mut settings_view,
-                                active_tab: &mut tab,
+                                active_widget: &mut tab,
+                                notification_unread: false,
+                                unread_notifications: &[],
                                 timer: &mut timer,
                                 pinned: false,
                                 icons: &icons,

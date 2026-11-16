@@ -1,10 +1,10 @@
-use super::settings::{CompactPreferences, OptionItem};
+use super::settings::CompactPreferences;
+use crate::extension::builtins;
 
 pub(super) const CAPSULE_HEIGHT: f32 = 44.0;
 pub(super) const CHIP_HEIGHT: f32 = 28.0;
 pub(super) const ITEM_GAP: f32 = 6.0;
 pub(super) const HORIZONTAL_PADDING: f32 = 16.0;
-pub(super) const MASCOT_SIZE: [f32; 2] = [38.0, 28.0];
 pub(super) const COMPACT_ICON_SIZE: f32 = 16.0;
 pub(super) const COMPACT_TEXT_SIZE: f32 = 10.0;
 pub(super) const COMPACT_ICON_GAP: f32 = 4.0;
@@ -14,24 +14,18 @@ const MAX_WIDTH: f32 = 480.0;
 
 pub(super) fn item_widths(preferences: &CompactPreferences, downloading: bool) -> Vec<f32> {
     let mut widths = Vec::new();
+    let registry = builtins();
     for item in preferences.ordered_compact_items() {
-        if !item.enabled(preferences) || (item == OptionItem::Downloads && !downloading) {
+        if !preferences.is_enabled(&item.id)
+            || (item.id.as_str() == "builtin.downloads/status" && !downloading)
+        {
             continue;
         }
-        widths.push(item_width(item));
+        if let Some(descriptor) = registry.get(&item.id) {
+            widths.push(descriptor.size_hint[0]);
+        }
     }
     widths
-}
-
-pub(super) fn item_width(item: OptionItem) -> f32 {
-    match item {
-        OptionItem::Mascot => MASCOT_SIZE[0],
-        OptionItem::Battery => 54.0,
-        OptionItem::Time => 56.0,
-        OptionItem::Cpu | OptionItem::Gpu => 56.0,
-        OptionItem::Network => 80.0,
-        OptionItem::Downloads => 88.0,
-    }
 }
 
 pub(super) fn width(preferences: &CompactPreferences, downloading: bool) -> f32 {
@@ -48,7 +42,7 @@ pub(super) fn width(preferences: &CompactPreferences, downloading: bool) -> f32 
 #[cfg(test)]
 mod tests {
     use super::{item_widths, width, CAPSULE_HEIGHT, CHIP_HEIGHT, HORIZONTAL_PADDING, ITEM_GAP};
-    use crate::app::settings::{CompactPreferences, OptionItem};
+    use crate::{app::settings::CompactPreferences, extension::ExtensionId};
 
     #[test]
     fn compact_capsule_has_small_even_padding_around_its_contents() {
@@ -65,44 +59,25 @@ mod tests {
 
     #[test]
     fn compact_width_tracks_content_and_only_adds_download_space_when_active() {
-        let preferences = CompactPreferences {
-            downloads: true,
-            network: true,
-            ..CompactPreferences::default()
-        };
-        assert!(width(&preferences, true) > width(&preferences, false));
-        assert_eq!(
-            width(
-                &CompactPreferences {
-                    cpu: false,
-                    battery: false,
-                    mascot: false,
-                    gpu: false,
-                    network: false,
-                    downloads: false,
-                    time: false,
-                    compact_order: std::array::from_fn(|index| index as u8),
-                    quiet_hours: crate::app::settings::quiet_hours::QuietHours::default(),
-                },
-                false
-            ),
-            64.0
+        let mut preferences = CompactPreferences::default();
+        preferences.set_enabled(&ExtensionId::builtin("builtin.downloads/status"), true);
+        preferences.set_enabled(
+            &ExtensionId::builtin("builtin.system-monitor/network"),
+            true,
         );
+        assert!(width(&preferences, true) > width(&preferences, false));
+        for item in &mut preferences.compact_items {
+            item.enabled = false;
+        }
+        assert_eq!(width(&preferences, false), 64.0);
     }
 
     #[test]
     fn every_enabled_compact_item_fits_inside_its_capsule() {
-        let preferences = CompactPreferences {
-            mascot: true,
-            battery: true,
-            cpu: true,
-            gpu: true,
-            network: true,
-            downloads: true,
-            time: true,
-            compact_order: std::array::from_fn(|index| index as u8),
-            quiet_hours: crate::app::settings::quiet_hours::QuietHours::default(),
-        };
+        let mut preferences = CompactPreferences::default();
+        for item in &mut preferences.compact_items {
+            item.enabled = true;
+        }
         let widths = item_widths(&preferences, true);
         let required =
             widths.iter().sum::<f32>() + ITEM_GAP * (widths.len() - 1) as f32 + HORIZONTAL_PADDING;
@@ -111,11 +86,8 @@ mod tests {
 
     #[test]
     fn compact_item_order_follows_the_saved_preference_order() {
-        let mut preferences = CompactPreferences {
-            battery: true,
-            ..CompactPreferences::default()
-        };
-        preferences.move_compact_item(OptionItem::Battery, -1);
+        let mut preferences = CompactPreferences::default();
+        preferences.move_compact_item(&ExtensionId::builtin("builtin.system-monitor/battery"), -1);
         assert_eq!(item_widths(&preferences, false), [54.0, 38.0].to_vec());
     }
 }
