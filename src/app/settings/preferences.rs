@@ -1,5 +1,10 @@
 use std::{fs, io, path::PathBuf};
 
+use super::{
+    model::OptionItem,
+    quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS},
+};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CompactPreferences {
     pub mascot: bool,
@@ -7,6 +12,10 @@ pub struct CompactPreferences {
     pub cpu: bool,
     pub gpu: bool,
     pub network: bool,
+    pub downloads: bool,
+    pub time: bool,
+    pub compact_order: [u8; 7],
+    pub quiet_hours: QuietHours,
 }
 
 impl Default for CompactPreferences {
@@ -17,6 +26,10 @@ impl Default for CompactPreferences {
             cpu: false,
             gpu: false,
             network: false,
+            downloads: false,
+            time: false,
+            compact_order: std::array::from_fn(|index| index as u8),
+            quiet_hours: QuietHours::default(),
         }
     }
 }
@@ -28,16 +41,29 @@ impl CompactPreferences {
             let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
-            let Some(value) = parse_bool(value) else {
-                continue;
-            };
             match key.trim() {
-                "mascot" => settings.mascot = value,
-                "battery" => settings.battery = value,
-                "cpu" => settings.cpu = value,
-                "gpu" => settings.gpu = value,
-                "network" => settings.network = value,
-                _ => {}
+                "compact_order" => settings.compact_order = parse_order(value),
+                "quiet_periods" => {
+                    let manual = settings.quiet_hours.manual_enabled;
+                    settings.quiet_hours = parse_periods(value);
+                    settings.quiet_hours.manual_enabled = manual;
+                }
+                key => {
+                    let Some(value) = parse_bool(value) else {
+                        continue;
+                    };
+                    match key {
+                        "mascot" => settings.mascot = value,
+                        "battery" => settings.battery = value,
+                        "cpu" => settings.cpu = value,
+                        "gpu" => settings.gpu = value,
+                        "network" => settings.network = value,
+                        "downloads" => settings.downloads = value,
+                        "time" => settings.time = value,
+                        "quiet_manual" => settings.quiet_hours.manual_enabled = value,
+                        _ => {}
+                    }
+                }
             }
         }
         settings
@@ -45,8 +71,17 @@ impl CompactPreferences {
 
     pub fn encode(self) -> String {
         format!(
-            "mascot={}\nbattery={}\ncpu={}\ngpu={}\nnetwork={}\n",
-            self.mascot, self.battery, self.cpu, self.gpu, self.network
+            "mascot={}\nbattery={}\ncpu={}\ngpu={}\nnetwork={}\ndownloads={}\ntime={}\ncompact_order={}\nquiet_manual={}\nquiet_periods={}\n",
+            self.mascot,
+            self.battery,
+            self.cpu,
+            self.gpu,
+            self.network,
+            self.downloads,
+            self.time,
+            self.compact_order.map(|id| id.to_string()).join(","),
+            self.quiet_hours.manual_enabled,
+            encode_periods(&self.quiet_hours)
         )
     }
 
@@ -58,35 +93,104 @@ impl CompactPreferences {
 
     pub fn save(self) -> io::Result<()> {
         let Some(path) = preference_path() else {
-            return Ok(());
+            return Err(io::Error::new(io::ErrorKind::NotFound, "无法找到设置目录"));
         };
+        self.save_to(&path)
+    }
+
+    fn save_to(self, path: &std::path::Path) -> io::Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(path, self.encode())
+        let temporary = path.with_extension("tmp");
+        fs::write(&temporary, self.encode())?;
+        fs::rename(&temporary, path)
     }
 
-    pub fn compact_width(self) -> f32 {
-        let items = [
-            (self.mascot, 42.0),
-            (self.battery, 54.0),
-            (self.cpu, 58.0),
-            (self.gpu, 58.0),
-            (self.network, 78.0),
-        ];
-        let count = items.iter().filter(|(enabled, _)| *enabled).count();
-        if count == 0 {
-            return 148.0;
-        }
-        (items
-            .iter()
-            .filter(|(enabled, _)| *enabled)
-            .map(|(_, width)| *width)
-            .sum::<f32>()
-            + (count.saturating_sub(1) as f32) * 10.0
-            + 28.0)
-            .max(148.0)
+    pub fn compact_width(self, downloading: bool) -> f32 {
+        super::super::compact_layout::width(&self, downloading)
     }
+
+    pub fn ordered_compact_items(self) -> [OptionItem; 7] {
+        std::array::from_fn(|index| OptionItem::from_id(self.compact_order[index]).unwrap())
+    }
+
+    pub fn move_compact_item(&mut self, item: OptionItem, offset: isize) -> bool {
+        let Some(index) = self
+            .ordered_compact_items()
+            .iter()
+            .position(|candidate| *candidate == item)
+        else {
+            return false;
+        };
+        let target = index
+            .saturating_add_signed(offset)
+            .min(self.compact_order.len() - 1);
+        if target == index {
+            return false;
+        }
+        self.compact_order.swap(index, target);
+        true
+    }
+}
+
+fn parse_order(value: &str) -> [u8; 7] {
+    let mut ids = Vec::with_capacity(7);
+    for id in value
+        .split(',')
+        .filter_map(|part| part.trim().parse::<u8>().ok())
+    {
+        if usize::from(id) < 7 && !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    for id in 0..7 {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    std::array::from_fn(|index| ids[index])
+}
+
+fn parse_periods(value: &str) -> QuietHours {
+    let mut hours = QuietHours::default();
+    for encoded in value.split(';').take(MAX_QUIET_PERIODS) {
+        let mut fields = encoded.split(',');
+        let (Some(enabled), Some(days), Some(start), Some(end)) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        let (Some(enabled), Ok(days), Ok(start), Ok(end)) = (
+            parse_bool(enabled),
+            days.trim().parse::<u8>(),
+            start.trim().parse::<u16>(),
+            end.trim().parse::<u16>(),
+        ) else {
+            continue;
+        };
+        hours.add_period(QuietPeriod {
+            enabled,
+            days,
+            start_minute: start,
+            end_minute: end,
+        });
+    }
+    hours
+}
+
+fn encode_periods(hours: &QuietHours) -> String {
+    hours
+        .periods()
+        .iter()
+        .map(|period| {
+            format!(
+                "{},{},{},{}",
+                period.enabled, period.days, period.start_minute, period.end_minute
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";")
 }
 
 fn parse_bool(value: &str) -> Option<bool> {
@@ -114,32 +218,4 @@ fn preference_path() -> Option<PathBuf> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::CompactPreferences;
-
-    #[test]
-    fn compact_preferences_round_trip_and_keep_defaults_for_missing_keys() {
-        let prefs = CompactPreferences {
-            mascot: false,
-            battery: true,
-            cpu: true,
-            gpu: false,
-            network: true,
-        };
-        assert_eq!(CompactPreferences::parse(&prefs.encode()), prefs);
-        assert!(CompactPreferences::parse("cpu=true\n").cpu);
-        assert!(CompactPreferences::parse("cpu=true\n").mascot);
-    }
-
-    #[test]
-    fn compact_width_accounts_for_enabled_content() {
-        let default = CompactPreferences::default();
-        let wide = CompactPreferences {
-            cpu: true,
-            network: true,
-            ..default
-        };
-        assert_eq!(default.compact_width(), 148.0);
-        assert!(wide.compact_width() > default.compact_width());
-    }
-}
+mod tests;

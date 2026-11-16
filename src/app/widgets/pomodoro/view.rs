@@ -4,7 +4,7 @@ use super::{Phase, Pomodoro};
 
 const FOCUS: Color32 = Color32::from_rgb(255, 117, 107);
 const REST: Color32 = Color32::from_rgb(106, 224, 180);
-const MUTED: Color32 = Color32::from_rgb(155, 161, 174);
+const MUTED: Color32 = Color32::from_rgb(239, 242, 247);
 
 pub fn show(ui: &mut egui::Ui, rect: Rect, timer: &mut Pomodoro) {
     let (center, radius, control_top) = timer_layout(rect);
@@ -39,7 +39,7 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, timer: &mut Pomodoro) {
         } else {
             "休息中"
         },
-        FontId::proportional(9.0),
+        FontId::proportional(10.0),
         MUTED,
     );
 

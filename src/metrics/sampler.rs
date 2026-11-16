@@ -94,19 +94,43 @@ fn is_loopback(name: &str) -> bool {
 }
 
 fn battery_status() -> (Option<u8>, bool) {
+    #[cfg(target_os = "macos")]
+    let external_power = mac_external_power_connected().unwrap_or(false);
+    #[cfg(not(target_os = "macos"))]
+    let external_power = false;
+
     let Ok(manager) = battery::Manager::new() else {
-        return (None, false);
+        return (None, external_power);
     };
     let Ok(mut batteries) = manager.batteries() else {
-        return (None, false);
+        return (None, external_power);
     };
     let Some(Ok(battery)) = batteries.next() else {
-        return (None, false);
+        return (None, external_power);
     };
-    let Some(percent) = battery_percent(battery.state_of_charge().value) else {
-        return (None, false);
-    };
-    (Some(percent), battery.state() == battery::State::Charging)
+    let percent = battery_percent(battery.state_of_charge().value);
+    let charging = battery.state() == battery::State::Charging || external_power;
+    (percent, charging)
+}
+
+#[cfg(target_os = "macos")]
+fn mac_external_power_connected() -> Option<bool> {
+    let output = std::process::Command::new("pmset")
+        .args(["-g", "batt"])
+        .output()
+        .ok()?;
+    parse_external_power_status(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(target_os = "macos")]
+fn parse_external_power_status(output: &str) -> Option<bool> {
+    if output.contains("AC Power") || output.contains("AC attached") {
+        Some(true)
+    } else if output.contains("Battery Power") || output.contains("No adapter") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 fn battery_percent(ratio: f32) -> Option<u8> {
@@ -138,6 +162,23 @@ mod tests {
         assert!(is_loopback("lo0"));
         assert!(is_loopback("lo"));
         assert!(!is_loopback("en0"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn treats_an_attached_mac_power_adapter_as_charging_even_at_full_capacity() {
+        assert_eq!(
+            super::parse_external_power_status("Now drawing from 'AC Power'"),
+            Some(true)
+        );
+        assert_eq!(
+            super::parse_external_power_status("100%; charged; AC attached; not charging"),
+            Some(true)
+        );
+        assert_eq!(
+            super::parse_external_power_status("Now drawing from 'Battery Power'"),
+            Some(false)
+        );
     }
 
     #[test]

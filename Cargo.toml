@@ -5,18 +5,26 @@ edition = "2021"
 
 [dependencies]
 eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts"] }
+egui_extras = { version = "0.31", features = ["svg"] }
 sysinfo = "0.33"
 regex = "1"
 battery = "0.7"
 image = { version = "0.25", default-features = false, features = ["png"] }
+serde_json = "1.0.154"
+rusqlite = { version = "0.32", features = ["bundled"] }
+url = "2"
+tempfile = "3"
+time = { version = "0.3", features = ["local-offset"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 objc2 = "0.5"
-objc2-app-kit = { version = "0.2.2", default-features = false, features = ["NSView", "NSWindow"] }
+objc2-app-kit = { version = "0.2.2", default-features = false, features = ["NSEvent", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.2.2", default-features = false, features = ["NSGeometry"] }
+plist = "1"
 raw-window-handle = "0.6"
 
 [profile.release]

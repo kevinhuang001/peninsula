@@ -1,18 +1,8 @@
 use super::animation::Spring;
 
-#[cfg(test)]
-pub(super) fn window_size(progress: f32) -> [f32; 2] {
-    let progress = progress.clamp(0.0, 1.0);
-    [190.0 + 230.0 * progress, 64.0 + 126.0 * progress]
-}
-
-#[cfg(any(not(target_os = "macos"), test))]
-pub(super) fn window_left_for_center(center_x: f32, width: f32) -> f32 {
-    center_x - width * 0.5
-}
-
 pub(super) struct IslandState {
     pub expanded: bool,
+    pinned: bool,
     pub width: Spring,
     pub height: Spring,
     expanded_width: f32,
@@ -25,10 +15,11 @@ impl Default for IslandState {
     fn default() -> Self {
         Self {
             expanded: false,
-            width: Spring::new(148.0),
+            pinned: false,
+            width: Spring::new(114.0),
             height: Spring::new(0.0),
             expanded_width: 244.0,
-            compact_width: 148.0,
+            compact_width: 114.0,
             hover_elapsed: 0.0,
             leave_elapsed: 0.0,
         }
@@ -36,23 +27,53 @@ impl Default for IslandState {
 }
 
 impl IslandState {
+    pub fn show_notification(&mut self) {
+        self.expanded = true;
+        self.hover_elapsed = 0.18;
+        self.leave_elapsed = 0.0;
+        self.width.tune(330.0, 0.70);
+        self.height.tune(290.0, 0.74);
+        self.width.target(320.0);
+        self.height.target(1.0);
+    }
+
+    pub fn is_pinned(&self) -> bool {
+        self.pinned
+    }
+
+    pub fn toggle_pin(&mut self) {
+        self.pinned = !self.pinned;
+        self.leave_elapsed = 0.0;
+    }
+
     pub fn set_expanded_width(&mut self, width: f32) {
         // Metrics are sampled continuously and their text width can change each
         // frame. Freeze the target for the whole transition to avoid retargeting
         // the spring while the native window is also resizing.
         if !self.expanded && !self.animating() {
-            self.expanded_width = width.clamp(244.0, 360.0);
+            self.expanded_width = width.clamp(244.0, 420.0);
+        }
+    }
+
+    pub fn retarget_expanded_width(&mut self, width: f32) {
+        self.expanded_width = width.clamp(244.0, 420.0);
+        if self.expanded {
+            self.width.target(self.expanded_width);
         }
     }
 
     pub fn set_compact_width(&mut self, width: f32) {
-        self.compact_width = width.max(148.0);
+        self.compact_width = width.max(64.0);
         if !self.expanded && !self.animating() {
             self.width.target(self.compact_width);
         }
     }
 
     pub fn observe_hover(&mut self, hovered: bool, dt: f32) -> bool {
+        if self.expanded && self.pinned {
+            self.leave_elapsed = 0.0;
+            return false;
+        }
         if hovered {
             self.hover_elapsed = (self.hover_elapsed + dt).min(0.18);
             self.leave_elapsed = 0.0;
@@ -97,7 +118,7 @@ impl IslandState {
 
 #[cfg(test)]
 mod tests {
-    use super::{window_left_for_center, window_size, IslandState};
+    use super::IslandState;
 
     #[test]
     fn island_starts_collapsed_and_expands_after_hover_intent() {
@@ -113,6 +134,32 @@ mod tests {
     }
 
     #[test]
+    fn download_completion_opens_the_island_without_hover() {
+        let mut state = IslandState::default();
+        state.show_notification();
+        assert!(state.expanded);
+        assert_eq!(state.width.target_value(), 320.0);
+        assert_eq!(state.height.target_value(), 1.0);
+        assert!(!state.observe_hover(true, 0.2));
+        assert!(state.expanded);
+    }
+
+    #[test]
+    fn pinned_island_stays_expanded_until_unpinned() {
+        let mut state = IslandState::default();
+        state.observe_hover(true, 0.2);
+        state.toggle_pin();
+        assert!(state.is_pinned());
+        assert!(!state.observe_hover(false, 1.0));
+        assert!(state.expanded);
+        state.toggle_pin();
+        assert!(!state.is_pinned());
+        assert!(!state.observe_hover(false, 0.15));
+        assert!(state.observe_hover(false, 0.15));
+        assert!(!state.expanded);
+    }
+
+    #[test]
     fn moving_from_capsule_to_panel_keeps_it_open_during_leave_grace() {
         let mut state = IslandState::default();
         state.observe_hover(true, 0.2);
@@ -124,7 +171,7 @@ mod tests {
         assert!(!state.observe_hover(false, 0.15));
         assert!(state.observe_hover(false, 0.15));
         assert!(!state.expanded);
-        assert_eq!(state.width.target_value(), 148.0);
+        assert_eq!(state.width.target_value(), 114.0);
         assert_eq!(state.height.target_value(), 0.0);
     }
 
@@ -150,25 +197,6 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_window_is_narrower_than_the_previous_compact_layout() {
-        let size = window_size(0.0);
-        assert_eq!(size, [190.0, 64.0]);
-        assert!(size[0] < 274.0);
-        assert_eq!(window_size(1.0), [420.0, 190.0]);
-    }
-
-    #[test]
-    fn window_expands_equally_on_both_sides_of_its_original_center() {
-        let center = 715.0;
-        let closed = window_left_for_center(center, window_size(0.0)[0]);
-        let open = window_left_for_center(center, window_size(1.0)[0]);
-        assert_eq!(closed, 620.0);
-        assert_eq!(open, 505.0);
-        assert_eq!(closed + window_size(0.0)[0] * 0.5, center);
-        assert_eq!(open + window_size(1.0)[0] * 0.5, center);
-    }
-
-    #[test]
     fn changing_metric_width_during_expansion_does_not_retarget_the_spring() {
         let mut state = IslandState::default();
         state.set_expanded_width(300.0);
@@ -181,6 +209,16 @@ mod tests {
     }
 
     #[test]
+    fn switching_to_and_from_settings_retargets_the_expanded_capsule_width() {
+        let mut state = IslandState::default();
+        state.observe_hover(true, 0.2);
+        state.retarget_expanded_width(400.0);
+        assert_eq!(state.width.target_value(), 400.0);
+        state.retarget_expanded_width(300.0);
+        assert_eq!(state.width.target_value(), 300.0);
+    }
+
+    #[test]
     fn compact_content_width_is_used_again_after_closing() {
         let mut state = IslandState::default();
         state.set_compact_width(240.0);
@@ -190,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn a_settled_close_returns_capsule_and_window_to_the_compact_bounds() {
+    fn a_settled_close_returns_the_capsule_to_compact_bounds() {
         let mut state = IslandState::default();
         state.observe_hover(true, 0.2);
         for _ in 0..120 {
@@ -201,8 +239,6 @@ mod tests {
         assert!(!state.animating());
         assert!(!state.expanded);
         assert!(progress <= 0.002);
-        assert!((width - 148.0).abs() < 0.1);
-        assert!((window_size(progress)[0] - 190.0).abs() < 0.5);
-        assert!(4.0 + 52.0 + 126.0 * progress < 64.0);
+        assert!((width - 114.0).abs() < 0.1);
     }
 }
