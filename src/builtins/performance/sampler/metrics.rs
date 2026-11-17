@@ -115,7 +115,7 @@ fn battery_status() -> (Option<u8>, bool) {
 
 #[cfg(target_os = "macos")]
 fn mac_external_power_connected() -> Option<bool> {
-    let output = std::process::Command::new("pmset")
+    let output = crate::core::external::process::command("pmset")
         .args(["-g", "batt"])
         .output()
         .ok()?;
