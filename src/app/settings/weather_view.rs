@@ -1,5 +1,5 @@
 use super::{
-    theme::{ACCENT, ROW, SECONDARY_TEXT, SWITCH_OFF, TEXT},
+    theme::{ROW, SECONDARY_TEXT, SWITCH_OFF, SWITCH_ON, TEXT},
     CompactPreferences,
 };
 use crate::builtins::weather::{search_cities, CityResult, WeatherLocation};
@@ -186,7 +186,7 @@ pub(super) fn show(
             Align2::LEFT_CENTER,
             truncate(error, 38),
             FontId::proportional(9.5),
-            super::theme::DANGER,
+            Color32::from_rgb(255, 118, 128),
         );
     } else if search.searched && search.results.is_empty() {
         ui.painter().text(
@@ -262,7 +262,7 @@ fn toggle(ui: &egui::Ui, row: Rect, id: &'static str, enabled: bool) -> bool {
     );
     let response = ui.interact(switch, egui::Id::new(id), Sense::click());
     ui.painter()
-        .rect_filled(switch, 9.0, if enabled { ACCENT } else { SWITCH_OFF });
+        .rect_filled(switch, 9.0, if enabled { SWITCH_ON } else { SWITCH_OFF });
     ui.painter().circle_filled(
         Pos2::new(
             if enabled {
