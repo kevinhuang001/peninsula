@@ -6,7 +6,7 @@ use crate::{
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
-use crate::app::settings::theme::WIDGET_BUTTON;
+use crate::app::settings::theme::{POMODORO_BUTTON, WIDGET_BUTTON};
 
 const CARD: Color32 = Color32::from_rgb(27, 29, 34);
 const MUTED: Color32 = Color32::from_rgb(177, 183, 194);
@@ -242,10 +242,15 @@ fn paint_node(
             }
         }
         ViewNode::Button { label, action } => {
+            let fill = if source_id.as_str() == "builtin.pomodoro/timer" {
+                POMODORO_BUTTON
+            } else {
+                WIDGET_BUTTON
+            };
             let response = ui.put(
                 rect.shrink(1.0),
                 egui::Button::new(egui::RichText::new(label).color(Color32::WHITE))
-                    .fill(WIDGET_BUTTON)
+                    .fill(fill)
                     .corner_radius(8.0),
             );
             if response.clicked() {

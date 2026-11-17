@@ -155,23 +155,60 @@ fn render_node(
             );
         }
         CompactNode::Row(children) => {
-            let mut x = rect.left();
-            let mut remaining_width = rect.width();
-            for (index, child) in children.iter().enumerate() {
-                let child_width = if index + 1 == children.len() {
-                    remaining_width
-                } else if matches!(child, CompactNode::Progress { .. }) {
-                    26.0_f32.min(remaining_width)
-                } else {
-                    remaining_width / (children.len() - index) as f32
-                };
-                let child_rect = Rect::from_min_size(
-                    Pos2::new(x, rect.top()),
-                    Vec2::new(child_width, rect.height()),
+            if let [CompactNode::Progress { .. }, CompactNode::Text { text, color }] =
+                children.as_slice()
+            {
+                let progress_width = 26.0;
+                let gap = 7.0;
+                let text_width = ui
+                    .painter()
+                    .layout_no_wrap(
+                        text.clone(),
+                        FontId::proportional(COMPACT_TEXT_SIZE),
+                        role_color(*color),
+                    )
+                    .size()
+                    .x
+                    + 6.0;
+                let group_width = progress_width + gap + text_width;
+                let left = rect.center().x - group_width * 0.5;
+                let progress_rect = Rect::from_min_size(
+                    Pos2::new(left, rect.top()),
+                    Vec2::new(progress_width, rect.height()),
                 );
-                render_child(ui, context, mascot, icons, child_rect, child, opacity);
-                x += child_width;
-                remaining_width -= child_width;
+                let text_rect = Rect::from_min_size(
+                    Pos2::new(left + progress_width + gap, rect.top()),
+                    Vec2::new(text_width, rect.height()),
+                );
+                render_child(
+                    ui,
+                    context,
+                    mascot,
+                    icons,
+                    progress_rect,
+                    &children[0],
+                    opacity,
+                );
+                render_child(ui, context, mascot, icons, text_rect, &children[1], opacity);
+            } else {
+                let mut x = rect.left();
+                let mut remaining_width = rect.width();
+                for (index, child) in children.iter().enumerate() {
+                    let child_width = if index + 1 == children.len() {
+                        remaining_width
+                    } else if matches!(child, CompactNode::Progress { .. }) {
+                        26.0_f32.min(remaining_width)
+                    } else {
+                        remaining_width / (children.len() - index) as f32
+                    };
+                    let child_rect = Rect::from_min_size(
+                        Pos2::new(x, rect.top()),
+                        Vec2::new(child_width, rect.height()),
+                    );
+                    render_child(ui, context, mascot, icons, child_rect, child, opacity);
+                    x += child_width;
+                    remaining_width -= child_width;
+                }
             }
         }
         CompactNode::Column(children) => {

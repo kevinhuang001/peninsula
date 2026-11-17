@@ -1,8 +1,0 @@
-{
-  "name": "opencli-plugin-peninsula-bilibili",
-  "version": "0.1.0",
-  "type": "module",
-  "peerDependencies": {
-    "@jackwener/opencli": ">=1.0.0"
-  }
-}

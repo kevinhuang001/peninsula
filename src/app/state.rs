@@ -9,6 +9,9 @@ pub(super) struct IslandState {
     compact_width: f32,
     hover_elapsed: f32,
     leave_elapsed: f32,
+    notification_visible: bool,
+    suppress_hover_until_exit: bool,
+    hide_widget_until_reentry: bool,
 }
 
 impl Default for IslandState {
@@ -22,12 +25,18 @@ impl Default for IslandState {
             compact_width: 114.0,
             hover_elapsed: 0.0,
             leave_elapsed: 0.0,
+            notification_visible: false,
+            suppress_hover_until_exit: false,
+            hide_widget_until_reentry: false,
         }
     }
 }
 
 impl IslandState {
     pub fn show_notification(&mut self) {
+        self.notification_visible = true;
+        self.suppress_hover_until_exit = false;
+        self.hide_widget_until_reentry = false;
         self.expanded = true;
         self.hover_elapsed = 0.18;
         self.leave_elapsed = 0.0;
@@ -35,6 +44,26 @@ impl IslandState {
         self.height.tune(290.0, 0.74);
         self.width.target(320.0);
         self.height.target(1.0);
+    }
+
+    pub fn close_notification(&mut self) {
+        if !self.notification_visible {
+            return;
+        }
+        self.notification_visible = false;
+        self.expanded = false;
+        self.suppress_hover_until_exit = true;
+        self.hide_widget_until_reentry = true;
+        self.hover_elapsed = 0.0;
+        self.leave_elapsed = 0.0;
+        self.width.tune(620.0, 1.0);
+        self.height.tune(620.0, 1.0);
+        self.width.target(self.compact_width);
+        self.height.target(0.0);
+    }
+
+    pub fn hides_widget(&self) -> bool {
+        self.hide_widget_until_reentry
     }
 
     pub fn is_pinned(&self) -> bool {
@@ -70,6 +99,14 @@ impl IslandState {
     }
 
     pub fn observe_hover(&mut self, hovered: bool, dt: f32) -> bool {
+        if self.suppress_hover_until_exit {
+            if hovered {
+                self.hover_elapsed = 0.0;
+                self.leave_elapsed = 0.0;
+                return false;
+            }
+            self.suppress_hover_until_exit = false;
+        }
         if self.expanded && self.pinned {
             self.leave_elapsed = 0.0;
             return false;
@@ -79,6 +116,7 @@ impl IslandState {
             self.leave_elapsed = 0.0;
             if !self.expanded && self.hover_elapsed >= 0.18 {
                 self.expanded = true;
+                self.hide_widget_until_reentry = false;
                 self.width.tune(330.0, 0.70);
                 self.height.tune(290.0, 0.74);
                 self.width.target(self.expanded_width);
@@ -240,5 +278,19 @@ mod tests {
         assert!(!state.expanded);
         assert!(progress <= 0.002);
         assert!((width - 114.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn closing_a_notification_collapses_without_reopening_the_widget_under_the_pointer() {
+        let mut state = IslandState::default();
+        state.show_notification();
+        state.close_notification();
+        assert!(!state.expanded);
+        assert!(state.hides_widget());
+        assert!(!state.observe_hover(true, 1.0));
+        assert!(state.hides_widget());
+        state.observe_hover(false, 0.01);
+        assert!(state.observe_hover(true, 0.2));
+        assert!(!state.hides_widget());
     }
 }

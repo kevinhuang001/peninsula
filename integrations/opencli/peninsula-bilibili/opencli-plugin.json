@@ -1,6 +1,0 @@
-{
-  "name": "peninsula-bilibili",
-  "version": "0.1.0",
-  "opencli": ">=1.0.0",
-  "description": "Read-only Bilibili message and received-like notifications for Peninsula"
-}

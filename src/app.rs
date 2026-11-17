@@ -262,6 +262,9 @@ impl eframe::App for IslandApp {
             context.request_repaint();
         }
         let notice = self.notifications.current().cloned();
+        if notice.is_none() {
+            self.state.close_notification();
+        }
         let alert_view: Option<NotificationAlertView> = notice.as_ref().map(|notification| {
             self.extensions
                 .notification_presentation(notification)
@@ -286,6 +289,8 @@ impl eframe::App for IslandApp {
         let (pill_width, progress) = self.state.advance(dt);
         self.widget_height.target(if notice.is_some() {
             76.0
+        } else if self.state.hides_widget() {
+            0.0
         } else if self.settings_open {
             self.settings_view.extra_height()
         } else {

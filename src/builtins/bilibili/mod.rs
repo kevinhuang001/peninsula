@@ -1,5 +1,4 @@
 mod extension;
-mod model;
 mod poller;
 mod state;
 

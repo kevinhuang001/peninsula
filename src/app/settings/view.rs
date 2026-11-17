@@ -2,8 +2,8 @@ use super::{
     model::Section,
     quiet_view::{self, QuietDialog},
     theme::{
-        ACCENT, ACCENT_SELECTED, BACKGROUND, BORDER, PANEL, ROW, SECONDARY_TEXT, SETTINGS_BUTTON,
-        SWITCH_OFF, SWITCH_ON, TEXT,
+        ACCENT, ACCENT_SELECTED, BACKGROUND, BORDER, CHECKBOX_ON, PANEL, ROW, SECONDARY_TEXT,
+        SETTINGS_BUTTON, SWITCH_OFF, SWITCH_ON, TEXT,
     },
     CompactPreferences,
 };
@@ -127,7 +127,7 @@ impl SettingsView {
             Section::Bilibili => {
                 let changed = paint_bilibili_options(ui, panel, preferences);
                 painter.text(
-                    Pos2::new(panel.left() + 14.0, panel.top() + 282.0),
+                    Pos2::new(panel.left() + 14.0, panel.top() + 198.0),
                     Align2::LEFT_TOP,
                     bilibili_status,
                     FontId::proportional(9.5),
@@ -162,16 +162,10 @@ fn paint_bilibili_options(
     preferences: &mut CompactPreferences,
 ) -> bool {
     let mut changed = false;
-    let rows = [
-        ("启用 Bilibili 通知", &mut preferences.bilibili_enabled),
-        ("新私信通知", &mut preferences.bilibili_dm_enabled),
-        ("收到的赞通知", &mut preferences.bilibili_likes_enabled),
-        (
-            "显示私信内容摘要",
-            &mut preferences.bilibili_show_dm_summary,
-        ),
-    ];
-    for (index, (label, enabled)) in rows.into_iter().enumerate() {
+    for (index, (label, enabled)) in [("启用 Bilibili 通知", &mut preferences.bilibili_enabled)]
+        .into_iter()
+        .enumerate()
+    {
         let row = Rect::from_min_size(
             Pos2::new(
                 panel.left() + 12.0,
@@ -182,7 +176,7 @@ fn paint_bilibili_options(
         changed |= paint_checkbox_row(ui, row, index, label, enabled);
     }
     let interval = Rect::from_min_size(
-        Pos2::new(panel.left() + 12.0, panel.top() + 182.0),
+        Pos2::new(panel.left() + 12.0, panel.top() + 96.0),
         Vec2::new(panel.width() - 24.0, 28.0),
     );
     ui.painter().text(
@@ -204,7 +198,7 @@ fn paint_bilibili_options(
         )
         .changed();
     let path = Rect::from_min_size(
-        Pos2::new(panel.left() + 12.0, panel.top() + 216.0),
+        Pos2::new(panel.left() + 12.0, panel.top() + 130.0),
         Vec2::new(panel.width() - 24.0, 28.0),
     );
     changed |= ui
@@ -215,7 +209,7 @@ fn paint_bilibili_options(
         )
         .changed();
     let buttons = Rect::from_min_size(
-        Pos2::new(panel.left() + 12.0, panel.top() + 250.0),
+        Pos2::new(panel.left() + 12.0, panel.top() + 164.0),
         Vec2::new(panel.width() - 24.0, 26.0),
     );
     let each_width = (buttons.width() - 8.0) * 0.5;
@@ -260,12 +254,15 @@ fn paint_checkbox_row(
         Pos2::new(row.left() + 19.0, row.center().y),
         Vec2::splat(16.0),
     );
-    ui.painter()
-        .rect_filled(checkbox, 4.0, if *enabled { SWITCH_ON } else { BACKGROUND });
+    ui.painter().rect_filled(
+        checkbox,
+        4.0,
+        if *enabled { CHECKBOX_ON } else { BACKGROUND },
+    );
     ui.painter().rect_stroke(
         checkbox,
         4.0,
-        Stroke::new(1.0, if *enabled { SWITCH_ON } else { BORDER }),
+        Stroke::new(1.0, if *enabled { CHECKBOX_ON } else { BORDER }),
         egui::StrokeKind::Inside,
     );
     if *enabled {
