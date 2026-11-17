@@ -142,7 +142,7 @@ fn draw_add_button(
     ui.painter().rect_stroke(
         rect,
         8.0,
-        egui::Stroke::new(1.0, ACCENT_BORDER),
+        egui::Stroke::new(1.0_f32, ACCENT_BORDER),
         egui::StrokeKind::Inside,
     );
     let response = ui.interact(rect, egui::Id::new("quiet-add-period"), Sense::click());

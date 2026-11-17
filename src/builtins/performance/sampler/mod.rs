@@ -1,8 +1,8 @@
+mod metrics;
 mod network;
 mod platform;
-mod sampler;
 
-pub use sampler::{MetricsSampler, Snapshot};
+pub use metrics::{MetricsSampler, Snapshot};
 
 pub fn format_speed(bytes_per_second: f64) -> String {
     if bytes_per_second >= 1_000_000.0 {

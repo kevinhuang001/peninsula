@@ -1,82 +1,15 @@
-use crate::app::compact_layout::{COMPACT_ICON_GAP, COMPACT_ICON_SIZE, COMPACT_TEXT_SIZE};
-use crate::{downloads::Download, metrics::format_speed};
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Stroke, Vec2};
-
-const PRIMARY: Color32 = Color32::from_rgb(247, 249, 252);
-const DOWN: Color32 = Color32::from_rgb(80, 190, 255);
-
-pub(super) fn paint_download(ui: &egui::Ui, chip: Rect, download: &Download, opacity: f32) {
-    let painter = ui.painter();
-    let icon_left = 6.0;
-    let center = Pos2::new(
-        chip.left() + icon_left + COMPACT_ICON_SIZE * 0.5,
-        chip.center().y,
-    );
-    let radius = COMPACT_ICON_SIZE * 0.5;
-    painter.circle_stroke(
-        center,
-        radius,
-        Stroke::new(2.0, Color32::from_rgb(61, 70, 84).linear_multiply(opacity)),
-    );
-    if let Some(fraction) = download.progress() {
-        if fraction > 0.0 {
-            painter.add(egui::Shape::line(
-                progress_points(center, radius, fraction),
-                Stroke::new(2.0, DOWN.linear_multiply(opacity)),
-            ));
-        }
-        painter.text(
-            center,
-            Align2::CENTER_CENTER,
-            format!("{:.0}%", fraction * 100.0),
-            FontId::proportional(5.8),
-            PRIMARY.linear_multiply(opacity),
-        );
-    } else {
-        painter.text(
-            center,
-            Align2::CENTER_CENTER,
-            "↓",
-            FontId::proportional(COMPACT_ICON_SIZE * 0.75),
-            DOWN.linear_multiply(opacity),
-        );
-    }
-    let label = download.total.filter(|total| *total > 0).map_or_else(
-        || compact_size(download.received),
-        |total| compact_pair(download.received, total),
-    );
-    painter.text(
-        Pos2::new(
-            chip.left() + icon_left + COMPACT_ICON_SIZE + COMPACT_ICON_GAP,
-            chip.center().y - 6.0,
-        ),
-        Align2::LEFT_CENTER,
-        label,
-        FontId::proportional(COMPACT_TEXT_SIZE),
-        PRIMARY.linear_multiply(opacity),
-    );
-    painter.text(
-        Pos2::new(
-            chip.left() + icon_left + COMPACT_ICON_SIZE + COMPACT_ICON_GAP,
-            chip.center().y + 6.0,
-        ),
-        Align2::LEFT_CENTER,
-        format_speed(download.bytes_per_second),
-        FontId::proportional(COMPACT_TEXT_SIZE),
-        DOWN.linear_multiply(opacity),
-    );
-}
+use eframe::egui::{Pos2, Vec2};
 
 fn progress_points(center: Pos2, radius: f32, fraction: f32) -> Vec<Pos2> {
     let fraction = fraction.clamp(0.0, 1.0);
     let segments = (fraction * 48.0).ceil().max(1.0) as usize;
-    let mut points = Vec::with_capacity(segments + 1);
-    for index in 0..=segments {
-        let angle = -std::f32::consts::FRAC_PI_2
-            + std::f32::consts::TAU * fraction * index as f32 / segments as f32;
-        points.push(center + Vec2::new(angle.cos(), angle.sin()) * radius);
-    }
-    points
+    (0..=segments)
+        .map(|index| {
+            let angle = -std::f32::consts::FRAC_PI_2
+                + std::f32::consts::TAU * fraction * index as f32 / segments as f32;
+            center + Vec2::new(angle.cos(), angle.sin()) * radius
+        })
+        .collect()
 }
 
 fn compact_pair(received: u64, total: u64) -> String {

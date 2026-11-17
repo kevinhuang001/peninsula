@@ -2,20 +2,18 @@ use super::{show, CapsuleWidgets};
 use crate::app::{
     mascot::Mascot,
     settings::{CompactPreferences, SettingsView},
-    widgets::{pomodoro::Pomodoro, IslandTab},
 };
-use crate::metrics::Snapshot;
 use eframe::egui::{self, pos2, vec2, Event, Modifiers, PointerButton, RawInput, Rect};
 
 #[test]
 fn horizontal_drag_changes_widget_once_on_release() {
     let ctx = egui::Context::default();
-    let mut tab = IslandTab::Performance;
+    let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut mascot = Mascot::default();
-    let mut timer = Pomodoro::default();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
+    let (widget_ids, widget_view) = widget_fixture();
     let mut frame = |events: Vec<Event>| {
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(420.0, 214.0))),
@@ -34,16 +32,19 @@ fn horizontal_drag_changes_widget_once_on_release() {
                             1.0,
                             76.0,
                             CapsuleWidgets {
-                                metrics: &Snapshot::default(),
+                                compact_views: &[],
+                                widget_ids: &widget_ids,
+                                widget_title: "测试",
+                                widget_view: &widget_view,
+                                alert_view: None,
+                                max_alert_actions: 4,
                                 mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 settings_view: &mut settings_view,
-                                active_tab: &mut tab,
-                                timer: &mut timer,
+                                active_widget: &mut tab,
                                 pinned: false,
                                 icons: &icons,
-                                download: None,
                                 notification: None,
                                 do_not_disturb: false,
                             },
@@ -63,18 +64,21 @@ fn horizontal_drag_changes_widget_once_on_release() {
     frame(vec![Event::PointerMoved(pos2(120.0, 70.0))]);
     frame(vec![Event::PointerMoved(pos2(150.0, 70.0))]);
     frame(vec![button(pos2(150.0, 70.0), false)]);
-    assert_eq!(tab, IslandTab::Pomodoro);
+    assert_eq!(
+        tab,
+        crate::extension::ExtensionId::builtin("builtin.pomodoro/timer")
+    );
 }
 
 #[test]
 fn bottom_pagination_dots_are_always_passive() {
     let ctx = egui::Context::default();
-    let mut tab = IslandTab::Performance;
+    let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut mascot = Mascot::default();
-    let mut timer = Pomodoro::default();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
+    let (widget_ids, widget_view) = widget_fixture();
     let mut frame = |events: Vec<Event>| {
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(420.0, 214.0))),
@@ -93,16 +97,19 @@ fn bottom_pagination_dots_are_always_passive() {
                             1.0,
                             76.0,
                             CapsuleWidgets {
-                                metrics: &Snapshot::default(),
+                                compact_views: &[],
+                                widget_ids: &widget_ids,
+                                widget_title: "测试",
+                                widget_view: &widget_view,
+                                alert_view: None,
+                                max_alert_actions: 4,
                                 mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 settings_view: &mut settings_view,
-                                active_tab: &mut tab,
-                                timer: &mut timer,
+                                active_widget: &mut tab,
                                 pinned: false,
                                 icons: &icons,
-                                download: None,
                                 notification: None,
                                 do_not_disturb: false,
                             },
@@ -121,18 +128,21 @@ fn bottom_pagination_dots_are_always_passive() {
     frame(vec![Event::PointerMoved(point)]);
     frame(vec![button(true)]);
     frame(vec![button(false)]);
-    assert_eq!(tab, IslandTab::Performance);
+    assert_eq!(
+        tab,
+        crate::extension::ExtensionId::builtin("builtin.system-monitor/overview")
+    );
 }
 
 #[test]
 fn expanded_pin_button_emits_toggle_without_starting_a_drag() {
     let ctx = egui::Context::default();
-    let mut tab = IslandTab::Performance;
+    let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut mascot = Mascot::default();
-    let mut timer = Pomodoro::default();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
+    let (widget_ids, widget_view) = widget_fixture();
     let point = pos2(294.0, 30.0);
     let mut toggled = false;
     let mut frame = |events: Vec<Event>| {
@@ -153,16 +163,19 @@ fn expanded_pin_button_emits_toggle_without_starting_a_drag() {
                             1.0,
                             76.0,
                             CapsuleWidgets {
-                                metrics: &Snapshot::default(),
+                                compact_views: &[],
+                                widget_ids: &widget_ids,
+                                widget_title: "测试",
+                                widget_view: &widget_view,
+                                alert_view: None,
+                                max_alert_actions: 4,
                                 mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 settings_view: &mut settings_view,
-                                active_tab: &mut tab,
-                                timer: &mut timer,
+                                active_widget: &mut tab,
                                 pinned: false,
                                 icons: &icons,
-                                download: None,
                                 notification: None,
                                 do_not_disturb: false,
                             },
@@ -187,12 +200,12 @@ fn expanded_pin_button_emits_toggle_without_starting_a_drag() {
 #[test]
 fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
     let ctx = egui::Context::default();
-    let mut tab = IslandTab::Performance;
+    let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut mascot = Mascot::default();
-    let mut timer = Pomodoro::default();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
+    let (widget_ids, widget_view) = widget_fixture();
     let point = pos2(323.0, 30.0);
     let mut toggled = false;
     let mut frame = |events: Vec<Event>| {
@@ -213,16 +226,19 @@ fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
                             1.0,
                             76.0,
                             CapsuleWidgets {
-                                metrics: &Snapshot::default(),
+                                compact_views: &[],
+                                widget_ids: &widget_ids,
+                                widget_title: "测试",
+                                widget_view: &widget_view,
+                                alert_view: None,
+                                max_alert_actions: 4,
                                 mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 settings_view: &mut settings_view,
-                                active_tab: &mut tab,
-                                timer: &mut timer,
+                                active_widget: &mut tab,
                                 pinned: false,
                                 icons: &icons,
-                                download: None,
                                 notification: None,
                                 do_not_disturb: false,
                             },
@@ -242,5 +258,28 @@ fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
     frame(vec![button(true)]);
     frame(vec![button(false)]);
     assert!(toggled);
-    assert_eq!(tab, IslandTab::Performance);
+    assert_eq!(
+        tab,
+        crate::extension::ExtensionId::builtin("builtin.system-monitor/overview")
+    );
+}
+
+fn widget_fixture() -> (
+    Vec<crate::extension::ExtensionId>,
+    crate::extension::WidgetView,
+) {
+    let widget_ids = crate::builtins::registry()
+        .widget_list()
+        .into_iter()
+        .map(|descriptor| descriptor.id.clone())
+        .collect();
+    let widget_view = crate::extension::WidgetView {
+        root: crate::extension::ViewNode::Text {
+            text: String::new(),
+            style: crate::extension::TextStyle::Muted,
+        },
+        preferred_size: [300.0, 76.0],
+        refresh_hint: crate::extension::RefreshHint::Static,
+    };
+    (widget_ids, widget_view)
 }

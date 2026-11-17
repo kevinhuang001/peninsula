@@ -30,7 +30,7 @@ pub(super) fn show(
     ui.painter().rect_stroke(
         popup,
         10.0,
-        Stroke::new(1.0, BORDER),
+        Stroke::new(1.0_f32, BORDER),
         egui::StrokeKind::Inside,
     );
     ui.painter().text(

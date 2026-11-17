@@ -1,86 +1,55 @@
 use super::CompactPreferences;
+use crate::extension::ExtensionId;
+
+fn id(value: &'static str) -> ExtensionId {
+    ExtensionId::builtin(value)
+}
 
 #[test]
-fn compact_preferences_round_trip_and_keep_defaults_for_missing_keys() {
-    let mut quiet_hours = super::super::quiet_hours::QuietHours::default();
-    quiet_hours.manual_enabled = true;
-    quiet_hours.add_period(super::super::quiet_hours::QuietPeriod {
-        enabled: true,
-        days: 0b0010_0101,
-        start_minute: 23 * 60 + 15,
-        end_minute: 6 * 60 + 30,
-    });
-    quiet_hours.add_period(super::super::quiet_hours::QuietPeriod {
-        enabled: false,
-        days: 0b0110_0000,
-        start_minute: 12 * 60,
-        end_minute: 14 * 60,
-    });
-    let preferences = CompactPreferences {
-        mascot: false,
-        battery: true,
-        cpu: true,
-        gpu: false,
-        network: true,
-        downloads: true,
-        time: true,
-        compact_order: [1, 0, 2, 3, 4, 6, 5],
-        quiet_hours,
-    };
+fn preferences_round_trip_and_migrate_legacy_flags_order_and_quiet_hours() {
+    let legacy = CompactPreferences::parse(
+        "mascot=false\nbattery=true\ncpu=true\ngpu=false\nnetwork=true\ndownloads=true\ntime=true\ncompact_order=1,0,2,3,4,6,5\nquiet_manual=true\nquiet_periods=true,37,1395,390;false,96,720,840\n",
+    );
+    assert!(!legacy.is_enabled(&id("builtin.mascot/face")));
+    assert!(legacy.is_enabled(&id("builtin.system-monitor/cpu")));
     assert_eq!(
-        CompactPreferences::parse(&preferences.encode()),
-        preferences
+        legacy
+            .ordered_compact_items()
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "builtin.system-monitor/battery",
+            "builtin.mascot/face",
+            "builtin.system-monitor/cpu",
+            "builtin.system-monitor/gpu",
+            "builtin.system-monitor/network",
+            "builtin.clock/time",
+            "builtin.downloads/status",
+        ]
     );
-    assert!(CompactPreferences::parse("cpu=true\n").cpu);
-    assert!(CompactPreferences::parse("cpu=true\n").mascot);
-    assert!(!CompactPreferences::parse("cpu=true\n").time);
+    assert!(legacy.quiet_hours.manual_enabled);
+    assert_eq!(CompactPreferences::parse(&legacy.encode()), legacy);
+    let defaults = CompactPreferences::parse("cpu=true\n");
+    assert!(defaults.is_enabled(&id("builtin.system-monitor/cpu")));
+    assert!(defaults.is_enabled(&id("builtin.mascot/face")));
+    assert!(!defaults.is_enabled(&id("builtin.clock/time")));
 }
 
 #[test]
-fn compact_order_repairs_duplicates_and_moves_items_one_slot_at_a_time() {
-    let mut preferences = CompactPreferences::parse("compact_order=3,3,99,1\n");
-    assert_eq!(preferences.compact_order, [3, 1, 0, 2, 4, 5, 6]);
-    assert!(preferences.move_compact_item(super::super::OptionItem::Time, -1));
-    assert_eq!(preferences.compact_order, [3, 1, 0, 2, 4, 6, 5]);
-    assert!(!preferences.move_compact_item(super::super::OptionItem::Gpu, -1));
-}
-
-#[test]
-fn compact_width_accounts_for_enabled_content() {
-    let default = CompactPreferences::default();
-    let wide = CompactPreferences {
-        cpu: true,
-        network: true,
-        ..default
-    };
-    assert_eq!(default.compact_width(false), 114.0);
-    assert!(wide.compact_width(false) > default.compact_width(false));
-    assert!(
-        CompactPreferences {
-            time: true,
-            ..default
-        }
-        .compact_width(false)
-            > default.compact_width(false)
+fn duplicate_and_invalid_ids_are_ignored_and_items_can_be_reordered() {
+    let mut preferences = CompactPreferences::parse(
+        "compact_order=3,3,99,1\nextension=builtin.test/widget|true|20\nextension= bad id |true|1\n",
     );
-}
-
-#[test]
-fn download_indicator_only_consumes_width_while_active() {
-    let preferences = CompactPreferences {
-        downloads: true,
-        cpu: true,
-        ..Default::default()
-    };
+    assert_eq!(preferences.compact_items.len(), 8);
     assert_eq!(
-        preferences.compact_width(false),
-        CompactPreferences {
-            downloads: false,
-            ..preferences
-        }
-        .compact_width(false)
+        preferences.ordered_compact_items()[0].id,
+        id("builtin.system-monitor/gpu")
     );
-    assert!(preferences.compact_width(true) > preferences.compact_width(false));
+    assert!(preferences.move_compact_item(&id("builtin.clock/time"), -1));
+    let ordered = preferences.ordered_compact_items();
+    assert_eq!(ordered[5].id, id("builtin.clock/time"));
+    assert!(!preferences.move_compact_item(&id("builtin.system-monitor/gpu"), -1));
 }
 
 #[test]
@@ -90,7 +59,7 @@ fn saves_preferences_to_disk_and_replaces_existing_content() {
     let path = folder.join("preferences.conf");
     let mut preferences = CompactPreferences::default();
     preferences.save_to(&path).unwrap();
-    preferences.cpu = true;
+    preferences.set_enabled(&id("builtin.system-monitor/cpu"), true);
     preferences.save_to(&path).unwrap();
     assert_eq!(
         CompactPreferences::parse(&std::fs::read_to_string(&path).unwrap()),

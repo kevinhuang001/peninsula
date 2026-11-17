@@ -1,53 +1,45 @@
-mod performance;
-pub mod pomodoro;
-pub(in crate::app) use performance::{expanded_width, paint_metrics};
+use crate::extension::ExtensionId;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum IslandTab {
-    #[default]
-    Performance,
-    Pomodoro,
+pub fn default_widget_id() -> ExtensionId {
+    ExtensionId::builtin(crate::extension::NOTIFICATION_CENTER_ID)
 }
 
-impl IslandTab {
-    pub const ALL: [Self; 2] = [Self::Performance, Self::Pomodoro];
-
-    pub fn other(self) -> Self {
-        match self {
-            Self::Performance => Self::Pomodoro,
-            Self::Pomodoro => Self::Performance,
-        }
+pub fn next_widget(current: &ExtensionId, ids: &[ExtensionId], offset: isize) -> ExtensionId {
+    if ids.is_empty() {
+        return default_widget_id();
     }
-
-    pub fn extra_height(self) -> f32 {
-        match self {
-            Self::Performance => 76.0,
-            Self::Pomodoro => 126.0,
-        }
-    }
+    let index = ids.iter().position(|id| id == current).unwrap_or(0);
+    let target = (index as isize + offset).rem_euclid(ids.len() as isize) as usize;
+    ids[target].clone()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::IslandTab;
+    use super::{default_widget_id, next_widget};
+    use crate::{builtins, extension::ExtensionId};
 
-    #[test]
-    fn island_has_performance_and_pomodoro_tabs() {
-        assert_eq!(
-            IslandTab::ALL,
-            [IslandTab::Performance, IslandTab::Pomodoro]
-        );
+    fn widget_ids() -> Vec<ExtensionId> {
+        builtins::registry()
+            .widget_list()
+            .into_iter()
+            .map(|descriptor| descriptor.id.clone())
+            .collect()
     }
 
     #[test]
-    fn pomodoro_has_more_room_than_performance() {
-        assert!(IslandTab::Pomodoro.extra_height() > IslandTab::Performance.extra_height());
+    fn notification_center_is_always_first_and_is_the_default_widget() {
+        let ids = widget_ids();
+        assert_eq!(ids.len(), 3);
+        assert_eq!(ids[0], default_widget_id());
+        assert_eq!(ids[0].as_str(), crate::extension::NOTIFICATION_CENTER_ID);
+        assert_eq!(ids[1].as_str(), "builtin.system-monitor/overview");
+        assert_eq!(ids[2].as_str(), "builtin.pomodoro/timer");
     }
 
     #[test]
-    fn performance_height_leaves_a_compact_margin_below_cards() {
-        let capsule_height = 52.0 + IslandTab::Performance.extra_height();
-        let cards_bottom = 48.0 + 64.0;
-        assert!((8.0..=20.0).contains(&(capsule_height - cards_bottom)));
+    fn widget_cycling_uses_registry_order() {
+        let ids = widget_ids();
+        assert_eq!(next_widget(&ids[1], &ids, 1), ids[2]);
+        assert_eq!(next_widget(&ids[1], &ids, -1), ids[0]);
     }
 }

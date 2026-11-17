@@ -1,5 +1,5 @@
 use crate::app::icons::{Icon, Icons};
-use crate::app::widgets::IslandTab;
+use crate::extension::ExtensionId;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Vec2};
 
 const MUTED: Color32 = Color32::from_rgb(248, 250, 253);
@@ -101,11 +101,23 @@ fn header_button(rect: Rect, from_right: f32, size: Vec2) -> Rect {
     )
 }
 
-pub(super) fn paint_tabs(ui: &egui::Ui, rect: Rect, active_tab: &IslandTab, opacity: f32) {
+pub(super) fn paint_tabs(
+    ui: &egui::Ui,
+    rect: Rect,
+    active_widget: &ExtensionId,
+    widget_ids: &[ExtensionId],
+    opacity: f32,
+) {
     let center = Pos2::new(rect.center().x, rect.bottom() - 6.0);
-    for (index, tab) in IslandTab::ALL.into_iter().enumerate() {
-        let point = Pos2::new(center.x + (index as f32 - 0.5) * 16.0, center.y);
-        let size = if *active_tab == tab {
+    let active_index = widget_ids
+        .iter()
+        .position(|id| id == active_widget)
+        .unwrap_or(0);
+    let middle = (widget_ids.len().saturating_sub(1)) as f32 * 0.5;
+    for (index, id) in widget_ids.iter().enumerate() {
+        let point = Pos2::new(center.x + (index as f32 - middle) * 16.0, center.y);
+        let selected = id == active_widget;
+        let size = if selected {
             Vec2::new(12.0, 5.0)
         } else {
             Vec2::splat(5.0)
@@ -114,7 +126,7 @@ pub(super) fn paint_tabs(ui: &egui::Ui, rect: Rect, active_tab: &IslandTab, opac
         ui.painter().rect_filled(
             dot,
             3.0,
-            if *active_tab == tab {
+            if index == active_index {
                 Color32::WHITE
             } else {
                 MUTED

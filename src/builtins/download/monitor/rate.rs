@@ -31,7 +31,7 @@ impl RateTracker {
 #[cfg(test)]
 mod tests {
     use super::RateTracker;
-    use crate::downloads::{Download, DownloadState};
+    use crate::builtins::download::monitor::{Download, DownloadState};
     use std::{
         path::PathBuf,
         time::{Duration, Instant},
