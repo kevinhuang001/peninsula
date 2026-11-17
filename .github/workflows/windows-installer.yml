@@ -37,21 +37,47 @@ jobs:
       - name: Build release
         run: cargo build --locked --release
       - name: Install NSIS
-        run: choco install nsis --yes --no-progress
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $known = @(
+            "${env:ProgramFiles(x86)}\NSIS\makensis.exe",
+            "$env:ProgramFiles\NSIS\makensis.exe"
+          )
+          $makensis = $known | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $makensis) {
+            try {
+              choco install nsis --yes --no-progress
+            } catch {
+              Write-Host "chocolatey failed: $_"
+            }
+            $makensis = $known | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $makensis) {
+            Write-Host "NSIS package unavailable, downloading the portable distribution"
+            $zip = Join-Path $env:RUNNER_TEMP "nsis.zip"
+            $dir = Join-Path $env:RUNNER_TEMP "nsis"
+            Invoke-WebRequest -Uri "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip" `
+              -OutFile $zip -UseBasicParsing -Headers @{ "User-Agent" = "Mozilla/5.0" }
+            Expand-Archive -Path $zip -DestinationPath $dir -Force
+            $makensis = Get-ChildItem $dir -Recurse -Filter makensis.exe | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $makensis) { throw "makensis was not installed" }
+          Write-Host "using $makensis"
+          "NSIS_MAKENSIS=$makensis" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Package installer
         id: package
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
-          $quad = ($version.Split(".") | Select-Object -First 3)
+          $quad = @($version.Split(".") | Select-Object -First 3)
           while ($quad.Count -lt 4) { $quad += "0" }
           $quad = $quad -join "."
-          $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target\release\island-lab.exe dist\island-lab.exe
           Copy-Item assets\icons\app.ico dist\app.ico
-          & $nsis "/DAPP_VERSION=$version" "/DAPP_VERSION_QUAD=$quad" `
+          & $env:NSIS_MAKENSIS "/DAPP_VERSION=$version" "/DAPP_VERSION_QUAD=$quad" `
             "/DAPP_EXE_PATH=$PWD\dist\island-lab.exe" `
             "/DICON_PATH=$PWD\assets\icons\app.ico" `
             "/DOUT_DIR=$PWD\dist" "scripts\installer.nsi"
