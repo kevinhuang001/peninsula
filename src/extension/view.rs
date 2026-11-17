@@ -30,6 +30,9 @@ pub struct CompactView {
     pub visibility: CompactVisibility,
     pub min_width: f32,
     pub preferred_width: f32,
+    /// Grow to the measured content width instead of compressing this item.
+    #[serde(default)]
+    pub fit_width: bool,
     pub priority: i32,
     pub tooltip: Option<String>,
 }

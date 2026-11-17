@@ -6,6 +6,8 @@ pub(crate) enum Icon {
     Dashboard,
     Music,
     MusicNote,
+    Speaker,
+    SpeakerPlaying,
     MediaPlay,
     MediaPause,
     MediaPrevious,
@@ -198,6 +200,22 @@ impl Icons {
             painter.circle_filled(c + Vec2::new(0.0, r), 0.9, stroke.color);
             return;
         }
+        if matches!(icon, Icon::Speaker | Icon::SpeakerPlaying) {
+            let playing = matches!(icon, Icon::SpeakerPlaying);
+            let time = painter.ctx().input(|input| input.time) as f32;
+            paint_speaker(
+                painter,
+                rect,
+                color.linear_multiply(opacity),
+                if playing { Some(time) } else { None },
+            );
+            if playing {
+                painter
+                    .ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(16));
+            }
+            return;
+        }
         if matches!(icon, Icon::Music) {
             let origin = rect.center();
             let unit = rect.width().min(rect.height()) / 24.0;
@@ -234,6 +252,8 @@ impl Icons {
             | Icon::Dashboard
             | Icon::Music
             | Icon::MusicNote
+            | Icon::Speaker
+            | Icon::SpeakerPlaying
             | Icon::MediaPlay
             | Icon::MediaPause
             | Icon::MediaPrevious
@@ -249,6 +269,37 @@ impl Icons {
             Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
             color.linear_multiply(opacity),
         );
+    }
+}
+
+/// A speaker cabinet with a pulsing woofer and a small rhythmic shake.
+fn paint_speaker(painter: &Painter, rect: Rect, color: Color32, time: Option<f32>) {
+    let unit = rect.width().min(rect.height()) / 24.0;
+    let beat = time.map_or(0.0, |t| (t * 10.0).sin());
+    let shake = time.map_or(0.0, |t| (t * 28.0).sin() * 0.65);
+    let center = rect.center() + Vec2::new(shake, -beat.abs() * 0.55) * unit;
+    let at = |x, y| center + Vec2::new(x, y) * unit;
+    let stroke = Stroke::new((1.5 * unit).max(0.8), color);
+    painter.rect_stroke(
+        Rect::from_min_max(at(-6.0, -9.0), at(6.0, 9.0)),
+        2.0 * unit,
+        stroke,
+        egui::StrokeKind::Inside,
+    );
+    painter.circle_stroke(at(0.0, -4.5), 1.6 * unit, stroke);
+    painter.circle_stroke(at(0.0, 3.0), (3.4 + beat * 0.45) * unit, stroke);
+    painter.circle_filled(at(0.0, 3.0), (1.15 + beat * 0.20) * unit, color);
+    if time.is_some() {
+        for side in [-1.0, 1.0] {
+            painter.add(egui::Shape::line(
+                vec![
+                    at(side * 8.5, -3.0 - beat * 0.5),
+                    at(side * (9.5 + beat.abs() * 0.7), 0.0),
+                    at(side * 8.5, 3.0 + beat * 0.5),
+                ],
+                stroke,
+            ));
+        }
     }
 }
 

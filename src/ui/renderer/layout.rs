@@ -405,6 +405,9 @@ impl Renderer<'_> {
         let modes = [child.size.width, child.size.height];
         let mut forced = [None; 2];
         for axis in 0..2 {
+            if axis == 0 && self.intrinsic_width {
+                continue;
+            }
             if matches!(modes[axis], Size::Fill(_))
                 || (alignment[axis] == Align::Stretch
                     && matches!(modes[axis], Size::Auto | Size::MinMax { .. }))
@@ -436,14 +439,17 @@ impl Renderer<'_> {
         for (index, child) in children.iter().enumerate() {
             let axes = axes(child.size);
             let weight = match axes[main].mode {
-                Size::Fill(weight) => point(weight),
+                Size::Fill(weight) if !(horizontal && self.intrinsic_width) => point(weight),
                 _ => 0.0,
             };
             let mut force = [None; 2];
             if weight > 0.0 {
                 force[main] = Some(axes[main].min);
             }
-            if !flow.wrap && stretch_cross(&axes[cross], flow.align) {
+            if !(cross == 0 && self.intrinsic_width)
+                && !flow.wrap
+                && stretch_cross(&axes[cross], flow.align)
+            {
                 force[cross] = Some(available[cross]);
             }
             let basis = self.measure(ui, child, available, force, depth)[main];
@@ -488,7 +494,10 @@ impl Renderer<'_> {
                 if weights[index] > 0.0 {
                     force[main] = Some(lengths[index]);
                 }
-                if !flow.wrap && stretch_cross(&axes(child.size)[cross], flow.align) {
+                if !(cross == 0 && self.intrinsic_width)
+                    && !flow.wrap
+                    && stretch_cross(&axes(child.size)[cross], flow.align)
+                {
                     force[cross] = Some(available[cross]);
                 }
                 let size = self.measure(ui, child, available, force, depth);
@@ -515,7 +524,10 @@ impl Renderer<'_> {
                 let index = start + relative;
                 let mut at = Pos2::ZERO;
                 at[main] = main_at;
-                if flow.wrap && stretch_cross(&axes(children[index].size)[cross], flow.align) {
+                if !(cross == 0 && self.intrinsic_width)
+                    && flow.wrap
+                    && stretch_cross(&axes(children[index].size)[cross], flow.align)
+                {
                     let bounded = axes(children[index].size)[cross].bound(line_cross);
                     // The line determines this allocation after its natural height is known.
                     // Keep the measured main-axis allocation; it determined wrapping.

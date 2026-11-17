@@ -320,6 +320,7 @@ fn compact_view(id: &'static str, content: ViewNode, width: f32) -> CompactView 
         visibility: Default::default(),
         min_width: width,
         preferred_width: width,
+        fit_width: false,
         priority: 0,
         tooltip: None,
     }

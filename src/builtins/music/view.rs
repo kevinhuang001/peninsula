@@ -2,31 +2,35 @@ use super::{lyrics::Lyrics, platform::Playback, LyricsResult, WIDGET_SIZE};
 use crate::{extension::Action, ui::declarative::*};
 use std::time::Instant;
 
-pub(super) fn compact(value: &str, has_lyric: bool) -> ViewNode {
-    let note = || ViewNode::icon("music-note", 10.0).color(ColorSpec::SecondaryText);
-    let mut items = vec![ViewNode::icon("music", 13.0)];
-    if has_lyric {
-        items.push(note());
-    }
-    items.push(
-        ViewNode::text(
-            value,
-            TextStyle {
-                align: if has_lyric {
-                    Align::Center
+pub(super) fn compact(value: &str, has_lyric: bool, playing: bool) -> ViewNode {
+    // Keep the notes in the same text run: no layout gap can separate them
+    // from the lyric, and the host measures the complete line with its font.
+    let text = if has_lyric {
+        format!("♪{value}♪")
+    } else {
+        value.to_owned()
+    };
+    ViewNode::row(
+        vec![
+            ViewNode::icon(
+                if playing {
+                    "speaker-playing"
                 } else {
-                    Align::Start
+                    "speaker"
                 },
-                font_size: FontSize::Custom(11.0),
-                ..Default::default()
-            },
-        )
-        .sized(Size::Fill(1.0), Size::Auto),
-    );
-    if has_lyric {
-        items.push(note());
-    }
-    ViewNode::row(items, gap(4.0)).sized(Size::Fill(1.0), Size::Auto)
+                16.0,
+            ),
+            ViewNode::text(
+                text,
+                TextStyle {
+                    align: Align::Start,
+                    font_size: FontSize::Custom(11.0),
+                    ..Default::default()
+                },
+            ),
+        ],
+        gap(4.0),
+    )
 }
 
 pub(super) fn widget(
@@ -57,7 +61,7 @@ pub(super) fn widget(
             )
             .sized(Size::Fill(1.0), Size::Auto),
             label(artist, 12.0, ColorSpec::SecondaryText),
-            lyric.sized(Size::Fill(1.0), Size::Fixed(17.0)),
+            lyric.sized(Size::Fill(1.0), Size::Auto),
         ],
         Flow {
             align: Align::Start,
@@ -103,7 +107,7 @@ pub(super) fn widget(
             lines.join("\n"),
             TextStyle {
                 align: Align::Start,
-                wrap: true,
+                wrap: false,
                 line_height: Some(18.0),
                 ..Default::default()
             },
@@ -127,6 +131,7 @@ pub(super) fn widget(
         ..Default::default()
     });
     let mut view = WidgetView::new(node, WIDGET_SIZE);
+    view.bounds = super::widget_bounds();
     view.refresh_hint = RefreshHint::EverySecond;
     view
 }
@@ -142,7 +147,15 @@ fn artwork(playback: &Playback) -> ViewNode {
         }),
         None => ViewNode::new(Node::Stack(
             [Align::Center; 2],
-            vec![ViewNode::icon("music", 22.0).color(ColorSpec::SecondaryText)],
+            vec![ViewNode::icon(
+                if playback.playing {
+                    "speaker-playing"
+                } else {
+                    "speaker"
+                },
+                22.0,
+            )
+            .color(ColorSpec::SecondaryText)],
         ))
         .styled(Style {
             normal: Paint {
@@ -164,11 +177,16 @@ fn lyric_row(
     match result {
         Some(Ok(Some(lyrics))) => match lyrics.as_ref() {
             Lyrics::Synced(_) => (
-                label(
+                ViewNode::text(
                     lyrics.current_line(active_line).unwrap_or(""),
-                    11.5,
-                    ColorSpec::Info,
-                ),
+                    TextStyle {
+                        align: Align::Start,
+                        font_size: FontSize::Custom(11.5),
+                        wrap: false,
+                        ..Default::default()
+                    },
+                )
+                .color(ColorSpec::Info),
                 None,
             ),
             Lyrics::Plain(lines) => (lyric_action("查看纯文本歌词", "lyrics-plain"), Some(lines)),
@@ -286,5 +304,113 @@ fn gap(value: f32) -> Flow {
     Flow {
         gap: Some(value),
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_keeps_full_lyric_with_adjacent_notes_and_playback_icon() {
+        let lyric = "这是一句很长的歌词，需要完整显示而不是省略".repeat(8);
+        for playing in [true, false] {
+            let node = compact(&lyric, true, playing);
+            let Node::Row(_, items) = node.kind else {
+                panic!("expected row")
+            };
+            assert!(matches!(&items[0].kind, Node::Icon { name, .. }
+                if name == if playing { "speaker-playing" } else { "speaker" }));
+            assert!(matches!(&items[1].kind, Node::Text { text, .. }
+                if text == &format!("♪{lyric}♪")));
+        }
+    }
+
+    #[test]
+    fn synced_widget_lyric_stays_on_a_single_line_with_a_large_width_limit() {
+        let lyric = "A long lyric that needs several lines in a narrow widget. ".repeat(5);
+        let result = Some(Ok(Some(std::sync::Arc::new(Lyrics::Synced(vec![
+            super::super::lyrics::Line {
+                at: 0.0,
+                text: lyric.clone(),
+            },
+        ])))));
+        let (node, _) = lyric_row(result.as_ref(), Some(0));
+        let Node::Text { text, text_style } = node.kind else {
+            panic!("expected lyric")
+        };
+        assert_eq!(text, lyric);
+        assert!(!text_style.wrap);
+        assert_eq!(super::super::widget_bounds().max[0], Some(4096.0));
+        assert!(super::super::widget_bounds().fit_width);
+        assert_eq!(node.size.height, Size::Auto);
+    }
+}
+
+#[cfg(test)]
+mod rendering_tests {
+    use super::*;
+    use crate::{app::icons::Icons, ui::renderer};
+    use eframe::egui::{self, pos2, vec2, RawInput, Rect};
+
+    #[test]
+    fn expanded_long_lyric_paints_one_complete_unelided_line() {
+        let lyric = "Keep the whole lyric visible all the way to the final note. ".repeat(4);
+        let playback = Playback {
+            session: "test".into(),
+            track: super::super::Track {
+                title: "Long lyric regression".into(),
+                artist: "Test".into(),
+                album: String::new(),
+                duration: Some(180.0),
+                file: None,
+            },
+            playing: true,
+            controls: Default::default(),
+            position: 1.0,
+            rate: 1.0,
+            observed: Instant::now(),
+            artwork: None,
+        };
+        let lyrics = Some(Ok(Some(std::sync::Arc::new(Lyrics::Synced(vec![
+            super::super::lyrics::Line {
+                at: 0.0,
+                text: lyric.clone(),
+            },
+        ])))));
+        let view = widget(&playback, lyrics.as_ref(), Some(0), false, false);
+        let ctx = egui::Context::default();
+        let icons = Icons::load(&ctx);
+        let output = ctx.run(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(4096.0, 500.0))),
+                ..Default::default()
+            },
+            |ctx| {
+                let width =
+                    renderer::natural_content_width(ctx, &view.root, 4076.0, &icons).ceil() + 1.0;
+                assert!(width > 600.0 && width < 4076.0, "width={width}");
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    renderer::show_widget(
+                        ui,
+                        Rect::from_min_size(pos2(10.0, 10.0), vec2(width, 200.0)),
+                        &super::super::ExtensionId::builtin(super::super::WIDGET_ID),
+                        &view,
+                        &icons,
+                        1.0,
+                    );
+                });
+            },
+        );
+        let galley = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == lyric => Some(&text.galley),
+                _ => None,
+            })
+            .expect("lyric must be painted");
+        assert_eq!(galley.rows.len(), 1);
+        assert!(!galley.elided, "the final note must remain visible");
     }
 }

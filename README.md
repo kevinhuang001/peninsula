@@ -9,6 +9,7 @@
 - 展开后默认进入固定在第一页的通知中心；通知为空时显示空状态，通知较多时可分页查看并逐条清除。
 - 性能监控、番茄钟和快递作为普通 Widget 页面提供，按 Registry 顺序切换。
 - 显示系统电量和充电状态。
+- Linux / Windows 播放音乐时，收起态和展开态歌词都按实际文字宽度单行显示，最大宽度为 4096 个逻辑像素；收起态音符紧贴歌词，音响图标随播放抖动、暂停静止。
 - 监听 Chromium 系浏览器、Firefox 和 macOS Safari 的下载；可在设置中启用收起态进度，完成后展开并提供打开文件和显示所在位置的操作。
 - 展开后查看 CPU、GPU、上下行网络速率。
 - 设置面板直接显示在胶囊内；可配置收缩状态内容、免打扰时段，以及番茄钟专注/休息时长（各 1–180 分钟）。
@@ -96,3 +97,18 @@ Widget 注册后默认为可见。扩展可通过 `RuntimeExtension::widget_visi
 在 `ExtensionDescriptor::with_settings` 声明配置版本、字段类型、默认值和约束。Core 验证配置并原子写入用户配置目录的 `extension-settings.json`；改动后通过 `on_settings_changed` 给扩展传递验证过的快照。需要改变旧值结构时，可在 `migrate_settings` 中按旧版本转换。标记为 `Restart` 的值保存后在下次启动生效。时长以毫秒表示，颜色是四个 sRGBA 通道。
 
 番茄钟时长和 Bilibili 的轮询间隔通过 Schema 保存。旧版 `preferences.conf` 中的 OpenCLI 路径会迁移至扩展配置，默认自动检测。性能监控的 `show_download`、`show_upload` 和下载胶囊的 `show_rate` 是额外的布尔配置，未新增设置页面。启用状态、顺序和免打扰仍由 Core 管理；登录信息沿用现有认证方式。
+
+## Linux 音乐显示演示
+
+[观看 Linux release 实机录屏](docs/media/music-lyrics-linux.mp4)。视频使用本地 MPRIS 测试播放器和原创 LRC 歌词，展示长短歌词切换、收起 / 展开和播放 / 暂停；不播放音频。
+
+可在同一个桌面 D-Bus 会话中复现（需要 Python 3 和 `dbus-next`）：
+
+```sh
+python3 -m venv .venv-demo
+.venv-demo/bin/pip install dbus-next
+.venv-demo/bin/python scripts/demo-music.py &
+cargo run --locked --release
+```
+
+演示会在第 25 秒暂停音响动画，第 29 秒恢复；也可以通过音乐页面的播放 / 暂停按钮控制。歌词文件为 `scripts/fixtures/music-demo.lrc`。
