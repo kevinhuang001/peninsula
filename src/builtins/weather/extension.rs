@@ -47,7 +47,7 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
             "天气",
             "cloud-sun",
             true,
-            7,
+            8,
         )
         .with_size_hint(COMPACT_WIDTH, 28.0),
         ExtensionDescriptor::builtin(
