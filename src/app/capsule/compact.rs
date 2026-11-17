@@ -122,7 +122,7 @@ fn render_node(
             );
             icons.paint(
                 ui.painter(),
-                icon_id(icon),
+                Icon::from_name(icon).unwrap_or(Icon::Close),
                 icon_rect,
                 role_color(*color),
                 opacity,
@@ -257,26 +257,13 @@ fn paint_icon(
 ) {
     icons.paint(
         ui.painter(),
-        icon_id(name),
+        Icon::from_name(name).unwrap_or(Icon::Close),
         Rect::from_center_size(rect.center(), Vec2::splat(COMPACT_ICON_SIZE)),
         role_color(color),
         opacity,
     );
 }
 
-fn icon_id(name: &str) -> Icon {
-    match name {
-        "battery" => Icon::Battery,
-        "battery-charging" => Icon::BatteryCharging,
-        "cpu" => Icon::Cpu,
-        "gpu" => Icon::Gpu,
-        "arrow-down" => Icon::ArrowDown,
-        "arrow-up" => Icon::ArrowUp,
-        "clock" => Icon::Clock,
-        "moon" => Icon::Moon,
-        _ => Icon::Close,
-    }
-}
 
 fn role_color(role: ColorRole) -> Color32 {
     match role {

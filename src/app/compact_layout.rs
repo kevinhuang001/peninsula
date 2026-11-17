@@ -37,7 +37,9 @@ pub(super) fn width(preferences: &CompactPreferences, available: &[CompactView])
 
 #[cfg(test)]
 mod tests {
-    use super::{item_widths, width, CAPSULE_HEIGHT, CHIP_HEIGHT, HORIZONTAL_PADDING, ITEM_GAP};
+    use super::{
+        item_widths, width, CAPSULE_HEIGHT, CHIP_HEIGHT, HORIZONTAL_PADDING, ITEM_GAP, MAX_WIDTH,
+    };
     use crate::{
         app::settings::CompactPreferences,
         builtins,
@@ -120,7 +122,7 @@ mod tests {
         let widths = item_widths(&preferences, &views);
         let required =
             widths.iter().sum::<f32>() + ITEM_GAP * (widths.len() - 1) as f32 + HORIZONTAL_PADDING;
-        assert_eq!(width(&preferences, &views), required);
+        assert_eq!(width(&preferences, &views), required.min(MAX_WIDTH));
     }
 
     #[test]
@@ -130,7 +132,7 @@ mod tests {
         preferences.move_compact_item(&ExtensionId::builtin("builtin.system-monitor/battery"), -1);
         assert_eq!(
             item_widths(&preferences, &views),
-            [54.0, 38.0, 88.0].to_vec()
+            [54.0, 38.0, 88.0, 68.0].to_vec()
         );
     }
 }

@@ -19,6 +19,14 @@ pub enum RefreshHint {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct StatCell {
+    pub label: String,
+    pub value: String,
+    pub icon: Option<String>,
+    pub color: ColorRole,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum ViewNode {
     Row(Vec<ViewNode>),
     Column(Vec<ViewNode>),
@@ -42,6 +50,35 @@ pub enum ViewNode {
         icon: Option<String>,
         color: ColorRole,
     },
+    /// Small rounded label, useful for status and warning summaries.
+    Badge {
+        text: String,
+        icon: Option<String>,
+        color: ColorRole,
+    },
+    /// A compact grid of labelled values, three columns wide.
+    StatGrid {
+        cells: Vec<StatCell>,
+    },
+    /// A range chart with a filled band between a high and a low series.
+    RangeChart {
+        labels: Vec<String>,
+        high: Vec<f32>,
+        low: Vec<f32>,
+    },
+    /// A progress arc between two labelled times, such as sunrise and sunset.
+    ArcMeter {
+        start_label: String,
+        end_label: String,
+        center_label: Option<String>,
+        progress: f32,
+    },
+    /// Forces a child to a fixed height inside a column.
+    Sized {
+        height: f32,
+        child: Box<ViewNode>,
+    },
+    Divider,
     NotificationItem {
         stable_id: String,
         title: String,
@@ -70,6 +107,8 @@ pub enum ViewNode {
 pub enum TextStyle {
     #[default]
     Body,
+    Display,
+    Title,
     Heading,
     Muted,
     Small,
@@ -262,6 +301,11 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
         Err("this extension does not support manual checks".into())
     }
     fn on_notifications_committed(&mut self, _notifications: &[super::Notification]) {}
+    /// Optional typed access used by the built-in host to push preferences
+    /// into a feature without making the extension contract feature-specific.
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        None
+    }
 }
 
 pub trait HostScheduler {

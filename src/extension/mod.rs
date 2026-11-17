@@ -14,5 +14,5 @@ pub use registry::{ExtensionRegistry, RegistrationError, NOTIFICATION_CENTER_ID}
 pub use view::{
     Action, ActionInvocation, AlertInteraction, ColorRole, CompactNode, CompactView, Event,
     ExtensionOutput, HostScheduler, NotificationPresentationProvider, RefreshHint,
-    RuntimeExtension, ScheduledTask, TextStyle, ViewNode, WidgetView,
+    RuntimeExtension, ScheduledTask, StatCell, TextStyle, ViewNode, WidgetView,
 };

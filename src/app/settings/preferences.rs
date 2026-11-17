@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    builtins::registry,
+    builtins::{registry, weather::WeatherPreferences},
     extension::{ExtensionId, ExtensionKind},
 };
 
@@ -18,10 +18,11 @@ pub struct CompactItemPreference {
     pub order: u32,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CompactPreferences {
     pub compact_items: Vec<CompactItemPreference>,
     pub quiet_hours: QuietHours,
+    pub weather: WeatherPreferences,
     pub pomodoro_focus_minutes: u16,
     pub pomodoro_break_minutes: u16,
     pub bilibili_enabled: bool,
@@ -47,6 +48,7 @@ impl Default for CompactPreferences {
         Self {
             compact_items,
             quiet_hours: QuietHours::default(),
+            weather: WeatherPreferences::default(),
             pomodoro_focus_minutes: 25,
             pomodoro_break_minutes: 5,
             bilibili_enabled: false,
@@ -130,6 +132,9 @@ impl CompactPreferences {
                 }
                 "opencli_path" => settings.opencli_path = value.trim().to_owned(),
                 key => {
+                    if settings.weather.apply_line(key, value) {
+                        continue;
+                    }
                     let Some(value) = parse_bool(value) else {
                         continue;
                     };
@@ -174,6 +179,7 @@ impl CompactPreferences {
             "quiet_periods={}",
             encode_periods(&self.quiet_hours)
         ));
+        lines.extend(self.weather.encode_lines());
         lines.push(format!(
             "pomodoro_focus_minutes={}",
             self.pomodoro_focus_minutes

@@ -60,7 +60,7 @@ struct IslandApp {
 impl IslandApp {
     fn new(context: &egui::Context) -> Self {
         let preferences = CompactPreferences::load();
-        let mut extensions = BuiltinExtensions::new();
+        let mut extensions = BuiltinExtensions::new(preferences.weather.clone());
         extensions.set_pomodoro_durations(
             preferences.pomodoro_focus_minutes,
             preferences.pomodoro_break_minutes,
@@ -462,6 +462,8 @@ impl eframe::App for IslandApp {
                 if let Err(error) = self.preferences.save() {
                     eprintln!("Unable to save settings: {error}");
                 }
+                self.extensions
+                    .apply_weather_preferences(&self.preferences.weather);
             }
             if let Some(action) = widget_action {
                 self.dispatch_widget_action(action, now, context);

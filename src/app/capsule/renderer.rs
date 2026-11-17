@@ -9,7 +9,10 @@ use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec
 use crate::app::settings::theme::{POMODORO_BUTTON, WIDGET_BUTTON};
 
 const CARD: Color32 = Color32::from_rgb(27, 29, 34);
+const CHART_CARD: Color32 = Color32::from_rgb(23, 26, 32);
 const MUTED: Color32 = Color32::from_rgb(177, 183, 194);
+const CHART_HIGH: Color32 = Color32::from_rgb(255, 159, 109);
+const CHART_LOW: Color32 = Color32::from_rgb(99, 179, 255);
 
 pub(super) fn show_widget(
     ui: &mut egui::Ui,
@@ -65,6 +68,8 @@ fn paint_node(
         }
         ViewNode::Text { text, style } => {
             let (size, color, align) = match style {
+                TextStyle::Display => (30.0, Color32::WHITE, Align2::CENTER_CENTER),
+                TextStyle::Title => (17.0, Color32::WHITE, Align2::CENTER_CENTER),
                 TextStyle::Heading => (14.0, Color32::WHITE, Align2::CENTER_CENTER),
                 TextStyle::Muted => (11.0, MUTED, Align2::CENTER_CENTER),
                 TextStyle::Small => (10.0, MUTED, Align2::CENTER_CENTER),
@@ -79,7 +84,7 @@ fn paint_node(
             );
         }
         ViewNode::Icon { name, color } => {
-            if let Some(icon) = icon_from_name(name) {
+            if let Some(icon) = Icon::from_name(name) {
                 icons.paint(
                     ui.painter(),
                     icon,
@@ -130,7 +135,7 @@ fn paint_node(
             } else {
                 rect.top() + 28.0
             };
-            if let Some(name) = icon.as_deref().and_then(icon_from_name) {
+            if let Some(name) = icon.as_deref().and_then(Icon::from_name) {
                 let icon_rect = Rect::from_center_size(
                     Pos2::new(rect.center().x - 18.0, value_y + 8.0),
                     Vec2::splat(16.0),
@@ -161,6 +166,282 @@ fn paint_node(
                     color_from_role(*color).linear_multiply(opacity),
                 );
             }
+        }
+        ViewNode::Badge { text, icon, color } => {
+            let painter = ui.painter();
+            let role = color_from_role(*color);
+            let text_width = painter
+                .layout_no_wrap(text.clone(), FontId::proportional(9.5), role)
+                .size()
+                .x;
+            let icon_width = if icon.is_some() { 16.0 } else { 0.0 };
+            let width = (text_width + icon_width + 16.0).min(rect.width());
+            let badge = Rect::from_center_size(rect.center(), Vec2::new(width, 18.0));
+            painter.rect_filled(
+                badge,
+                9.0,
+                Color32::from_rgba_unmultiplied(role.r(), role.g(), role.b(), 26)
+                    .linear_multiply(opacity),
+            );
+            painter.rect_stroke(
+                badge,
+                9.0,
+                Stroke::new(1.0_f32, role.linear_multiply(0.32 * opacity)),
+                egui::StrokeKind::Inside,
+            );
+            let mut left = badge.center().x - (text_width + icon_width) * 0.5;
+            if let Some(name) = icon.as_deref().and_then(Icon::from_name) {
+                icons.paint(
+                    painter,
+                    name,
+                    Rect::from_center_size(
+                        Pos2::new(left + 5.0, badge.center().y),
+                        Vec2::splat(10.0),
+                    ),
+                    role.linear_multiply(opacity),
+                    opacity,
+                );
+                left += icon_width;
+            }
+            painter.text(
+                Pos2::new(left, badge.center().y),
+                Align2::LEFT_CENTER,
+                text,
+                FontId::proportional(9.5),
+                role.linear_multiply(opacity),
+            );
+        }
+        ViewNode::StatGrid { cells } => {
+            if cells.is_empty() {
+                return None;
+            }
+            let painter = ui.painter();
+            let columns = 3;
+            let rows = cells.len().div_ceil(columns);
+            let gap = 4.0;
+            let cell_width = (rect.width() - gap * (columns as f32 - 1.0)) / columns as f32;
+            let cell_height = (rect.height() - gap * (rows as f32 - 1.0)) / rows as f32;
+            for (index, cell) in cells.iter().enumerate() {
+                let row = index / columns;
+                let column = index % columns;
+                let cell_rect = Rect::from_min_size(
+                    Pos2::new(
+                        rect.left() + column as f32 * (cell_width + gap),
+                        rect.top() + row as f32 * (cell_height + gap),
+                    ),
+                    Vec2::new(cell_width, cell_height),
+                );
+                painter.rect_filled(cell_rect, 8.0, CARD.linear_multiply(opacity));
+                let mut text_left = cell_rect.left() + 9.0;
+                if let Some(name) = cell.icon.as_deref().and_then(Icon::from_name) {
+                    icons.paint(
+                        painter,
+                        name,
+                        Rect::from_center_size(
+                            Pos2::new(cell_rect.left() + 15.0, cell_rect.center().y),
+                            Vec2::splat(11.0),
+                        ),
+                        color_from_role(cell.color).linear_multiply(opacity),
+                        opacity,
+                    );
+                    text_left = cell_rect.left() + 27.0;
+                }
+                painter.text(
+                    Pos2::new(text_left, cell_rect.top() + 4.0),
+                    Align2::LEFT_TOP,
+                    &cell.label,
+                    FontId::proportional(8.6),
+                    MUTED.linear_multiply(opacity),
+                );
+                painter.text(
+                    Pos2::new(text_left, cell_rect.bottom() - 5.0),
+                    Align2::LEFT_BOTTOM,
+                    &cell.value,
+                    FontId::proportional(10.5),
+                    color_from_role(cell.color).linear_multiply(opacity),
+                );
+            }
+        }
+        ViewNode::RangeChart { labels, high, low } => {
+            let count = labels.len().min(high.len()).min(low.len());
+            if count == 0 {
+                return None;
+            }
+            let painter = ui.painter();
+            painter.rect_filled(rect, 10.0, CHART_CARD.linear_multiply(opacity));
+            let plot = Rect::from_min_max(
+                Pos2::new(rect.left() + 14.0, rect.top() + 17.0),
+                Pos2::new(rect.right() - 14.0, rect.bottom() - 17.0),
+            );
+            let mut min = low
+                .iter()
+                .take(count)
+                .fold(f32::INFINITY, |min, value| min.min(*value));
+            let mut max = high
+                .iter()
+                .take(count)
+                .fold(f32::NEG_INFINITY, |max, value| max.max(*value));
+            if !min.is_finite() || !max.is_finite() {
+                return None;
+            }
+            let padding = (max - min).abs().max(1.0) * 0.18 + 1.0;
+            min -= padding;
+            max += padding;
+            let span = (max - min).max(0.1);
+            let x_at = |index: usize| {
+                if count == 1 {
+                    plot.center().x
+                } else {
+                    plot.left() + plot.width() * index as f32 / (count - 1) as f32
+                }
+            };
+            let y_at = |value: f32| plot.bottom() - (value - min) / span * plot.height();
+            for line in 0..=2 {
+                let y = plot.top() + plot.height() * line as f32 / 2.0;
+                painter.line_segment(
+                    [
+                        Pos2::new(plot.left(), y),
+                        Pos2::new(plot.right(), y),
+                    ],
+                    Stroke::new(1.0_f32, Color32::from_white_alpha(9).linear_multiply(opacity)),
+                );
+            }
+            let high_points: Vec<_> = (0..count)
+                .map(|index| Pos2::new(x_at(index), y_at(high[index])))
+                .collect();
+            let low_points: Vec<_> = (0..count)
+                .map(|index| Pos2::new(x_at(index), y_at(low[index])))
+                .collect();
+            let band = Color32::from_rgba_unmultiplied(99, 179, 255, 24).linear_multiply(opacity);
+            for index in 0..count.saturating_sub(1) {
+                painter.add(egui::Shape::convex_polygon(
+                    vec![
+                        high_points[index],
+                        high_points[index + 1],
+                        low_points[index + 1],
+                        low_points[index],
+                    ],
+                    band,
+                    Stroke::NONE,
+                ));
+            }
+            painter.add(egui::Shape::line(
+                high_points.clone(),
+                Stroke::new(1.6_f32, CHART_HIGH.linear_multiply(opacity)),
+            ));
+            painter.add(egui::Shape::line(
+                low_points.clone(),
+                Stroke::new(1.6_f32, CHART_LOW.linear_multiply(opacity)),
+            ));
+            for index in 0..count {
+                painter.circle_filled(high_points[index], 2.4, CHART_HIGH.linear_multiply(opacity));
+                painter.circle_filled(low_points[index], 2.4, CHART_LOW.linear_multiply(opacity));
+                painter.text(
+                    high_points[index] + Vec2::new(0.0, -5.0),
+                    Align2::CENTER_BOTTOM,
+                    format!("{:.0}°", high[index]),
+                    FontId::proportional(8.0),
+                    CHART_HIGH.linear_multiply(opacity),
+                );
+                painter.text(
+                    low_points[index] + Vec2::new(0.0, 5.0),
+                    Align2::CENTER_TOP,
+                    format!("{:.0}°", low[index]),
+                    FontId::proportional(8.0),
+                    CHART_LOW.linear_multiply(opacity),
+                );
+                painter.text(
+                    Pos2::new(x_at(index), rect.bottom() - 4.0),
+                    Align2::CENTER_BOTTOM,
+                    &labels[index],
+                    FontId::proportional(8.4),
+                    MUTED.linear_multiply(opacity),
+                );
+            }
+        }
+        ViewNode::ArcMeter {
+            start_label,
+            end_label,
+            center_label,
+            progress,
+        } => {
+            let painter = ui.painter();
+            let baseline = rect.bottom() - 1.0;
+            let arc_left = rect.left() + 88.0;
+            let arc_right = rect.right() - 88.0;
+            let radius = ((arc_right - arc_left) * 0.5).min(rect.height() - 8.0);
+            if radius > 2.0 {
+                let center = Pos2::new(rect.center().x, baseline);
+                let arc_points = |from: f32, to: f32| {
+                    let segments = 32;
+                    (0..=segments)
+                        .map(|index| {
+                            let angle = from + (to - from) * index as f32 / segments as f32;
+                            center + Vec2::new(angle.cos(), -angle.sin()) * radius
+                        })
+                        .collect::<Vec<_>>()
+                };
+                painter.add(egui::Shape::line(
+                    arc_points(std::f32::consts::PI, 0.0),
+                    Stroke::new(1.2_f32, Color32::from_rgb(62, 68, 79).linear_multiply(opacity)),
+                ));
+                let progress = progress.clamp(0.0, 1.0);
+                let angle = std::f32::consts::PI * (1.0 - progress);
+                painter.add(egui::Shape::line(
+                    arc_points(std::f32::consts::PI, angle),
+                    Stroke::new(1.8_f32, Color32::from_rgb(255, 186, 92).linear_multiply(opacity)),
+                ));
+                let sun = center + Vec2::new(angle.cos(), -angle.sin()) * radius;
+                painter.circle_filled(
+                    sun,
+                    4.2,
+                    Color32::from_rgba_unmultiplied(255, 186, 92, 38).linear_multiply(opacity),
+                );
+                painter.circle_filled(
+                    sun,
+                    2.4,
+                    Color32::from_rgb(255, 200, 112).linear_multiply(opacity),
+                );
+            }
+            painter.text(
+                Pos2::new(rect.left() + 2.0, rect.center().y),
+                Align2::LEFT_CENTER,
+                start_label,
+                FontId::proportional(8.8),
+                MUTED.linear_multiply(opacity),
+            );
+            painter.text(
+                Pos2::new(rect.right() - 2.0, rect.center().y),
+                Align2::RIGHT_CENTER,
+                end_label,
+                FontId::proportional(8.8),
+                MUTED.linear_multiply(opacity),
+            );
+            if let Some(label) = center_label {
+                painter.text(
+                    Pos2::new(rect.center().x, rect.top() + 1.0),
+                    Align2::CENTER_TOP,
+                    label,
+                    FontId::proportional(8.2),
+                    MUTED.linear_multiply(opacity),
+                );
+            }
+        }
+        ViewNode::Sized { height, child } => {
+            let child_rect = Rect::from_min_size(
+                rect.min,
+                Vec2::new(rect.width(), (*height).min(rect.height())),
+            );
+            return paint_node(ui, child_rect, child, source_id, icons, opacity);
+        }
+        ViewNode::Divider => {
+            ui.painter().line_segment(
+                [
+                    Pos2::new(rect.left() + 4.0, rect.center().y),
+                    Pos2::new(rect.right() - 4.0, rect.center().y),
+                ],
+                Stroke::new(1.0_f32, Color32::from_rgb(49, 53, 61).linear_multiply(opacity)),
+            );
         }
         ViewNode::NotificationItem {
             stable_id,
@@ -194,7 +475,7 @@ fn paint_node(
             } else {
                 rect.left() + 9.0
             };
-            if let Some(name) = icon.as_deref().and_then(icon_from_name) {
+            if let Some(name) = icon.as_deref().and_then(Icon::from_name) {
                 icons.paint(
                     ui.painter(),
                     name,
@@ -320,6 +601,18 @@ fn preferred_height(node: &ViewNode) -> f32 {
         }
         ViewNode::Button { .. } => 24.0,
         ViewNode::NotificationItem { .. } => 40.0,
+        ViewNode::Badge { .. } => 20.0,
+        ViewNode::StatGrid { cells } => {
+            if cells.is_empty() {
+                0.0
+            } else {
+                64.0
+            }
+        }
+        ViewNode::RangeChart { .. } => 78.0,
+        ViewNode::ArcMeter { .. } => 28.0,
+        ViewNode::Sized { height, .. } => *height,
+        ViewNode::Divider => 9.0,
         ViewNode::Spacer { size } => size[1],
         _ => 0.0,
     }
@@ -335,18 +628,6 @@ fn color_from_role(role: ColorRole) -> Color32 {
     }
 }
 
-fn icon_from_name(name: &str) -> Option<Icon> {
-    Some(match name {
-        "battery" => Icon::Battery,
-        "battery-charging" => Icon::BatteryCharging,
-        "cpu" => Icon::Cpu,
-        "gpu" => Icon::Gpu,
-        "arrow-down" => Icon::ArrowDown,
-        "arrow-up" => Icon::ArrowUp,
-        "clock" => Icon::Clock,
-        _ => return None,
-    })
-}
 
 fn progress_points(center: Pos2, radius: f32, fraction: f32) -> Vec<Pos2> {
     let fraction = fraction.clamp(0.0, 1.0);

@@ -27,6 +27,7 @@ fn preferences_round_trip_and_migrate_legacy_flags_order_and_quiet_hours() {
             "builtin.clock/time",
             "builtin.downloads/status",
             "builtin.pomodoro/status",
+            "builtin.weather/current",
         ]
     );
     assert!(legacy.quiet_hours.manual_enabled);
@@ -42,7 +43,7 @@ fn duplicate_and_invalid_ids_are_ignored_and_items_can_be_reordered() {
     let mut preferences = CompactPreferences::parse(
         "compact_order=3,3,99,1\nextension=builtin.test/widget|true|20\nextension= bad id |true|1\n",
     );
-    assert_eq!(preferences.compact_items.len(), 9);
+    assert_eq!(preferences.compact_items.len(), 10);
     assert_eq!(
         preferences.ordered_compact_items()[0].id,
         id("builtin.system-monitor/gpu")

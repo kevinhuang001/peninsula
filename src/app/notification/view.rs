@@ -16,7 +16,7 @@ pub fn show_alert(
     max_actions: usize,
 ) -> Option<AlertInteraction> {
     let painter = ui.painter().clone();
-    if let Some(icon) = view.icon.as_deref().and_then(icon_from_name) {
+    if let Some(icon) = view.icon.as_deref().and_then(Icon::from_name) {
         icons.paint(
             &painter,
             icon,
@@ -116,16 +116,6 @@ pub fn show_alert(
     None
 }
 
-fn icon_from_name(name: &str) -> Option<Icon> {
-    Some(match name {
-        "battery" => Icon::Battery,
-        "battery-charging" => Icon::BatteryCharging,
-        "arrow-down" => Icon::ArrowDown,
-        "arrow-up" => Icon::ArrowUp,
-        "clock" => Icon::Clock,
-        _ => return None,
-    })
-}
 
 fn truncate(text: &str, max: usize) -> String {
     if text.chars().count() <= max {

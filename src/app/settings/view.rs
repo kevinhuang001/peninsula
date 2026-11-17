@@ -5,6 +5,7 @@ use super::{
         ACCENT, ACCENT_SELECTED, BACKGROUND, BORDER, CHECKBOX_ON, PANEL, ROW, SECONDARY_TEXT,
         SETTINGS_BUTTON, SWITCH_OFF, SWITCH_ON, TEXT,
     },
+    weather_view::{self, WeatherSearch},
     CompactPreferences,
 };
 use crate::{builtins::registry, extension::ExtensionId};
@@ -14,10 +15,11 @@ const COMPACT_ROW_TOP: f32 = 43.0;
 const COMPACT_ROW_STEP: f32 = 32.0;
 const COMPACT_ROW_HEIGHT: f32 = 26.0;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Default)]
 pub struct SettingsView {
     section: Section,
     quiet_dialog: Option<QuietDialog>,
+    weather_search: WeatherSearch,
 }
 
 impl SettingsView {
@@ -117,6 +119,9 @@ impl SettingsView {
         }
         match self.section {
             Section::Compact => paint_compact_options(ui, panel, preferences),
+            Section::Weather => {
+                weather_view::show(ui, panel, preferences, &mut self.weather_search)
+            }
             Section::QuietHours => quiet_view::show(
                 ui,
                 panel,

@@ -29,11 +29,12 @@ mod tests {
     #[test]
     fn notification_center_is_always_first_and_is_the_default_widget() {
         let ids = widget_ids();
-        assert_eq!(ids.len(), 3);
+        assert_eq!(ids.len(), 4);
         assert_eq!(ids[0], default_widget_id());
         assert_eq!(ids[0].as_str(), crate::extension::NOTIFICATION_CENTER_ID);
         assert_eq!(ids[1].as_str(), "builtin.system-monitor/overview");
         assert_eq!(ids[2].as_str(), "builtin.pomodoro/timer");
+        assert_eq!(ids[3].as_str(), "builtin.weather/forecast");
     }
 
     #[test]

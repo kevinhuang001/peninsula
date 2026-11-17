@@ -2,6 +2,7 @@ pub mod bilibili;
 pub mod download;
 pub mod performance;
 pub mod pomodoro;
+pub mod weather;
 
 use crate::{
     core::notifications,
@@ -12,6 +13,7 @@ use crate::{
     },
 };
 use std::path::PathBuf;
+use weather::{WeatherExtension, WeatherPreferences};
 use std::time::Instant;
 
 mod extras;
@@ -27,6 +29,7 @@ pub fn registry() -> ExtensionRegistry {
             std::iter::once(bilibili::BilibiliExtension::default())
                 .flat_map(|extension| extension.descriptors()),
         )
+        .chain(weather::descriptors())
         .chain(extras::descriptors())
     {
         registry
@@ -46,7 +49,7 @@ pub struct BuiltinExtensions {
 }
 
 impl BuiltinExtensions {
-    pub fn new() -> Self {
+    pub fn new(weather_preferences: WeatherPreferences) -> Self {
         let mut host = Self {
             registry: registry(),
             extensions: vec![
@@ -54,6 +57,7 @@ impl BuiltinExtensions {
                 Box::new(download::DownloadExtension::new()),
                 Box::new(pomodoro::PomodoroExtension::default()),
                 Box::new(bilibili::BilibiliExtension::default()),
+                Box::new(WeatherExtension::new(weather_preferences)),
                 Box::new(extras::CompactExtras),
             ],
             lifecycle: LifecycleManager::load(Some(lifecycle_path())),
@@ -124,6 +128,18 @@ impl BuiltinExtensions {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    pub fn apply_weather_preferences(&mut self, preferences: &WeatherPreferences) {
+        for extension in &mut self.extensions {
+            let Some(any) = extension.as_any_mut() else {
+                continue;
+            };
+            if let Some(weather) = any.downcast_mut::<WeatherExtension>() {
+                weather.set_preferences(preferences);
+                return;
             }
         }
     }
@@ -538,6 +554,6 @@ fn lifecycle_path() -> PathBuf {
 
 impl Default for BuiltinExtensions {
     fn default() -> Self {
-        Self::new()
+        Self::new(WeatherPreferences::default())
     }
 }

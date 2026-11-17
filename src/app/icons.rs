@@ -13,6 +13,67 @@ pub(super) enum Icon {
     ArrowUp,
     Clock,
     Close,
+    Sun,
+    Cloud,
+    CloudSun,
+    CloudMoon,
+    CloudRain,
+    CloudSnow,
+    CloudLightning,
+    CloudFog,
+    CloudDrizzle,
+    Wind,
+    Droplet,
+    Thermometer,
+    Sunrise,
+    Sunset,
+    Gauge,
+    Eye,
+    AlertTriangle,
+    MapPin,
+    Search,
+    Locate,
+    CloudOff,
+}
+
+impl Icon {
+    pub(super) fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "pin" => Icon::Pin,
+            "moon" | "clear-night" => Icon::Moon,
+            "settings" => Icon::Settings,
+            "battery" => Icon::Battery,
+            "battery-charging" => Icon::BatteryCharging,
+            "cpu" => Icon::Cpu,
+            "gpu" => Icon::Gpu,
+            "arrow-down" => Icon::ArrowDown,
+            "arrow-up" => Icon::ArrowUp,
+            "clock" => Icon::Clock,
+            "close" => Icon::Close,
+            "sun" | "clear-day" => Icon::Sun,
+            "cloud" => Icon::Cloud,
+            "cloud-sun" | "partly-cloudy-day" => Icon::CloudSun,
+            "cloud-moon" | "partly-cloudy-night" => Icon::CloudMoon,
+            "cloud-rain" | "rain" => Icon::CloudRain,
+            "cloud-snow" | "snow" => Icon::CloudSnow,
+            "cloud-lightning" | "thunderstorm" => Icon::CloudLightning,
+            "cloud-fog" | "fog" => Icon::CloudFog,
+            "cloud-drizzle" | "drizzle" => Icon::CloudDrizzle,
+            "wind" => Icon::Wind,
+            "droplet" => Icon::Droplet,
+            "thermometer" => Icon::Thermometer,
+            "sunrise" => Icon::Sunrise,
+            "sunset" => Icon::Sunset,
+            "gauge" => Icon::Gauge,
+            "eye" => Icon::Eye,
+            "triangle-alert" | "alert" => Icon::AlertTriangle,
+            "map-pin" => Icon::MapPin,
+            "search" => Icon::Search,
+            "locate-fixed" | "locate" => Icon::Locate,
+            "cloud-off" => Icon::CloudOff,
+            _ => return None,
+        })
+    }
 }
 
 pub(super) struct Icons {
@@ -25,6 +86,27 @@ pub(super) struct Icons {
     arrow_up: TextureHandle,
     clock: TextureHandle,
     close: TextureHandle,
+    sun: TextureHandle,
+    cloud: TextureHandle,
+    cloud_sun: TextureHandle,
+    cloud_moon: TextureHandle,
+    cloud_rain: TextureHandle,
+    cloud_snow: TextureHandle,
+    cloud_lightning: TextureHandle,
+    cloud_fog: TextureHandle,
+    cloud_drizzle: TextureHandle,
+    wind: TextureHandle,
+    droplet: TextureHandle,
+    thermometer: TextureHandle,
+    sunrise: TextureHandle,
+    sunset: TextureHandle,
+    gauge: TextureHandle,
+    eye: TextureHandle,
+    alert_triangle: TextureHandle,
+    map_pin: TextureHandle,
+    search: TextureHandle,
+    locate: TextureHandle,
+    cloud_off: TextureHandle,
 }
 
 impl Icons {
@@ -75,6 +157,111 @@ impl Icons {
                 "lucide-close",
                 include_bytes!("../../assets/icons/lucide/x.svg"),
             ),
+            sun: load(
+                context,
+                "lucide-sun",
+                include_bytes!("../../assets/icons/lucide/sun.svg"),
+            ),
+            cloud: load(
+                context,
+                "lucide-cloud",
+                include_bytes!("../../assets/icons/lucide/cloud.svg"),
+            ),
+            cloud_sun: load(
+                context,
+                "lucide-cloud-sun",
+                include_bytes!("../../assets/icons/lucide/cloud-sun.svg"),
+            ),
+            cloud_moon: load(
+                context,
+                "lucide-cloud-moon",
+                include_bytes!("../../assets/icons/lucide/cloud-moon.svg"),
+            ),
+            cloud_rain: load(
+                context,
+                "lucide-cloud-rain",
+                include_bytes!("../../assets/icons/lucide/cloud-rain.svg"),
+            ),
+            cloud_snow: load(
+                context,
+                "lucide-cloud-snow",
+                include_bytes!("../../assets/icons/lucide/cloud-snow.svg"),
+            ),
+            cloud_lightning: load(
+                context,
+                "lucide-cloud-lightning",
+                include_bytes!("../../assets/icons/lucide/cloud-lightning.svg"),
+            ),
+            cloud_fog: load(
+                context,
+                "lucide-cloud-fog",
+                include_bytes!("../../assets/icons/lucide/cloud-fog.svg"),
+            ),
+            cloud_drizzle: load(
+                context,
+                "lucide-cloud-drizzle",
+                include_bytes!("../../assets/icons/lucide/cloud-drizzle.svg"),
+            ),
+            wind: load(
+                context,
+                "lucide-wind",
+                include_bytes!("../../assets/icons/lucide/wind.svg"),
+            ),
+            droplet: load(
+                context,
+                "lucide-droplet",
+                include_bytes!("../../assets/icons/lucide/droplet.svg"),
+            ),
+            thermometer: load(
+                context,
+                "lucide-thermometer",
+                include_bytes!("../../assets/icons/lucide/thermometer.svg"),
+            ),
+            sunrise: load(
+                context,
+                "lucide-sunrise",
+                include_bytes!("../../assets/icons/lucide/sunrise.svg"),
+            ),
+            sunset: load(
+                context,
+                "lucide-sunset",
+                include_bytes!("../../assets/icons/lucide/sunset.svg"),
+            ),
+            gauge: load(
+                context,
+                "lucide-gauge",
+                include_bytes!("../../assets/icons/lucide/gauge.svg"),
+            ),
+            eye: load(
+                context,
+                "lucide-eye",
+                include_bytes!("../../assets/icons/lucide/eye.svg"),
+            ),
+            alert_triangle: load(
+                context,
+                "lucide-triangle-alert",
+                include_bytes!("../../assets/icons/lucide/triangle-alert.svg"),
+            ),
+            map_pin: load(
+                context,
+                "lucide-map-pin",
+                include_bytes!("../../assets/icons/lucide/map-pin.svg"),
+            ),
+            search: load(
+                context,
+                "lucide-search",
+                include_bytes!("../../assets/icons/lucide/search.svg"),
+            ),
+            locate: load(
+                context,
+                "lucide-locate-fixed",
+                include_bytes!("../../assets/icons/lucide/locate-fixed.svg"),
+            ),
+            cloud_off: load(
+                context,
+                "lucide-cloud-off",
+                include_bytes!("../../assets/icons/lucide/cloud-off.svg"),
+            ),
         }
     }
 
@@ -98,6 +285,27 @@ impl Icons {
             Icon::ArrowUp => &self.arrow_up,
             Icon::Clock => &self.clock,
             Icon::Close => &self.close,
+            Icon::Sun => &self.sun,
+            Icon::Cloud => &self.cloud,
+            Icon::CloudSun => &self.cloud_sun,
+            Icon::CloudMoon => &self.cloud_moon,
+            Icon::CloudRain => &self.cloud_rain,
+            Icon::CloudSnow => &self.cloud_snow,
+            Icon::CloudLightning => &self.cloud_lightning,
+            Icon::CloudFog => &self.cloud_fog,
+            Icon::CloudDrizzle => &self.cloud_drizzle,
+            Icon::Wind => &self.wind,
+            Icon::Droplet => &self.droplet,
+            Icon::Thermometer => &self.thermometer,
+            Icon::Sunrise => &self.sunrise,
+            Icon::Sunset => &self.sunset,
+            Icon::Gauge => &self.gauge,
+            Icon::Eye => &self.eye,
+            Icon::AlertTriangle => &self.alert_triangle,
+            Icon::MapPin => &self.map_pin,
+            Icon::Search => &self.search,
+            Icon::Locate => &self.locate,
+            Icon::CloudOff => &self.cloud_off,
         };
         painter.image(
             texture.id(),
@@ -183,7 +391,7 @@ fn load(context: &egui::Context, name: &str, svg: &[u8]) -> TextureHandle {
 
 #[cfg(test)]
 mod tests {
-    use super::Icons;
+    use super::{Icon, Icons};
 
     #[test]
     fn bundled_lucide_icons_load_and_are_attributed_under_the_open_license() {
@@ -191,7 +399,38 @@ mod tests {
         let icons = Icons::load(&context);
         assert!(icons.pin.size()[0] > 0);
         assert!(icons.battery_charging.size()[0] > 0);
+        assert!(icons.cloud_sun.size()[0] > 0);
         let license = include_str!("../../assets/icons/lucide/LICENSE");
         assert!(license.contains("ISC License"));
+    }
+
+    #[test]
+    fn weather_icon_names_resolve_for_views_and_compact_items() {
+        for name in [
+            "sun",
+            "cloud",
+            "cloud-sun",
+            "cloud-moon",
+            "cloud-rain",
+            "cloud-snow",
+            "cloud-lightning",
+            "cloud-fog",
+            "cloud-drizzle",
+            "wind",
+            "droplet",
+            "thermometer",
+            "sunrise",
+            "sunset",
+            "gauge",
+            "eye",
+            "triangle-alert",
+            "map-pin",
+            "search",
+            "locate-fixed",
+            "cloud-off",
+        ] {
+            assert!(Icon::from_name(name).is_some(), "missing icon {name}");
+        }
+        assert!(Icon::from_name("not-an-icon").is_none());
     }
 }
