@@ -81,7 +81,10 @@ pub fn parse_cities(body: &str) -> Result<Vec<CityResult>, String> {
             let name = result.get("name")?.as_str()?.trim().to_owned();
             let latitude = result.get("latitude")?.as_f64()?;
             let longitude = result.get("longitude")?.as_f64()?;
-            if name.is_empty() || !(-90.0..=90.0).contains(&latitude) {
+            if name.is_empty()
+                || !(-90.0..=90.0).contains(&latitude)
+                || !(-180.0..=180.0).contains(&longitude)
+            {
                 return None;
             }
             Some(CityResult {
@@ -106,7 +109,11 @@ pub fn parse_cities(body: &str) -> Result<Vec<CityResult>, String> {
 pub fn parse_ip_location(body: &str) -> Result<Location, String> {
     let root: Value =
         serde_json::from_str(body).map_err(|error| format!("定位结果解析失败：{error}"))?;
-    if !root.get("success").and_then(Value::as_bool).unwrap_or(false) {
+    if !root
+        .get("success")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
         return Err("无法根据网络位置定位，请在设置中选择城市".into());
     }
     let latitude = root
@@ -203,7 +210,8 @@ fn forecast_url(location: &Location) -> String {
         "temperature_2m",
         "apparent_temperature",
         "precipitation_probability",
-        "precipitation",
+        "rain",
+        "showers",
         "weather_code",
         "wind_speed_10m",
         "wind_gusts_10m",

@@ -26,27 +26,6 @@ pub(crate) struct Icons {
     arrow_up: TextureHandle,
     clock: TextureHandle,
     close: TextureHandle,
-    sun: TextureHandle,
-    cloud: TextureHandle,
-    cloud_sun: TextureHandle,
-    cloud_moon: TextureHandle,
-    cloud_rain: TextureHandle,
-    cloud_snow: TextureHandle,
-    cloud_lightning: TextureHandle,
-    cloud_fog: TextureHandle,
-    cloud_drizzle: TextureHandle,
-    wind: TextureHandle,
-    droplet: TextureHandle,
-    thermometer: TextureHandle,
-    sunrise: TextureHandle,
-    sunset: TextureHandle,
-    gauge: TextureHandle,
-    eye: TextureHandle,
-    alert_triangle: TextureHandle,
-    map_pin: TextureHandle,
-    search: TextureHandle,
-    locate: TextureHandle,
-    cloud_off: TextureHandle,
 }
 
 impl Icons {
@@ -106,6 +85,94 @@ impl Icons {
         ] {
             crate::ui::renderer::register_image(context, name, texture.clone());
         }
+        for (name, svg) in [
+            (
+                "cloud-drizzle",
+                include_bytes!("../../assets/icons/lucide/cloud-drizzle.svg").as_slice(),
+            ),
+            (
+                "cloud-fog",
+                include_bytes!("../../assets/icons/lucide/cloud-fog.svg").as_slice(),
+            ),
+            (
+                "cloud-lightning",
+                include_bytes!("../../assets/icons/lucide/cloud-lightning.svg").as_slice(),
+            ),
+            (
+                "cloud-moon",
+                include_bytes!("../../assets/icons/lucide/cloud-moon.svg").as_slice(),
+            ),
+            (
+                "cloud-off",
+                include_bytes!("../../assets/icons/lucide/cloud-off.svg").as_slice(),
+            ),
+            (
+                "cloud-rain",
+                include_bytes!("../../assets/icons/lucide/cloud-rain.svg").as_slice(),
+            ),
+            (
+                "cloud-snow",
+                include_bytes!("../../assets/icons/lucide/cloud-snow.svg").as_slice(),
+            ),
+            (
+                "cloud-sun",
+                include_bytes!("../../assets/icons/lucide/cloud-sun.svg").as_slice(),
+            ),
+            (
+                "cloud",
+                include_bytes!("../../assets/icons/lucide/cloud.svg").as_slice(),
+            ),
+            (
+                "droplet",
+                include_bytes!("../../assets/icons/lucide/droplet.svg").as_slice(),
+            ),
+            (
+                "eye",
+                include_bytes!("../../assets/icons/lucide/eye.svg").as_slice(),
+            ),
+            (
+                "gauge",
+                include_bytes!("../../assets/icons/lucide/gauge.svg").as_slice(),
+            ),
+            (
+                "locate-fixed",
+                include_bytes!("../../assets/icons/lucide/locate-fixed.svg").as_slice(),
+            ),
+            (
+                "map-pin",
+                include_bytes!("../../assets/icons/lucide/map-pin.svg").as_slice(),
+            ),
+            (
+                "search",
+                include_bytes!("../../assets/icons/lucide/search.svg").as_slice(),
+            ),
+            (
+                "sun",
+                include_bytes!("../../assets/icons/lucide/sun.svg").as_slice(),
+            ),
+            (
+                "sunrise",
+                include_bytes!("../../assets/icons/lucide/sunrise.svg").as_slice(),
+            ),
+            (
+                "sunset",
+                include_bytes!("../../assets/icons/lucide/sunset.svg").as_slice(),
+            ),
+            (
+                "thermometer",
+                include_bytes!("../../assets/icons/lucide/thermometer.svg").as_slice(),
+            ),
+            (
+                "triangle-alert",
+                include_bytes!("../../assets/icons/lucide/triangle-alert.svg").as_slice(),
+            ),
+            (
+                "wind",
+                include_bytes!("../../assets/icons/lucide/wind.svg").as_slice(),
+            ),
+        ] {
+            crate::ui::renderer::register_image(context, name, load(context, name, svg));
+        }
         icons
     }
 
@@ -149,27 +216,6 @@ impl Icons {
             Icon::ArrowUp => &self.arrow_up,
             Icon::Clock => &self.clock,
             Icon::Close => &self.close,
-            Icon::Sun => &self.sun,
-            Icon::Cloud => &self.cloud,
-            Icon::CloudSun => &self.cloud_sun,
-            Icon::CloudMoon => &self.cloud_moon,
-            Icon::CloudRain => &self.cloud_rain,
-            Icon::CloudSnow => &self.cloud_snow,
-            Icon::CloudLightning => &self.cloud_lightning,
-            Icon::CloudFog => &self.cloud_fog,
-            Icon::CloudDrizzle => &self.cloud_drizzle,
-            Icon::Wind => &self.wind,
-            Icon::Droplet => &self.droplet,
-            Icon::Thermometer => &self.thermometer,
-            Icon::Sunrise => &self.sunrise,
-            Icon::Sunset => &self.sunset,
-            Icon::Gauge => &self.gauge,
-            Icon::Eye => &self.eye,
-            Icon::AlertTriangle => &self.alert_triangle,
-            Icon::MapPin => &self.map_pin,
-            Icon::Search => &self.search,
-            Icon::Locate => &self.locate,
-            Icon::CloudOff => &self.cloud_off,
         };
         painter.image(
             texture.id(),
@@ -248,17 +294,14 @@ fn paint_gpu(painter: &Painter, rect: Rect, color: Color32) {
 
 fn load(context: &egui::Context, name: &str, svg: &[u8]) -> TextureHandle {
     let svg = String::from_utf8_lossy(svg).replace("currentColor", "#FFFFFF");
-    let image = egui_extras::image::load_svg_bytes_with_size(
-        svg.as_bytes(),
-        Some(egui::SizeHint::Size(96, 96)),
-    )
-    .unwrap_or_else(|error| panic!("invalid bundled Lucide icon {name}: {error}"));
+    let image = egui_extras::image::load_svg_bytes(svg.as_bytes())
+        .unwrap_or_else(|error| panic!("invalid bundled Lucide icon {name}: {error}"));
     context.load_texture(name, image, egui::TextureOptions::LINEAR)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Icon, Icons};
+    use super::Icons;
 
     #[test]
     fn bundled_lucide_icons_load_and_are_attributed_under_the_open_license() {
@@ -266,38 +309,7 @@ mod tests {
         let icons = Icons::load(&context);
         assert!(icons.pin.size()[0] > 0);
         assert!(icons.battery_charging.size()[0] > 0);
-        assert!(icons.cloud_sun.size()[0] > 0);
         let license = include_str!("../../assets/icons/lucide/LICENSE");
         assert!(license.contains("ISC License"));
-    }
-
-    #[test]
-    fn weather_icon_names_resolve_for_views_and_compact_items() {
-        for name in [
-            "sun",
-            "cloud",
-            "cloud-sun",
-            "cloud-moon",
-            "cloud-rain",
-            "cloud-snow",
-            "cloud-lightning",
-            "cloud-fog",
-            "cloud-drizzle",
-            "wind",
-            "droplet",
-            "thermometer",
-            "sunrise",
-            "sunset",
-            "gauge",
-            "eye",
-            "triangle-alert",
-            "map-pin",
-            "search",
-            "locate-fixed",
-            "cloud-off",
-        ] {
-            assert!(Icon::from_name(name).is_some(), "missing icon {name}");
-        }
-        assert!(Icon::from_name("not-an-icon").is_none());
     }
 }

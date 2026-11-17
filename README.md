@@ -30,6 +30,10 @@ opencli plugin install github:kevinhuang001/opencli-kuaidi
 
 如果某个平台查询失败，Widget 会提示并保留该平台上次的结果。平台不再返回的订单会从列表移除；只有查询到明确的签收状态时才提示签收。
 
+天气页显示当前温度、体感温度、日出日落、湿度、风、降水概率、紫外线、气压、能见度和未来七天气温曲线。收起态显示天气图标与当前温度。地点和风险提醒可在「设置 → 天气」调整。
+
+天气数据由 [Open-Meteo](https://open-meteo.com/) 提供。极端天气提醒使用预测值与阈值比较。阈值设计参考 [schlpbch/open-meteo-mcp-rust 的 `get_weather_alerts`](https://github.com/schlpbch/open-meteo-mcp-rust/blob/f0b84f5ab954de3c6a2a79bc83a9def53c3b43c5/src/tools/alerts.rs)（Apache-2.0）。Peninsula 使用逐小时和逐日预报生成提示，参考项目提供了参数和默认阈值。
+
 ## 开发
 
 需要 Rust stable。Linux 构建还需 X11/Wayland 与 OpenGL 开发库。

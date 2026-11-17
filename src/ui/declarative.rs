@@ -379,6 +379,12 @@ pub enum Node {
         text_style: TextStyle,
     },
     Sparkline(Vec<f32>),
+    RangeChart {
+        labels: Vec<String>,
+        high: Vec<f32>,
+        low: Vec<f32>,
+        unit: String,
+    },
     Chart {
         kind: ChartKind,
         values: Vec<f32>,

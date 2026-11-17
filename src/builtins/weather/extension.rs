@@ -1,17 +1,21 @@
 use super::{
     alerts::{self, WeatherAlert},
     client,
-    model::{format_visibility, uv_level, weather_description, wind_direction, wind_level, Location, Snapshot},
+    model::{format_visibility, uv_level, wind_direction, wind_level, Location, Snapshot},
     preferences::WeatherPreferences,
 };
-use crate::extension::{
-    Action, ColorRole, CompactNode, CompactView, ExtensionDescriptor, ExtensionId, ExtensionKind,
-    ExtensionOutput, Notification, NotificationAction, NotificationAlertView,
-    NotificationCenterItemView, NotificationPriority,
-    RefreshHint, RuntimeExtension, StatCell, TextStyle, ViewNode, WidgetView,
+use crate::{
+    extension::{
+        Action, CompactView, ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionKind,
+        ExtensionOutput, Notification, NotificationAlertView, NotificationCenterItemView,
+        NotificationPriority, RuntimeExtension,
+    },
+    ui::declarative::*,
 };
 use std::{
-    collections::HashSet,
+    collections::HashMap,
+    fs, io,
+    path::{Path, PathBuf},
     sync::mpsc::{self, Receiver, TryRecvError},
     time::{Duration, Instant, SystemTime},
 };
@@ -22,7 +26,7 @@ pub const ALERTS_ID: &str = "builtin.weather/alerts";
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 const RETRY_INTERVAL: Duration = Duration::from_secs(60);
-const WIDGET_SIZE: [f32; 2] = [400.0, 280.0];
+const WIDGET_SIZE: [f32; 2] = [506.0, 334.0];
 const COMPACT_WIDTH: f32 = 68.0;
 
 pub fn descriptors() -> Vec<ExtensionDescriptor> {
@@ -33,9 +37,14 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
             "天气",
             "cloud-sun",
             true,
-            3,
+            4,
         )
         .with_size_hint(WIDGET_SIZE[0], WIDGET_SIZE[1])
+        .with_widget_bounds(WidgetBounds {
+            fit_height: true,
+            overflow: Overflow::Scroll(ScrollAxes::Vertical),
+            ..WidgetBounds::default()
+        })
         .with_capabilities(vec![
             crate::extension::Capability::View,
             crate::extension::Capability::Action,
@@ -53,7 +62,7 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
         ExtensionDescriptor::builtin(
             ALERTS_ID,
             ExtensionKind::Notification,
-            "天气预警",
+            "天气风险提示",
             "triangle-alert",
             true,
             2,
@@ -72,7 +81,8 @@ pub struct WeatherExtension {
     error: Option<String>,
     pending: Option<Receiver<Result<Snapshot, String>>>,
     auto_location: Option<Location>,
-    published_alerts: HashSet<String>,
+    published_alerts: HashMap<String, alerts::Severity>,
+    alert_history_path: Option<PathBuf>,
     next_refresh: Instant,
 }
 
@@ -85,14 +95,15 @@ impl WeatherExtension {
             error: None,
             pending: None,
             auto_location: None,
-            published_alerts: HashSet::new(),
+            published_alerts: HashMap::new(),
+            alert_history_path: None,
             next_refresh: Instant::now(),
         }
     }
 
-    pub fn set_preferences(&mut self, preferences: &WeatherPreferences) {
+    pub fn set_preferences(&mut self, preferences: &WeatherPreferences) -> bool {
         if self.preferences == *preferences {
-            return;
+            return false;
         }
         let location_changed = self.preferences.auto_locate != preferences.auto_locate
             || self.preferences.location != preferences.location;
@@ -103,12 +114,12 @@ impl WeatherExtension {
             self.alerts.clear();
             self.error = None;
             self.auto_location = None;
-            self.published_alerts.clear();
             self.pending = None;
             self.next_refresh = Instant::now();
         } else if alerts_enabled && self.snapshot.is_some() {
             self.next_refresh = Instant::now();
         }
+        true
     }
 
     fn start_fetch(&mut self, now: Instant) {
@@ -133,9 +144,35 @@ impl WeatherExtension {
             .then(|| snapshot.location.clone());
         let derived = alerts::derive(&snapshot);
         if self.preferences.alerts_enabled {
+            if let Some(today) = snapshot.today() {
+                self.published_alerts.retain(|id, _| {
+                    id.split_once(':')
+                        .is_some_and(|(date, _)| date >= today.date.as_str())
+                });
+            }
+            let mut published = false;
             for alert in &derived {
-                if self.published_alerts.insert(alert.id.clone()) {
-                    output.notifications.push(alert_notification(alert));
+                let key = format!(
+                    "{}:{:.2}:{:.2}",
+                    alert.id, snapshot.location.latitude, snapshot.location.longitude
+                );
+                let should_publish = self
+                    .published_alerts
+                    .get(&key)
+                    .is_none_or(|severity| alert.severity > *severity);
+                if should_publish {
+                    self.published_alerts.insert(key, alert.severity);
+                    output
+                        .notifications
+                        .push(alert_notification(alert, &snapshot.location));
+                    published = true;
+                }
+            }
+            if published {
+                if let Some(path) = &self.alert_history_path {
+                    if let Err(error) = save_alert_history(path, &self.published_alerts) {
+                        eprintln!("Unable to save weather alert history: {error}");
+                    }
                 }
             }
         }
@@ -177,7 +214,7 @@ impl WeatherExtension {
         } else if let Some(error) = &self.error {
             error_root(error)
         } else {
-            loading_root()
+            loading_root(self.preferences.auto_locate)
         }
     }
 
@@ -194,7 +231,8 @@ impl WeatherExtension {
             error,
             pending: None,
             auto_location: None,
-            published_alerts: HashSet::new(),
+            published_alerts: HashMap::new(),
+            alert_history_path: None,
             next_refresh: Instant::now() + Duration::from_secs(3600),
         }
     }
@@ -218,14 +256,6 @@ impl crate::extension::NotificationPresentationProvider for WeatherExtension {
         }
     }
 
-    fn on_notification_action(
-        &mut self,
-        _notification: &Notification,
-        _action: &NotificationAction,
-    ) -> Result<(), String> {
-        Ok(())
-    }
-
     fn handles_notification(&self, source_id: &ExtensionId) -> bool {
         source_id.as_str() == ALERTS_ID
     }
@@ -234,6 +264,18 @@ impl crate::extension::NotificationPresentationProvider for WeatherExtension {
 impl RuntimeExtension for WeatherExtension {
     fn descriptors(&self) -> Vec<ExtensionDescriptor> {
         descriptors()
+    }
+
+    fn on_start(&mut self, context: &ExtensionContext) -> Result<(), String> {
+        let path = context
+            .extension_data_dir(&ExtensionId::builtin(ALERTS_ID))
+            .join("published.json");
+        if let Ok(file) = fs::File::open(&path) {
+            self.published_alerts =
+                serde_json::from_reader(io::BufReader::new(file)).unwrap_or_default();
+        }
+        self.alert_history_path = Some(path);
+        Ok(())
     }
 
     fn update(&mut self, now: Instant) -> ExtensionOutput {
@@ -268,11 +310,7 @@ impl RuntimeExtension for WeatherExtension {
         if widget_id.as_str() != WIDGET_ID {
             return None;
         }
-        Some(WidgetView {
-            root: self.root(),
-            preferred_size: WIDGET_SIZE,
-            refresh_hint: RefreshHint::OnInvalidation,
-        })
+        Some(WidgetView::new(self.root(), WIDGET_SIZE))
     }
 
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
@@ -280,14 +318,14 @@ impl RuntimeExtension for WeatherExtension {
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
-        let (icon, text, color, tooltip) = if let Some(snapshot) = &self.snapshot {
+        let (icon, label, color, tooltip) = if let Some(snapshot) = &self.snapshot {
             let mut color = if self.alerts.iter().any(WeatherAlert::is_urgent) {
-                ColorRole::Warning
+                ColorSpec::Warning
             } else {
-                ColorRole::Primary
+                ColorSpec::PrimaryText
             };
             if self.error.is_some() {
-                color = ColorRole::Muted;
+                color = ColorSpec::MutedText;
             }
             let today = snapshot.today();
             let tooltip = today.map_or_else(
@@ -313,25 +351,28 @@ impl RuntimeExtension for WeatherExtension {
             (
                 "cloud-off",
                 "--°".to_owned(),
-                ColorRole::Muted,
+                ColorSpec::MutedText,
                 error.clone(),
             )
         } else {
             (
                 "cloud-sun",
                 "--°".to_owned(),
-                ColorRole::Muted,
+                ColorSpec::MutedText,
                 "正在获取天气…".to_owned(),
             )
         };
         vec![CompactView {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(WIDGET_ID),
-            content: CompactNode::IconText {
-                icon: icon.to_owned(),
-                text,
-                color,
-            },
+            content: ViewNode::row(
+                vec![ViewNode::icon(icon, 16.0), text(label, 11.0, color)],
+                Flow {
+                    gap: Some(5.0),
+                    ..Default::default()
+                },
+            )
+            .color(color),
             min_width: COMPACT_WIDTH,
             preferred_width: COMPACT_WIDTH,
             priority: 0,
@@ -340,12 +381,26 @@ impl RuntimeExtension for WeatherExtension {
     }
 }
 
-fn alert_notification(alert: &WeatherAlert) -> Notification {
+fn save_alert_history(path: &Path, alerts: &HashMap<String, alerts::Severity>) -> io::Result<()> {
+    let directory = path
+        .parent()
+        .expect("weather history is in the extension data directory");
+    fs::create_dir_all(directory)?;
+    let file = tempfile::NamedTempFile::new_in(directory)?;
+    serde_json::to_writer(file.as_file(), alerts)?;
+    file.persist(path)?;
+    Ok(())
+}
+
+fn alert_notification(alert: &WeatherAlert, location: &Location) -> Notification {
     Notification {
         source_id: ExtensionId::builtin(ALERTS_ID),
-        id: format!("alert:{}", alert.id),
+        id: format!(
+            "forecast:{:.2}:{:.2}:{}:{}",
+            location.latitude, location.longitude, alert.id, alert.severity as u8
+        ),
         title: alert.title.clone(),
-        body: alert.body.clone(),
+        body: format!("{}\n来源：Open-Meteo 预报推算", alert.body),
         icon: Some("triangle-alert".into()),
         priority: if alert.is_urgent() {
             NotificationPriority::High
@@ -360,287 +415,290 @@ fn alert_notification(alert: &WeatherAlert) -> Notification {
 fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str>) -> ViewNode {
     let current = &snapshot.current;
     let today = snapshot.today();
-    let condition = weather_description(current.weather_code);
-    let high_low = today.map_or_else(String::new, |today| {
-        format!("最高 {:.0}° / 最低 {:.0}°", today.high, today.low)
+    let high_low = today.map_or_else(String::new, |day| {
+        format!("  ·  ↑ {:.0}°  ↓ {:.0}°", day.high, day.low)
     });
-    let location = truncate(&snapshot.location.name, 10);
-    let updated = snapshot.updated_hm();
-    let hero = ViewNode::Row(vec![
-        ViewNode::Column(vec![
-            ViewNode::Sized {
-                height: 34.0,
-                child: Box::new(ViewNode::Text {
-                    text: format!("{:.0}°", current.temperature),
-                    style: TextStyle::Display,
-                }),
-            },
-            ViewNode::Sized {
-                height: 18.0,
-                child: Box::new(ViewNode::Text {
-                    text: condition.into(),
-                    style: TextStyle::Title,
-                }),
-            },
-            ViewNode::Sized {
-                height: 14.0,
-                child: Box::new(ViewNode::Text {
-                    text: format!("体感 {:.0}° · {high_low}", current.apparent_temperature),
-                    style: TextStyle::Small,
-                }),
-            },
-        ]),
-        ViewNode::Column(vec![
-            ViewNode::Sized {
-                height: 38.0,
-                child: Box::new(ViewNode::Icon {
-                    name: snapshot.icon().into(),
-                    color: ColorRole::Accent,
-                }),
-            },
-            ViewNode::Sized {
-                height: 16.0,
-                child: Box::new(ViewNode::Text {
-                    text: location,
-                    style: TextStyle::Body,
-                }),
-            },
-            ViewNode::Sized {
-                height: 14.0,
-                child: Box::new(ViewNode::Text {
-                    text: format!("{updated} 更新"),
-                    style: TextStyle::Small,
-                }),
-            },
-        ]),
-    ]);
-
-    let sun_bar = snapshot.today().map_or(ViewNode::Divider, |today| {
-        ViewNode::InfoBar {
-            cells: vec![
-                StatCell {
-                    label: "日出".into(),
-                    value: today.sunrise.clone(),
-                    icon: Some("sunrise".into()),
-                    color: ColorRole::Accent,
-                },
-                StatCell {
-                    label: "日落".into(),
-                    value: today.sunset.clone(),
-                    icon: Some("sunset".into()),
-                    color: ColorRole::Accent,
-                },
-                StatCell {
-                    label: "日照".into(),
-                    value: snapshot.daylight().unwrap_or_else(|| "--".into()),
-                    icon: Some("sun".into()),
-                    color: ColorRole::Success,
-                },
-            ],
-        }
-    });
-
-    let stats = ViewNode::StatGrid {
-        cells: vec![
-            StatCell {
-                label: "湿度".into(),
-                value: format!("{}%", current.humidity),
-                icon: Some("droplet".into()),
-                color: ColorRole::Accent,
-            },
-            StatCell {
-                label: format!(
-                    "{}风 {}级",
-                    wind_direction(current.wind_direction),
-                    wind_level(current.wind_speed)
+    let mut hero = panel(
+        ViewNode::row(
+            vec![
+                column(
+                    vec![
+                        ViewNode::row(
+                            vec![
+                                ViewNode::icon("map-pin", 13.0).color(ColorSpec::Info),
+                                strong(&snapshot.location.name, 13.0),
+                            ],
+                            flow(4.0, Align::Center),
+                        ),
+                        ViewNode::row(
+                            vec![
+                                strong(format!("{:.0}°", current.temperature), 41.0),
+                                text(snapshot.condition(), 15.0, ColorSpec::SecondaryText),
+                            ],
+                            flow(9.0, Align::Center),
+                        ),
+                        text(
+                            format!("体感 {:.0}°{high_low}", current.apparent_temperature),
+                            11.0,
+                            ColorSpec::SecondaryText,
+                        ),
+                    ],
+                    1.0,
+                )
+                .sized(Size::Fill(1.0), Size::Auto),
+                column(
+                    vec![
+                        ViewNode::icon(snapshot.icon(), 42.0).color(ColorSpec::Info),
+                        text(
+                            format!("{} 更新", snapshot.updated_hm()),
+                            10.0,
+                            ColorSpec::SecondaryText,
+                        ),
+                    ],
+                    4.0,
                 ),
-                value: format!("{:.0} km/h", current.wind_speed),
-                icon: Some("wind".into()),
-                color: ColorRole::Primary,
-            },
-            StatCell {
-                label: "降水概率".into(),
-                value: format!("{}%", current.precipitation_probability),
-                icon: Some("cloud-rain".into()),
-                color: ColorRole::Accent,
-            },
-            StatCell {
-                label: "紫外线".into(),
-                value: format!("{:.0} {}", current.uv_index, uv_level(current.uv_index)),
-                icon: Some("sun".into()),
-                color: if current.uv_index >= 8.0 {
-                    ColorRole::Warning
-                } else {
-                    ColorRole::Success
-                },
-            },
-            StatCell {
-                label: "气压".into(),
-                value: format!("{:.0} hPa", current.pressure),
-                icon: Some("gauge".into()),
-                color: ColorRole::Primary,
-            },
-            StatCell {
-                label: "能见度".into(),
-                value: format_visibility(current.visibility),
-                icon: Some("eye".into()),
-                color: ColorRole::Primary,
-            },
+            ],
+            flow(10.0, Align::Center),
+        ),
+        ColorSpec::AccentSubtle,
+        [13.0, 10.0, 13.0, 10.0],
+    );
+    hero.size.width = Size::Fill(1.0);
+
+    let mut sections = vec![hero];
+    if error.is_some() {
+        sections.push(text("暂未更新 · 显示上次预报", 11.0, ColorSpec::Warning));
+    } else if let Some(alert) = alerts.first() {
+        let extra = if alerts.len() > 1 {
+            format!("等 {} 项", alerts.len())
+        } else {
+            String::new()
+        };
+        sections.push(panel(
+            ViewNode::row(
+                vec![
+                    ViewNode::icon("triangle-alert", 14.0).color(ColorSpec::Warning),
+                    text(
+                        format!("{}{}", alert.short_title(), extra),
+                        11.0,
+                        ColorSpec::Warning,
+                    ),
+                ],
+                flow(7.0, Align::Center),
+            ),
+            ColorSpec::SurfaceVariant,
+            [9.0, 6.0, 9.0, 6.0],
+        ));
+    }
+    if let Some(day) = today {
+        sections.push(grid(vec![
+            metric("sunrise", "日出", day.sunrise.clone(), ColorSpec::Warning),
+            metric("sunset", "日落", day.sunset.clone(), ColorSpec::Warning),
+            metric(
+                "sun",
+                "日照时长",
+                snapshot.daylight().unwrap_or_else(|| "—".into()),
+                ColorSpec::Warning,
+            ),
+        ]));
+    }
+    sections.push(grid(vec![
+        metric(
+            "droplet",
+            "湿度",
+            format!("{}%", current.humidity),
+            ColorSpec::Info,
+        ),
+        metric(
+            "wind",
+            &format!(
+                "{}风 · {}级",
+                wind_direction(current.wind_direction),
+                wind_level(current.wind_speed)
+            ),
+            format!("{:.0} km/h", current.wind_speed),
+            ColorSpec::Info,
+        ),
+        metric(
+            "cloud-rain",
+            "降水概率",
+            format!("{}%", current.precipitation_probability),
+            ColorSpec::Info,
+        ),
+        metric(
+            "sun",
+            "紫外线",
+            format!("{:.0} · {}", current.uv_index, uv_level(current.uv_index)),
+            ColorSpec::Info,
+        ),
+        metric(
+            "gauge",
+            "气压",
+            format!("{:.0} hPa", current.pressure),
+            ColorSpec::Info,
+        ),
+        metric(
+            "eye",
+            "能见度",
+            format_visibility(current.visibility),
+            ColorSpec::Info,
+        ),
+    ]));
+
+    let heading = ViewNode::row(
+        vec![
+            strong(format!("未来 {} 天", snapshot.daily.len()), 12.0),
+            text("最高温  /  最低温", 10.0, ColorSpec::SecondaryText),
         ],
-    };
-
-    let (badge_text, badge_icon, badge_color) = if let Some(alert) = alerts.first() {
-        (
-            alert.short_title(),
-            "triangle-alert",
-            if alert.is_urgent() {
-                ColorRole::Warning
-            } else {
-                ColorRole::Accent
-            },
-        )
-    } else if error.is_some() {
-        ("数据可能已过期".to_owned(), "cloud-off", ColorRole::Warning)
-    } else {
-        ("天气平稳".to_owned(), "sun", ColorRole::Success)
-    };
-    let section_header = ViewNode::Row(vec![
-        ViewNode::Badge {
-            text: badge_text,
-            icon: Some(badge_icon.into()),
-            color: badge_color,
+        Flow {
+            justify: Justify::SpaceBetween,
+            ..flow(5.0, Align::Center)
         },
-        ViewNode::Text {
-            text: "未来 7 天".into(),
-            style: TextStyle::Small,
-        },
-    ]);
-
-    let chart = if !snapshot.daily.is_empty() {
-        ViewNode::RangeChart {
-            labels: snapshot.day_labels(),
-            high: snapshot.daily.iter().map(|day| day.high as f32).collect(),
-            low: snapshot.daily.iter().map(|day| day.low as f32).collect(),
-        }
-    } else {
-        ViewNode::Divider
-    };
-
-    ViewNode::Column(vec![
-        ViewNode::Sized {
-            height: 66.0,
-            child: Box::new(hero),
-        },
-        ViewNode::Spacer {
-            size: [0.0, 3.0],
-        },
-        ViewNode::Sized {
-            height: 30.0,
-            child: Box::new(sun_bar),
-        },
-        ViewNode::Spacer {
-            size: [0.0, 3.0],
-        },
-        ViewNode::Sized {
-            height: 64.0,
-            child: Box::new(stats),
-        },
-        ViewNode::Spacer {
-            size: [0.0, 3.0],
-        },
-        ViewNode::Sized {
-            height: 18.0,
-            child: Box::new(section_header),
-        },
-        ViewNode::Spacer {
-            size: [0.0, 3.0],
-        },
-        ViewNode::Sized {
-            height: 75.0,
-            child: Box::new(chart),
-        },
-    ])
+    )
+    .sized(Size::Fill(1.0), Size::Auto);
+    let chart = ViewNode::new(Node::RangeChart {
+        labels: snapshot.day_labels(),
+        high: snapshot.daily.iter().map(|day| day.high as f32).collect(),
+        low: snapshot.daily.iter().map(|day| day.low as f32).collect(),
+        unit: "°".into(),
+    })
+    .sized(Size::Fill(1.0), Size::Fixed(92.0));
+    sections.push(panel(
+        column(vec![heading, chart], 3.0).sized(Size::Fill(1.0), Size::Auto),
+        ColorSpec::SurfaceVariant,
+        [11.0, 9.0, 11.0, 3.0],
+    ));
+    sections.push(text(
+        "Open-Meteo 预报 · 风险提示由模型数据推算",
+        9.0,
+        ColorSpec::MutedText,
+    ));
+    column(sections, 7.0).sized(Size::Fill(1.0), Size::Auto)
 }
 
-fn loading_root() -> ViewNode {
-    ViewNode::Column(vec![
-        ViewNode::Sized {
-            height: 34.0,
-            child: Box::new(ViewNode::Text {
-                text: "正在获取天气…".into(),
-                style: TextStyle::Heading,
-            }),
+fn flow(gap: f32, align: Align) -> Flow {
+    Flow {
+        gap: Some(gap),
+        align,
+        ..Default::default()
+    }
+}
+
+fn column(children: Vec<ViewNode>, gap: f32) -> ViewNode {
+    ViewNode::column(children, flow(gap, Align::Start))
+}
+
+fn text(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNode {
+    ViewNode::text(
+        value,
+        TextStyle {
+            font_size: FontSize::Custom(size),
+            align: Align::Start,
+            ..Default::default()
         },
-        ViewNode::Sized {
-            height: 22.0,
-            child: Box::new(ViewNode::Text {
-                text: "根据网络位置自动定位".into(),
-                style: TextStyle::Muted,
-            }),
+    )
+    .color(color)
+}
+
+fn strong(value: impl Into<String>, size: f32) -> ViewNode {
+    ViewNode::text(
+        value,
+        TextStyle {
+            font_size: FontSize::Custom(size),
+            font_weight: FontWeight::Bold,
+            align: Align::Start,
+            ..Default::default()
         },
-    ])
+    )
+}
+
+fn panel(mut node: ViewNode, fill: ColorSpec, padding: [f32; 4]) -> ViewNode {
+    node.style = Style {
+        normal: Paint {
+            background: Some(fill),
+            corner_radius: Some(10.0),
+            ..Default::default()
+        },
+        padding,
+        ..Default::default()
+    };
+    node.sized(Size::Fill(1.0), Size::Auto)
+}
+
+fn metric(icon: &str, label: &str, value: String, accent: ColorSpec) -> ViewNode {
+    panel(
+        ViewNode::row(
+            vec![
+                ViewNode::icon(icon, 15.0).color(accent),
+                column(
+                    vec![
+                        text(label, 9.5, ColorSpec::SecondaryText),
+                        strong(value, 12.0),
+                    ],
+                    2.0,
+                )
+                .sized(Size::Fill(1.0), Size::Auto),
+            ],
+            flow(7.0, Align::Center),
+        ),
+        ColorSpec::SurfaceVariant,
+        [9.0, 6.0, 9.0, 6.0],
+    )
+}
+
+fn grid(children: Vec<ViewNode>) -> ViewNode {
+    let mut grid = Grid::new(Columns::AutoFit {
+        min_item_width: 102.0,
+        max_columns: 3,
+    });
+    grid.column_gap = Some(6.0);
+    grid.row_gap = Some(6.0);
+    ViewNode::new(Node::Grid(grid, children)).sized(Size::Fill(1.0), Size::Auto)
+}
+
+fn loading_root(auto_locate: bool) -> ViewNode {
+    column(
+        vec![
+            strong("正在获取天气…", 15.0),
+            text(
+                if auto_locate {
+                    "正在根据网络位置定位"
+                } else {
+                    "正在查询所选城市"
+                },
+                11.0,
+                ColorSpec::SecondaryText,
+            ),
+        ],
+        6.0,
+    )
 }
 
 fn error_root(error: &str) -> ViewNode {
-    ViewNode::Column(vec![
-        ViewNode::Sized {
-            height: 30.0,
-            child: Box::new(ViewNode::Text {
-                text: "天气暂不可用".into(),
-                style: TextStyle::Heading,
-            }),
-        },
-        ViewNode::Sized {
-            height: 22.0,
-            child: Box::new(ViewNode::Text {
-                text: truncate(error, 52),
-                style: TextStyle::Muted,
-            }),
-        },
-        ViewNode::Sized {
-            height: 20.0,
-            child: Box::new(ViewNode::Text {
-                text: "可在设置 → 天气中选择城市".into(),
-                style: TextStyle::Small,
-            }),
-        },
-        ViewNode::Sized {
-            height: 30.0,
-            child: Box::new(ViewNode::Button {
-                label: "重试".into(),
-                action: Action::Advance,
-            }),
-        },
-    ])
-}
-
-fn truncate(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        text.to_owned()
-    } else {
-        format!(
-            "{}…",
-            text.chars().take(max.saturating_sub(1)).collect::<String>()
-        )
-    }
+    column(
+        vec![
+            strong("天气暂不可用", 15.0),
+            ViewNode::text(
+                error,
+                TextStyle {
+                    wrap: true,
+                    align: Align::Start,
+                    ..Default::default()
+                },
+            )
+            .color(ColorSpec::SecondaryText)
+            .sized(Size::Fill(1.0), Size::Auto),
+            ViewNode::subtle_button("重试", Action::Advance),
+        ],
+        7.0,
+    )
+    .sized(Size::Fill(1.0), Size::Auto)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{descriptors, WeatherExtension, ALERTS_ID, COMPACT_ID, WIDGET_ID};
-    use crate::{
-        builtins::weather::{
-            alerts::{Severity, WeatherAlert},
-            model::{
-                CurrentWeather, DailyForecast, HourlyForecast, Location, Snapshot,
-            },
-            preferences::WeatherPreferences,
-        },
-        extension::{
-            ColorRole, CompactNode, ExtensionDescriptor, ExtensionKind, RuntimeExtension,
-            ViewNode,
-        },
-    };
+    use super::*;
+    use crate::builtins::weather::model::{CurrentWeather, DailyForecast, HourlyForecast};
 
     fn snapshot() -> Snapshot {
         Snapshot {
@@ -698,13 +756,9 @@ mod tests {
             descriptor.id.as_str() == COMPACT_ID && descriptor.kind == ExtensionKind::Compact
         }));
         assert!(descriptors.iter().any(|descriptor| {
-            descriptor.id.as_str() == ALERTS_ID
-                && descriptor.kind == ExtensionKind::Notification
+            descriptor.id.as_str() == ALERTS_ID && descriptor.kind == ExtensionKind::Notification
         }));
-        assert_eq!(
-            lookup_shape(&descriptors, WIDGET_ID),
-            Some([400.0, 280.0])
-        );
+        assert_eq!(lookup_shape(&descriptors, WIDGET_ID), Some(WIDGET_SIZE));
     }
 
     fn lookup_shape(descriptors: &[ExtensionDescriptor], id: &str) -> Option<[f32; 2]> {
@@ -720,11 +774,11 @@ mod tests {
         let views = extension.compact_views();
         assert_eq!(views.len(), 1);
         assert_eq!(views[0].id.as_str(), COMPACT_ID);
-        assert!(matches!(
-            &views[0].content,
-            CompactNode::IconText { icon, text, color }
-                if icon == "cloud" && text == "15°" && *color == ColorRole::Primary
-        ));
+        let Node::Row(_, children) = &views[0].content.kind else {
+            panic!("weather compact row");
+        };
+        assert!(matches!(&children[0].kind, Node::Icon { name, .. } if name == "cloud"));
+        assert!(matches!(&children[1].kind, Node::Text { text, .. } if text == "15°"));
         assert!(views[0]
             .tooltip
             .as_deref()
@@ -737,62 +791,43 @@ mod tests {
         let view = extension
             .widget_view(&crate::extension::ExtensionId::builtin(WIDGET_ID))
             .unwrap();
-        let ViewNode::Column(sections) = &view.root else {
-            panic!("weather widget should be a column");
-        };
-        assert_eq!(sections.len(), 9);
-        assert!(matches!(
-            sections[0],
-            ViewNode::Sized { height, .. } if (height - 66.0).abs() < 0.01
-        ));
-        assert!(matches!(
-            &sections[2],
-            ViewNode::Sized { child, .. }
-                if matches!(
-                    child.as_ref(),
-                    ViewNode::InfoBar { cells }
-                        if cells.len() == 3
-                            && cells[0].value == "06:18"
-                            && cells[1].value == "16:57"
-                )
-        ));
-        assert!(matches!(
-            &sections[4],
-            ViewNode::Sized { child, .. }
-                if matches!(
-                    child.as_ref(),
-                    ViewNode::StatGrid { cells } if cells.len() == 6
-                )
-        ));
-        assert!(matches!(
-            &sections[8],
-            ViewNode::Sized { child, .. }
-                if matches!(child.as_ref(), ViewNode::RangeChart { labels, .. } if labels.len() == 1)
-        ));
-        assert!(view.preferred_size[1] <= 280.0);
+        let tree = serde_json::to_string(&view.root).unwrap();
+        for visible in [
+            "上海",
+            "体感 14°",
+            "日出",
+            "06:18",
+            "日落",
+            "16:57",
+            "能见度",
+            "RangeChart",
+        ] {
+            assert!(tree.contains(visible), "missing {visible}");
+        }
     }
 
     #[test]
-    fn urgent_alerts_replace_the_calm_badge_and_are_published_only_once() {
-        let alert = WeatherAlert {
-            id: "2026-11-17:rain".into(),
-            kind: "rain",
-            severity: Severity::Orange,
-            title: "暴雨橙色预警".into(),
-            body: "上海：未来 12 小时累计降雨约 60 毫米。".into(),
-        };
-        let extension = WeatherExtension::for_test(Some(snapshot()), vec![alert.clone()], None);
-        let compact = extension.compact_views();
-        assert!(matches!(
-            compact[0].content,
-            CompactNode::IconText {
-                color: ColorRole::Warning,
-                ..
-            }
-        ));
-        let notification = super::alert_notification(&alert);
-        assert_eq!(notification.title, "暴雨橙色预警");
-        assert_eq!(notification.icon.as_deref(), Some("triangle-alert"));
+    fn risk_notices_only_repeat_when_the_forecast_worsens() {
+        let mut extension = WeatherExtension::new(WeatherPreferences::default());
+        let mut data = snapshot();
+        let now = Instant::now();
+        let mut output = ExtensionOutput::default();
+        extension.apply_snapshot(data.clone(), now, &mut output);
+        assert!(output.notifications.is_empty());
+        data.current.wind_gusts = 90.0;
+        extension.apply_snapshot(data.clone(), now, &mut output);
+        assert_eq!(output.notifications.len(), 1);
+        assert!(output.notifications[0].body.contains("Open-Meteo"));
+        extension.apply_snapshot(data.clone(), now, &mut output);
+        assert_eq!(output.notifications.len(), 1);
+        data.current.wind_gusts = 130.0;
+        extension.apply_snapshot(data, now, &mut output);
+        assert_eq!(output.notifications.len(), 2);
+        assert_ne!(output.notifications[0].id, output.notifications[1].id);
+        assert_eq!(
+            extension.compact_views()[0].content.style.normal.foreground,
+            Some(ColorSpec::Warning)
+        );
     }
 
     #[test]
@@ -800,13 +835,13 @@ mod tests {
         let mut extension = WeatherExtension::new(WeatherPreferences::default());
         let mut preferences = WeatherPreferences::default();
         preferences.alerts_enabled = false;
-        preferences.location = Some(
-            crate::builtins::weather::preferences::WeatherLocation::new("上海", 31.22, 121.46),
-        );
+        preferences.location = Some(crate::builtins::weather::preferences::WeatherLocation::new(
+            "上海", 31.22, 121.46,
+        ));
         preferences.auto_locate = false;
         extension.set_preferences(&preferences);
         assert_eq!(extension.preferences, preferences);
-        let ViewNode::Column(_) = extension.root() else {
+        let Node::Column(..) = extension.root().kind else {
             panic!("loading state should render as a column");
         };
     }

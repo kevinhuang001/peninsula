@@ -1,20 +1,12 @@
 use super::model::{HourlyForecast, Snapshot};
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub enum Severity {
     Yellow,
     Orange,
     Red,
-}
-
-impl Severity {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Yellow => "黄色",
-            Self::Orange => "橙色",
-            Self::Red => "红色",
-        }
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -38,13 +30,13 @@ impl WeatherAlert {
             id: format!("{date}:{kind}"),
             kind,
             severity,
-            title: format!("{}{}预警", kind_title(kind), severity.label()),
+            title: format!("{}风险提示", kind_title(kind)),
             body: format!("{location}：{body}"),
         }
     }
 
     pub fn short_title(&self) -> String {
-        format!("{}{}预警", kind_title(self.kind), self.severity.label())
+        format!("{}风险", kind_title(self.kind))
     }
 
     pub fn is_urgent(&self) -> bool {
@@ -81,12 +73,18 @@ pub fn derive(snapshot: &Snapshot) -> Vec<WeatherAlert> {
     let date = today.date.as_str();
     let next_24: Vec<&HourlyForecast> = snapshot.hourly_from_now(24);
     let next_12: Vec<&HourlyForecast> = next_24.iter().take(12).copied().collect();
-    let rain_12: f64 = next_12.iter().map(|hour| hour.precipitation).sum();
-    let rain_24: f64 = next_24.iter().map(|hour| hour.precipitation).sum();
+    let rain_12: f64 = next_12.iter().map(|hour| hour.rainfall).sum();
+    let rain_24: f64 = next_24.iter().map(|hour| hour.rainfall).sum();
     let gust_24 = next_24
         .iter()
         .map(|hour| hour.wind_gusts)
         .fold(snapshot.current.wind_gusts, f64::max);
+    // Sustained wind and cold thresholds follow the defaults from the
+    // cited Open-Meteo MCP tool; gust and rain thresholds use separate windows.
+    let sustained_wind = next_24
+        .iter()
+        .map(|hour| hour.wind_speed)
+        .fold(snapshot.current.wind_speed, f64::max);
     let visibility = next_12
         .iter()
         .map(|hour| hour.visibility)
@@ -142,7 +140,7 @@ pub fn derive(snapshot: &Snapshot) -> Vec<WeatherAlert> {
             location,
             "可能出现雷暴并伴有冰雹，请留在室内并远离窗户。".into(),
         ));
-    } else if thunder_code >= 95 {
+    } else if thunder_code == 95 {
         alerts.push(WeatherAlert::new(
             date,
             "thunder",
@@ -168,13 +166,13 @@ pub fn derive(snapshot: &Snapshot) -> Vec<WeatherAlert> {
             location,
             format!("阵风可达 {gust_24:.0} 公里/小时，请远离临时搭建物。"),
         ));
-    } else if gust_24 >= 62.0 {
+    } else if gust_24 >= 62.0 || sustained_wind >= 50.0 {
         alerts.push(WeatherAlert::new(
             date,
             "wind",
             Severity::Yellow,
             location,
-            format!("阵风可达 {gust_24:.0} 公里/小时，注意高空坠物。"),
+            format!("未来 24 小时风速最高约 {sustained_wind:.0} 公里/小时，阵风约 {gust_24:.0} 公里/小时。"),
         ));
     }
 
@@ -192,13 +190,13 @@ pub fn derive(snapshot: &Snapshot) -> Vec<WeatherAlert> {
                 "heat",
                 severity,
                 location,
-                format!("最高气温可达 {high:.0}°C，注意防暑补水。"),
+                format!("{} 最高气温可能达 {high:.0}°C。", day.date),
             ));
         }
     }
 
     if let Some((day, low)) = coldest_day(snapshot) {
-        if low <= 0.0 {
+        if low <= -5.0 {
             let severity = if low <= -20.0 {
                 Severity::Red
             } else if low <= -10.0 {
@@ -211,7 +209,7 @@ pub fn derive(snapshot: &Snapshot) -> Vec<WeatherAlert> {
                 "cold",
                 severity,
                 location,
-                format!("最低气温将降至 {low:.0}°C，注意防寒保暖。"),
+                format!("{} 最低气温可能降至 {low:.0}°C。", day.date),
             ));
         }
     }
@@ -227,7 +225,7 @@ pub fn derive(snapshot: &Snapshot) -> Vec<WeatherAlert> {
                     Severity::Yellow
                 },
                 location,
-                format!("未来 24 小时降雪约 {snow:.0} 厘米，出行注意防滑。"),
+                format!("{} 预计降雪约 {snow:.0} 厘米。", day.date),
             ));
         }
     }
@@ -344,7 +342,7 @@ mod tests {
                 .map(|hour| HourlyForecast {
                     time: format!("2026-11-17T{:02}:00", hour.min(23)),
                     temperature: 15.0,
-                    precipitation: 0.0,
+                    rainfall: 0.0,
                     wind_gusts: 10.0,
                     visibility: 10_000.0,
                     weather_code: 3,
@@ -363,13 +361,13 @@ mod tests {
     fn heavy_rain_and_wind_upgrade_to_urgent_alerts() {
         let mut snapshot = snapshot();
         for hour in &mut snapshot.hourly {
-            hour.precipitation = 9.0;
+            hour.rainfall = 9.0;
             hour.wind_gusts = 80.0;
         }
         let alerts = derive(&snapshot);
         let rain = alerts.iter().find(|alert| alert.kind == "rain").unwrap();
         assert_eq!(rain.severity, Severity::Orange);
-        assert!(rain.title.contains("暴雨橙色"));
+        assert!(rain.title.contains("暴雨风险"));
         assert!(rain.body.contains("上海"));
         let wind = alerts.iter().find(|alert| alert.kind == "wind").unwrap();
         assert_eq!(wind.severity, Severity::Orange);

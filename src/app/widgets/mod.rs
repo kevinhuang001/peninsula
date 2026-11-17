@@ -69,12 +69,13 @@ mod tests {
     #[test]
     fn notification_center_is_always_first_and_is_the_default_widget() {
         let ids = widget_ids();
-        assert_eq!(ids.len(), 4);
+        assert_eq!(ids.len(), 5);
         assert_eq!(ids[0], default_widget_id());
         assert_eq!(ids[0].as_str(), crate::extension::NOTIFICATION_CENTER_ID);
         assert_eq!(ids[1].as_str(), "builtin.system-monitor/overview");
         assert_eq!(ids[2].as_str(), "builtin.pomodoro/timer");
         assert_eq!(ids[3].as_str(), "builtin.kuaidi/shipments");
+        assert_eq!(ids[4].as_str(), "builtin.weather/forecast");
     }
 
     #[test]
@@ -90,9 +91,9 @@ mod tests {
         let ids = widget_ids();
         for (start, key, target) in [
             (2, Key::ArrowLeft, 1),
-            (0, Key::ArrowLeft, 3),
+            (0, Key::ArrowLeft, 4),
             (1, Key::ArrowRight, 2),
-            (3, Key::ArrowRight, 0),
+            (4, Key::ArrowRight, 0),
         ] {
             let ctx = Context::default();
             let _ = ctx.run(

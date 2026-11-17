@@ -84,6 +84,7 @@ impl IslandApp {
             .install(context, preferences.widget_accent);
         let mut extensions = BuiltinExtensions::new(legacy);
         preferences.read_extension_settings(&extensions);
+        extensions.apply_weather_preferences(&preferences.weather);
         if preferences.bilibili_enabled {
             if let Err(error) = extensions.set_bilibili_enabled(true) {
                 eprintln!("Unable to start Bilibili extension: {error}");

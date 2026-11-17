@@ -121,7 +121,7 @@ mod tests {
             widths.iter().sum::<f32>() + ITEM_GAP * (widths.len() - 1) as f32 + HORIZONTAL_PADDING;
         assert_eq!(
             width(&preferences, &views.iter().collect::<Vec<_>>()),
-            required
+            required.min(MAX_WIDTH)
         );
     }
 
@@ -132,7 +132,7 @@ mod tests {
         preferences.move_compact_item(&ExtensionId::builtin("builtin.system-monitor/battery"), -1);
         assert_eq!(
             item_widths(&preferences, &views.iter().collect::<Vec<_>>()),
-            [54.0, 38.0, 88.0].to_vec()
+            [54.0, 38.0, 88.0, 68.0].to_vec()
         );
     }
 }

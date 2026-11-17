@@ -6,14 +6,15 @@ use crate::builtins::weather::{search_cities, CityResult, WeatherLocation};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, RichText, Sense, Vec2};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
-const AUTO_ROW_TOP: f32 = 52.0;
-const ALERTS_ROW_TOP: f32 = 86.0;
-const LOCATION_TOP: f32 = 122.0;
-const SEARCH_LABEL_TOP: f32 = 148.0;
-const SEARCH_FIELD_TOP: f32 = 164.0;
-const RESULTS_TOP: f32 = 198.0;
+const AUTO_ROW_TOP: f32 = 0.0;
+const ALERTS_ROW_TOP: f32 = 34.0;
+const LOCATION_TOP: f32 = 70.0;
+const SEARCH_LABEL_TOP: f32 = 96.0;
+const SEARCH_FIELD_TOP: f32 = 112.0;
+const RESULTS_TOP: f32 = 146.0;
 const RESULT_STEP: f32 = 27.0;
 const MAX_RESULTS: usize = 3;
+pub(super) const CONTENT_HEIGHT: f32 = RESULTS_TOP + RESULT_STEP * MAX_RESULTS as f32;
 
 #[derive(Debug, Default)]
 pub(super) struct WeatherSearch {
@@ -64,6 +65,7 @@ impl WeatherSearch {
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
         self.error = None;
+        self.results.clear();
         self.searched = false;
         std::thread::spawn(move || {
             let _ = sender.send(search_cities(&query));
@@ -91,7 +93,12 @@ pub(super) fn show(
         FontId::proportional(11.0),
         TEXT,
     );
-    if toggle(ui, auto_row, "weather-auto-locate", preferences.weather.auto_locate) {
+    if toggle(
+        ui,
+        auto_row,
+        "weather-auto-locate",
+        preferences.weather.auto_locate,
+    ) {
         preferences.weather.auto_locate = !preferences.weather.auto_locate;
         changed = true;
     }
@@ -101,7 +108,7 @@ pub(super) fn show(
     ui.painter().text(
         Pos2::new(alerts_row.left() + 11.0, alerts_row.center().y),
         Align2::LEFT_CENTER,
-        "极端天气提醒",
+        "极端天气风险提醒",
         FontId::proportional(11.0),
         TEXT,
     );
@@ -150,14 +157,14 @@ pub(super) fn show(
         Pos2::new(panel.left() + 14.0, panel.top() + SEARCH_FIELD_TOP),
         Vec2::new((panel.width() - 92.0).max(80.0), 26.0),
     );
-    ui.put(
+    let field = ui.put(
         input,
         egui::TextEdit::singleline(&mut search.query)
             .hint_text("输入城市名")
             .font(FontId::proportional(11.0))
             .desired_width(f32::INFINITY),
     );
-    let enter = ui.input(|input| input.key_pressed(egui::Key::Enter));
+    let enter = field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
     let button = Rect::from_min_size(
         Pos2::new(panel.right() - 70.0, panel.top() + SEARCH_FIELD_TOP),
         Vec2::new(56.0, 26.0),

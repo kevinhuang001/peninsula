@@ -99,6 +99,9 @@ impl BuiltinExtensions {
                 Box::new(pomodoro::PomodoroExtension::default()),
                 Box::new(bilibili::BilibiliExtension::default()),
                 Box::new(kuaidi::KuaidiExtension::default()),
+                Box::new(weather::WeatherExtension::new(
+                    weather::WeatherPreferences::default(),
+                )),
                 Box::new(extras::CompactExtras),
             ],
             lifecycle: LifecycleManager::load(Some(lifecycle_path())),
@@ -253,13 +256,16 @@ impl BuiltinExtensions {
         }
     }
 
-    pub fn apply_weather_preferences(&mut self, preferences: &WeatherPreferences) {
+    pub fn apply_weather_preferences(&mut self, preferences: &weather::WeatherPreferences) {
         for extension in &mut self.extensions {
             let Some(any) = extension.as_any_mut() else {
                 continue;
             };
-            if let Some(weather) = any.downcast_mut::<WeatherExtension>() {
-                weather.set_preferences(preferences);
+            if let Some(weather) = any.downcast_mut::<weather::WeatherExtension>() {
+                if weather.set_preferences(preferences) {
+                    self.invalidate_views(&ExtensionId::builtin(weather::WIDGET_ID));
+                    self.invalidate_views(&ExtensionId::builtin(weather::COMPACT_ID));
+                }
                 return;
             }
         }

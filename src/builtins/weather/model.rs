@@ -18,8 +18,6 @@ impl Location {
             format!("{} · {}", self.name, self.admin)
         }
     }
-
-
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -65,7 +63,7 @@ pub struct HourlyForecast {
     pub temperature: f64,
     pub apparent_temperature: f64,
     pub precipitation_probability: u8,
-    pub precipitation: f64,
+    pub rainfall: f64,
     pub weather_code: u8,
     pub wind_speed: f64,
     pub wind_gusts: f64,
@@ -116,8 +114,6 @@ impl Snapshot {
             .collect()
     }
 
-
-
     pub fn daylight(&self) -> Option<String> {
         let today = self.today()?;
         let sunrise = clock_minutes(&today.sunrise)?;
@@ -140,7 +136,8 @@ impl Snapshot {
 }
 
 pub fn parse_snapshot(json: &str, location: Location) -> Result<Snapshot, String> {
-    let root: Value = serde_json::from_str(json).map_err(|error| format!("天气数据解析失败：{error}"))?;
+    let root: Value =
+        serde_json::from_str(json).map_err(|error| format!("天气数据解析失败：{error}"))?;
     let current = root
         .get("current")
         .ok_or_else(|| "天气数据缺少 current".to_owned())?;
@@ -150,18 +147,42 @@ pub fn parse_snapshot(json: &str, location: Location) -> Result<Snapshot, String
     let hourly = root
         .get("hourly")
         .ok_or_else(|| "天气数据缺少 hourly".to_owned())?;
+    let current_number = |key: &str| {
+        current
+            .get(key)
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite())
+            .ok_or_else(|| format!("天气数据缺少 {key}"))
+    };
+    let temperature = current_number("temperature_2m")?;
+    let apparent_temperature = current_number("apparent_temperature")?;
 
     let dates = array(daily, "time")?;
     let mut daily_forecasts = Vec::with_capacity(dates.len());
     for (index, date) in dates.iter().enumerate() {
-        let date = date.as_str().unwrap_or_default().to_owned();
+        let Some(date) = date.as_str().filter(|date| parse_date(date).is_some()) else {
+            continue;
+        };
+        let number = |key: &str| {
+            daily[key]
+                .as_array()
+                .and_then(|data| data.get(index))
+                .and_then(Value::as_f64)
+        };
+        let (Some(high), Some(low)) = (number("temperature_2m_max"), number("temperature_2m_min"))
+        else {
+            continue;
+        };
+        if high < low {
+            continue;
+        }
         daily_forecasts.push(DailyForecast {
-            date,
+            date: date.to_owned(),
             weather_code: u8_at(daily, "weather_code", index),
-            high: f64_at(daily, "temperature_2m_max", index),
-            low: f64_at(daily, "temperature_2m_min", index),
-            apparent_high: f64_at(daily, "apparent_temperature_max", index),
-            apparent_low: f64_at(daily, "apparent_temperature_min", index),
+            high,
+            low,
+            apparent_high: number("apparent_temperature_max").unwrap_or(high),
+            apparent_low: number("apparent_temperature_min").unwrap_or(low),
             sunrise: time_hm(&str_at(daily, "sunrise", index)),
             sunset: time_hm(&str_at(daily, "sunset", index)),
             uv_max: f64_at(daily, "uv_index_max", index),
@@ -183,7 +204,7 @@ pub fn parse_snapshot(json: &str, location: Location) -> Result<Snapshot, String
             temperature: f64_at(hourly, "temperature_2m", index),
             apparent_temperature: f64_at(hourly, "apparent_temperature", index),
             precipitation_probability: u8_at(hourly, "precipitation_probability", index),
-            precipitation: f64_at(hourly, "precipitation", index),
+            rainfall: f64_at(hourly, "rain", index) + f64_at(hourly, "showers", index),
             weather_code: u8_at(hourly, "weather_code", index),
             wind_speed: f64_at(hourly, "wind_speed_10m", index),
             wind_gusts: f64_at(hourly, "wind_gusts_10m", index),
@@ -211,17 +232,13 @@ pub fn parse_snapshot(json: &str, location: Location) -> Result<Snapshot, String
             .to_owned(),
         updated_at,
         current: CurrentWeather {
-            temperature: f64_field(current, "temperature_2m"),
-            apparent_temperature: f64_field(current, "apparent_temperature"),
+            temperature,
+            apparent_temperature,
             humidity: u8_field(current, "relative_humidity_2m"),
             precipitation: f64_field(current, "precipitation"),
             precipitation_probability,
             weather_code: u8_field(current, "weather_code"),
-            is_day: current
-                .get("is_day")
-                .and_then(Value::as_u64)
-                .unwrap_or(1)
-                != 0,
+            is_day: current.get("is_day").and_then(Value::as_u64).unwrap_or(1) != 0,
             cloud_cover: u8_field(current, "cloud_cover"),
             pressure: f64_field(current, "pressure_msl"),
             wind_speed: f64_field(current, "wind_speed_10m"),

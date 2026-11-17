@@ -103,6 +103,7 @@ impl SettingsLayout {
                 height
             }
             Section::Kuaidi => 2.0 * KUAIDI_CHECKBOX_STEP + POMODORO_ROW_HEIGHT,
+            Section::Weather => weather_view::CONTENT_HEIGHT,
             Section::About => {
                 details.push(text("性能监控 · 番茄钟 · 下载提醒", 11.5, TEXT));
                 details.push(text(
@@ -199,6 +200,7 @@ impl SettingsView {
                         &layout,
                         preferences,
                         &mut self.quiet_dialog,
+                        &mut self.weather_search,
                     )
                 })
                 .inner
@@ -210,6 +212,7 @@ impl SettingsView {
                 &layout,
                 preferences,
                 &mut self.quiet_dialog,
+                &mut self.weather_search,
             )
         };
         if section == Section::QuietHours && panel.height() >= quiet_view::DIALOG_MIN_HEIGHT {
@@ -295,6 +298,7 @@ fn paint_content(
     layout: &SettingsLayout,
     preferences: &mut CompactPreferences,
     dialog: &mut Option<QuietDialog>,
+    search: &mut WeatherSearch,
 ) -> bool {
     let painter = ui.painter().clone();
     let left = panel.left() + 14.0;
@@ -319,6 +323,7 @@ fn paint_content(
         Section::QuietHours => quiet_view::show(ui, controls, &mut preferences.quiet_hours, dialog),
         Section::Pomodoro => paint_pomodoro_options(ui, controls, preferences),
         Section::Kuaidi => paint_kuaidi_options(ui, controls, preferences),
+        Section::Weather => weather_view::show(ui, controls, preferences, search),
         Section::Bilibili => {
             let changed = paint_bilibili_options(ui, controls, preferences);
             if let Some(status) = layout.details.first() {
@@ -659,7 +664,7 @@ mod tests {
             let height = view.extra_height(ctx, &prefs, "");
             assert!(
                 height + crate::app::capsule::EXPANDED_BASE_HEIGHT + 4.0
-                    <= crate::app::INITIAL_WINDOW_SIZE[1]
+                    <= 900.0 * crate::app::SCREEN_FRACTION
             );
 
             let about = SettingsView {

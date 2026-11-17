@@ -133,7 +133,7 @@ impl Renderer<'_> {
             }
             Node::ProgressBar { .. } => vec2(100.0, 16.0),
             Node::ProgressRing { .. } | Node::Gauge { .. } => Vec2::splat(60.0),
-            Node::Chart { .. } | Node::Sparkline(_) => vec2(100.0, 36.0),
+            Node::Chart { .. } | Node::Sparkline(_) | Node::RangeChart { .. } => vec2(100.0, 36.0),
             Node::Image { asset } => image_size(ui, asset),
             Node::Sprite { frames, .. } => frames
                 .first()
@@ -466,16 +466,17 @@ impl Renderer<'_> {
                 text_style,
             } => text(ui, rect, value, *text_style, fg),
             Node::Icon { name, icon_style } => {
+                let size = Vec2::splat(point(icon_style.size)).min(rect.size());
+                let icon_rect = Rect::from_min_size(anchor(rect, size, icon_style.alignment), size);
+                let tint = icon_style.color.map_or(fg, color);
                 if let Some(icon) = named_icon(name) {
-                    let size = Vec2::splat(point(icon_style.size)).min(rect.size());
-                    let icon_rect =
-                        Rect::from_min_size(anchor(rect, size, icon_style.alignment), size);
-                    self.icons.paint(
-                        &painter,
-                        icon,
+                    self.icons.paint(&painter, icon, icon_rect, tint, 1.0);
+                } else if let Some(texture) = image(ui, name) {
+                    painter.image(
+                        texture.id(),
                         icon_rect,
-                        icon_style.color.map_or(fg, color),
-                        1.0,
+                        Rect::from_min_max(egui::Pos2::ZERO, pos2(1.0, 1.0)),
+                        tint,
                     );
                 }
             }
@@ -616,6 +617,22 @@ impl Renderer<'_> {
             }
             Node::Sparkline(values) => chart(&painter, rect, ChartKind::Line, values, fg),
             Node::Chart { kind, values } => chart(&painter, rect, *kind, values, fg),
+            Node::RangeChart {
+                labels,
+                high,
+                low,
+                unit,
+            } => range_chart(
+                &painter,
+                rect,
+                labels,
+                high,
+                low,
+                unit,
+                self.theme.dark,
+                opacity,
+                color(ColorSpec::MutedText),
+            ),
             Node::Control { kind, label, .. } => {
                 if let ControlKind::Toggle { checked } = kind {
                     let track = Rect::from_center_size(
@@ -695,6 +712,106 @@ fn arc(
         })
         .collect();
     painter.add(egui::Shape::line(points, stroke));
+}
+
+#[allow(clippy::too_many_arguments)]
+fn range_chart(
+    painter: &egui::Painter,
+    rect: Rect,
+    labels: &[String],
+    high: &[f32],
+    low: &[f32],
+    unit: &str,
+    dark: bool,
+    opacity: f32,
+    muted: Color32,
+) {
+    let count = labels.len().min(high.len()).min(low.len()).min(31);
+    let pairs = high.iter().copied().zip(low.iter().copied()).take(count);
+    let (minimum, maximum) = pairs
+        .clone()
+        .filter(|(high, low)| high.is_finite() && low.is_finite())
+        .fold(
+            (f32::INFINITY, f32::NEG_INFINITY),
+            |(min, max), (high, low)| (min.min(low), max.max(high)),
+        );
+    if !minimum.is_finite() || !maximum.is_finite() || rect.width() < 74.0 || rect.height() < 56.0 {
+        return;
+    }
+    let warm = if dark {
+        Color32::from_rgb(255, 168, 114)
+    } else {
+        Color32::from_rgb(157, 65, 17)
+    };
+    let cool = if dark {
+        Color32::from_rgb(105, 180, 255)
+    } else {
+        Color32::from_rgb(15, 98, 169)
+    };
+    let warm = warm.linear_multiply(opacity);
+    let cool = cool.linear_multiply(opacity);
+    let left = rect.left() + 13.0;
+    let width = rect.width() - 26.0;
+    let top = rect.top() + 15.0;
+    let bottom = rect.bottom() - 27.0;
+    let span = (maximum - minimum).max(1.0);
+    let y = |v: f32| bottom - (v - minimum + 0.12 * span) / (1.24 * span) * (bottom - top);
+    let x = |index: usize| {
+        if count == 1 {
+            rect.center().x
+        } else {
+            left + width * index as f32 / (count - 1) as f32
+        }
+    };
+    for ratio in [0.0, 0.5, 1.0] {
+        painter.hline(
+            left..=left + width,
+            egui::lerp(top..=bottom, ratio),
+            Stroke::new(1.0, muted.gamma_multiply(0.22)),
+        );
+    }
+    let mut previous: Option<(egui::Pos2, egui::Pos2)> = None;
+    for (index, (high, low)) in pairs.enumerate() {
+        let x = x(index);
+        painter.text(
+            pos2(x, rect.bottom() - 5.0),
+            egui::Align2::CENTER_BOTTOM,
+            &labels[index],
+            FontId::proportional(10.0),
+            muted,
+        );
+        if !high.is_finite() || !low.is_finite() {
+            previous = None;
+            continue;
+        }
+        let high_point = pos2(x, y(high));
+        let low_point = pos2(x, y(low));
+        if let Some((previous_high, previous_low)) = previous {
+            painter.add(egui::Shape::convex_polygon(
+                vec![previous_high, high_point, low_point, previous_low],
+                cool.gamma_multiply(0.15),
+                Stroke::NONE,
+            ));
+            painter.line_segment([previous_high, high_point], Stroke::new(1.8, warm));
+            painter.line_segment([previous_low, low_point], Stroke::new(1.8, cool));
+        }
+        for (point, value, color, offset, alignment) in [
+            (high_point, high, warm, -5.0, egui::Align2::CENTER_BOTTOM),
+            (low_point, low, cool, 5.0, egui::Align2::CENTER_TOP),
+        ] {
+            painter.circle_filled(point, 2.6, color);
+            if count <= 7 && width / count as f32 >= 30.0 {
+                painter.text(
+                    point + vec2(0.0, offset),
+                    alignment,
+                    format!("{value:.0}{unit}"),
+                    FontId::proportional(10.0),
+                    color,
+                );
+            }
+        }
+        previous = Some((high_point, low_point));
+    }
 }
 
 fn chart(painter: &egui::Painter, rect: Rect, kind: ChartKind, values: &[f32], color: Color32) {

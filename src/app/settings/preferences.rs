@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    builtins::{kuaidi, registry},
+    builtins::{kuaidi, registry, weather::WeatherPreferences},
     extension::{ExtensionId, ExtensionKind, SettingValue, Settings},
 };
 
@@ -33,6 +33,7 @@ pub struct CompactPreferences {
     pub bilibili_enabled: bool,
     pub bilibili_poll_seconds: u16,
     pub opencli_path: String,
+    pub weather: WeatherPreferences,
 }
 
 impl Default for CompactPreferences {
@@ -59,6 +60,7 @@ impl Default for CompactPreferences {
             bilibili_enabled: false,
             bilibili_poll_seconds: 60,
             opencli_path: String::new(),
+            weather: WeatherPreferences::default(),
         }
     }
 }
@@ -182,6 +184,7 @@ impl CompactPreferences {
             encode_periods(&self.quiet_hours)
         ));
         lines.push(format!("bilibili_enabled={}", self.bilibili_enabled));
+        lines.extend(self.weather.encode_lines());
         lines.push(format!("widget_theme={}", self.widget_theme.name()));
         let [r, g, b] = self.widget_accent;
         lines.push(format!("widget_accent=#{r:02x}{g:02x}{b:02x}"));
