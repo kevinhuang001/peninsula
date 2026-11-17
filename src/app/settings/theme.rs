@@ -1,8 +1,9 @@
+use crate::ui::palette::{self, TextPalette};
 use eframe::egui::Color32;
 
-pub(super) const TEXT: Color32 = Color32::from_rgb(255, 255, 255);
-pub(super) const SECONDARY_TEXT: Color32 = Color32::from_rgb(220, 225, 234);
-pub(in crate::app) const ACCENT: Color32 = Color32::from_rgb(45, 164, 255);
+pub(super) const TEXT: Color32 = TextPalette::DARK.primary;
+pub(super) const SECONDARY_TEXT: Color32 = TextPalette::DARK.secondary;
+pub(in crate::app) const ACCENT: Color32 = palette::SETTINGS_ACCENT_TEXT;
 pub(super) const CHECKBOX_ON: Color32 = Color32::from_rgb(48, 121, 184);
 pub(super) const SWITCH_ON: Color32 = Color32::from_rgb(24, 62, 105);
 pub(super) const ACCENT_SELECTED: Color32 = Color32::from_rgb(42, 76, 111);
@@ -15,8 +16,8 @@ pub(super) const SWITCH_OFF: Color32 = Color32::from_rgb(75, 81, 92);
 
 pub(super) const DEFAULT_WIDGET_ACCENT: [u8; 3] = [37, 87, 156];
 
-pub(in crate::app) const WIDGET_SURFACE_DARK: Color32 = Color32::from_rgb(16, 21, 30);
-pub(in crate::app) const WIDGET_SURFACE_LIGHT: Color32 = Color32::from_rgb(247, 249, 253);
+pub(in crate::app) const WIDGET_SURFACE_DARK: Color32 = palette::SURFACE_DARK;
+pub(in crate::app) const WIDGET_SURFACE_LIGHT: Color32 = palette::SURFACE_LIGHT;
 
 // Widget colors follow the configured egui theme. The existing settings
 // panels keep their own shell colors.
@@ -61,21 +62,16 @@ impl WidgetTheme {
             let dark = visuals.dark_mode;
             visuals.selection.bg_fill = accent;
             visuals.selection.stroke.color = Color32::WHITE;
-            visuals.hyperlink_color = if dark {
-                accent.lerp_to_gamma(Color32::WHITE, 0.48)
-            } else {
-                accent.lerp_to_gamma(Color32::BLACK, 0.10)
-            };
+            let text = TextPalette::for_mode(dark);
+            visuals.hyperlink_color = palette::readable_accent(accent, dark);
+            visuals.warn_fg_color = text.warning;
+            visuals.error_fg_color = text.danger;
             visuals.panel_fill = if dark {
                 WIDGET_SURFACE_DARK
             } else {
                 WIDGET_SURFACE_LIGHT
             };
-            visuals.widgets.noninteractive.fg_stroke.color = if dark {
-                Color32::from_rgb(231, 237, 246)
-            } else {
-                Color32::from_rgb(29, 42, 62)
-            };
+            visuals.widgets.noninteractive.fg_stroke.color = text.primary;
             visuals.widgets.noninteractive.bg_fill = if dark {
                 Color32::from_rgb(25, 34, 48)
             } else {

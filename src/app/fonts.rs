@@ -6,7 +6,7 @@ pub(super) fn install(context: &egui::Context) {
     fonts.font_data.insert(
         "noto-sans-sc".into(),
         Arc::new(FontData::from_static(include_bytes!(
-            "../../assets/fonts/NotoSansSC-VF.ttf"
+            "../../assets/fonts/NotoSansSC-Regular.ttf"
         ))),
     );
     fonts
