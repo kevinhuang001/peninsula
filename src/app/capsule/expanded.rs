@@ -151,9 +151,9 @@ fn header_button(rect: Rect, from_right: f32, size: Vec2) -> Rect {
     )
 }
 
-pub(in crate::app) const NAVIGATION_HEIGHT: f32 = 26.0;
-const NAVIGATION_FONT: f32 = 11.0;
-const TAB_PADDING: f32 = 4.0;
+pub(in crate::app) const NAVIGATION_HEIGHT: f32 = 22.0;
+const NAVIGATION_FONT: f32 = 8.0;
+const TAB_PADDING: f32 = 3.0;
 
 pub(in crate::app) fn navigation_rect(rect: Rect) -> Rect {
     Rect::from_min_max(
@@ -272,8 +272,8 @@ pub(super) fn paint_tabs(
                 );
                 ui.painter().rect_filled(
                     Rect::from_center_size(
-                        Pos2::new(tab.center().x, row.top() + 2.0),
-                        Vec2::new(22.0, 2.0),
+                        Pos2::new(tab.center().x, at.y - 1.0),
+                        Vec2::new(14.0, 1.5),
                     ),
                     1.0,
                     if selected {
@@ -347,7 +347,7 @@ mod navigation_tests {
             .iter()
             .filter_map(|shape| match &shape.shape {
                 egui::Shape::Rect(rect)
-                    if rect.rect.width() == 22.0 && rect.rect.height() == 2.0 =>
+                    if rect.rect.width() == 14.0 && rect.rect.height() == 1.5 =>
                 {
                     Some((rect.rect, rect.fill))
                 }

@@ -57,7 +57,7 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
         },
     );
     assert_eq!(rect.width(), 220.0);
-    assert_eq!(rect.height(), 122.0);
+    assert_eq!(rect.height(), 120.0);
     assert!((rect.center().x - 180.0).abs() < 1.0);
 }
 
