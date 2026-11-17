@@ -284,28 +284,19 @@ pub fn weather_description(code: u8) -> &'static str {
 }
 
 pub fn weather_icon(code: u8, is_day: bool) -> &'static str {
-    match code {
-        0 | 1 => {
-            if is_day {
-                "sun"
-            } else {
-                "moon"
-            }
-        }
-        2 => {
-            if is_day {
-                "cloud-sun"
-            } else {
-                "cloud-moon"
-            }
-        }
-        3 => "cloud",
-        45 | 48 => "cloud-fog",
-        51 | 53 | 55 | 56 | 57 => "cloud-drizzle",
-        61 | 63 | 65 | 66 | 67 | 80 | 81 | 82 => "cloud-rain",
-        71 | 73 | 75 | 77 | 85 | 86 => "cloud-snow",
-        95 | 96 | 99 => "cloud-lightning",
-        _ => "cloud",
+    match (code, is_day) {
+        (0 | 1, true) => "meteo/clear-day",
+        (0 | 1, false) => "meteo/clear-night",
+        (2, true) => "meteo/partly-cloudy-day",
+        (2, false) => "meteo/partly-cloudy-night",
+        (3, _) => "meteo/overcast",
+        (45 | 48, _) => "meteo/fog",
+        (51 | 53 | 55, _) => "meteo/drizzle",
+        (56 | 57 | 66 | 67, _) => "meteo/sleet",
+        (61 | 63 | 65 | 80 | 81 | 82, _) => "meteo/rain",
+        (71 | 73 | 75 | 77 | 85 | 86, _) => "meteo/snow",
+        (95 | 96 | 99, _) => "meteo/thunderstorms",
+        _ => "meteo/not-available",
     }
 }
 
@@ -525,7 +516,7 @@ mod tests {
         assert_eq!(snapshot.current.precipitation_probability, 20);
         assert_eq!(snapshot.current.humidity, 71);
         assert!(!snapshot.current.is_day);
-        assert_eq!(snapshot.icon(), "cloud");
+        assert_eq!(snapshot.icon(), "meteo/overcast");
         assert_eq!(snapshot.daily[0].high, 18.2);
         assert_eq!(snapshot.daily[0].sunrise, "06:18");
         assert_eq!(snapshot.daily[0].sunset, "16:57");
@@ -539,13 +530,13 @@ mod tests {
         assert_eq!(weather_description(0), "晴");
         assert_eq!(weather_description(95), "雷暴");
         assert_eq!(weather_description(65), "大雨");
-        assert_eq!(weather_icon(0, true), "sun");
-        assert_eq!(weather_icon(0, false), "moon");
-        assert_eq!(weather_icon(2, true), "cloud-sun");
-        assert_eq!(weather_icon(2, false), "cloud-moon");
-        assert_eq!(weather_icon(61, true), "cloud-rain");
-        assert_eq!(weather_icon(75, true), "cloud-snow");
-        assert_eq!(weather_icon(95, true), "cloud-lightning");
+        assert_eq!(weather_icon(0, true), "meteo/clear-day");
+        assert_eq!(weather_icon(0, false), "meteo/clear-night");
+        assert_eq!(weather_icon(2, true), "meteo/partly-cloudy-day");
+        assert_eq!(weather_icon(2, false), "meteo/partly-cloudy-night");
+        assert_eq!(weather_icon(61, true), "meteo/rain");
+        assert_eq!(weather_icon(75, true), "meteo/snow");
+        assert_eq!(weather_icon(95, true), "meteo/thunderstorms");
     }
 
     #[test]

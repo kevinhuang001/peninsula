@@ -50,7 +50,6 @@ fn kind_title(kind: &str) -> &'static str {
         "thunder" => "雷电",
         "wind" => "大风",
         "heat" => "高温",
-        "cold" => "低温",
         "snow" => "暴雪",
         "fog" => "大雾",
         "uv" => "紫外线",
@@ -79,8 +78,7 @@ pub fn derive(snapshot: &Snapshot) -> Vec<WeatherAlert> {
         .iter()
         .map(|hour| hour.wind_gusts)
         .fold(snapshot.current.wind_gusts, f64::max);
-    // Sustained wind and cold thresholds follow the defaults from the
-    // cited Open-Meteo MCP tool; gust and rain thresholds use separate windows.
+    // The sustained-wind threshold follows the cited Open-Meteo MCP tool.
     let sustained_wind = next_24
         .iter()
         .map(|hour| hour.wind_speed)
@@ -195,25 +193,6 @@ pub fn derive(snapshot: &Snapshot) -> Vec<WeatherAlert> {
         }
     }
 
-    if let Some((day, low)) = coldest_day(snapshot) {
-        if low <= -5.0 {
-            let severity = if low <= -20.0 {
-                Severity::Red
-            } else if low <= -10.0 {
-                Severity::Orange
-            } else {
-                Severity::Yellow
-            };
-            alerts.push(WeatherAlert::new(
-                &day.date,
-                "cold",
-                severity,
-                location,
-                format!("{} 最低气温可能降至 {low:.0}°C。", day.date),
-            ));
-        }
-    }
-
     if let Some((day, snow)) = snowiest_day(snapshot) {
         if snow >= 5.0 {
             alerts.push(WeatherAlert::new(
@@ -279,15 +258,6 @@ fn hottest_day(snapshot: &Snapshot) -> Option<(&super::model::DailyForecast, f64
         .take(2)
         .map(|day| (day, day.high))
         .max_by(|left, right| left.1.total_cmp(&right.1))
-}
-
-fn coldest_day(snapshot: &Snapshot) -> Option<(&super::model::DailyForecast, f64)> {
-    snapshot
-        .daily
-        .iter()
-        .take(2)
-        .map(|day| (day, day.low))
-        .min_by(|left, right| left.1.total_cmp(&right.1))
 }
 
 fn snowiest_day(snapshot: &Snapshot) -> Option<(&super::model::DailyForecast, f64)> {
@@ -375,10 +345,19 @@ mod tests {
     }
 
     #[test]
-    fn heat_cold_fog_and_uv_thresholds_become_notices() {
+    fn cold_temperatures_alone_do_not_generate_risk_notices() {
+        let mut snapshot = snapshot();
+        snapshot.current.temperature = -20.0;
+        snapshot.current.apparent_temperature = -26.0;
+        snapshot.daily[0].high = -19.0;
+        snapshot.daily[0].low = -32.0;
+        assert!(derive(&snapshot).is_empty());
+    }
+
+    #[test]
+    fn heat_fog_and_uv_thresholds_become_notices() {
         let mut snapshot = snapshot();
         snapshot.daily[0].high = 41.0;
-        snapshot.daily[0].low = -12.0;
         snapshot.daily[0].uv_max = 9.0;
         snapshot.current.visibility = 450.0;
         for hour in &mut snapshot.hourly {
@@ -392,14 +371,6 @@ mod tests {
                 .unwrap()
                 .severity,
             Severity::Red
-        );
-        assert_eq!(
-            alerts
-                .iter()
-                .find(|alert| alert.kind == "cold")
-                .unwrap()
-                .severity,
-            Severity::Orange
         );
         assert_eq!(
             alerts

@@ -13,8 +13,9 @@ STAGE="$ROOT/target/macos-app-stage"
 cd "$ROOT"
 cargo build --locked --release
 rm -rf "$STAGE" "$APP"
-mkdir -p "$STAGE/Contents/MacOS" "$HOME/Applications"
+mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources/Licenses" "$HOME/Applications"
 cp target/release/island-lab "$STAGE/Contents/MacOS/island-lab"
+cp assets/icons/meteocons/LICENSE "$STAGE/Contents/Resources/Licenses/Meteocons.txt"
 cat > "$STAGE/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

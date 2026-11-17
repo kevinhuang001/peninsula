@@ -87,40 +87,8 @@ impl Icons {
         }
         for (name, svg) in [
             (
-                "cloud-drizzle",
-                include_bytes!("../../assets/icons/lucide/cloud-drizzle.svg").as_slice(),
-            ),
-            (
-                "cloud-fog",
-                include_bytes!("../../assets/icons/lucide/cloud-fog.svg").as_slice(),
-            ),
-            (
-                "cloud-lightning",
-                include_bytes!("../../assets/icons/lucide/cloud-lightning.svg").as_slice(),
-            ),
-            (
-                "cloud-moon",
-                include_bytes!("../../assets/icons/lucide/cloud-moon.svg").as_slice(),
-            ),
-            (
-                "cloud-off",
-                include_bytes!("../../assets/icons/lucide/cloud-off.svg").as_slice(),
-            ),
-            (
                 "cloud-rain",
                 include_bytes!("../../assets/icons/lucide/cloud-rain.svg").as_slice(),
-            ),
-            (
-                "cloud-snow",
-                include_bytes!("../../assets/icons/lucide/cloud-snow.svg").as_slice(),
-            ),
-            (
-                "cloud-sun",
-                include_bytes!("../../assets/icons/lucide/cloud-sun.svg").as_slice(),
-            ),
-            (
-                "cloud",
-                include_bytes!("../../assets/icons/lucide/cloud.svg").as_slice(),
             ),
             (
                 "droplet",
@@ -173,6 +141,7 @@ impl Icons {
         ] {
             crate::ui::renderer::register_image(context, name, load(context, name, svg));
         }
+        register_weather_icons(context);
         icons
     }
 
@@ -292,11 +261,81 @@ fn paint_gpu(painter: &Painter, rect: Rect, color: Color32) {
     );
 }
 
+const WEATHER_ICON_PIXELS: u32 = 192;
+
+fn register_weather_icons(context: &egui::Context) {
+    for (name, svg) in [
+        (
+            "meteo/clear-day",
+            include_bytes!("../../assets/icons/meteocons/clear-day.svg").as_slice(),
+        ),
+        (
+            "meteo/clear-night",
+            include_bytes!("../../assets/icons/meteocons/clear-night.svg").as_slice(),
+        ),
+        (
+            "meteo/partly-cloudy-day",
+            include_bytes!("../../assets/icons/meteocons/partly-cloudy-day.svg").as_slice(),
+        ),
+        (
+            "meteo/partly-cloudy-night",
+            include_bytes!("../../assets/icons/meteocons/partly-cloudy-night.svg").as_slice(),
+        ),
+        (
+            "meteo/overcast",
+            include_bytes!("../../assets/icons/meteocons/overcast.svg").as_slice(),
+        ),
+        (
+            "meteo/fog",
+            include_bytes!("../../assets/icons/meteocons/fog.svg").as_slice(),
+        ),
+        (
+            "meteo/drizzle",
+            include_bytes!("../../assets/icons/meteocons/drizzle.svg").as_slice(),
+        ),
+        (
+            "meteo/rain",
+            include_bytes!("../../assets/icons/meteocons/rain.svg").as_slice(),
+        ),
+        (
+            "meteo/sleet",
+            include_bytes!("../../assets/icons/meteocons/sleet.svg").as_slice(),
+        ),
+        (
+            "meteo/snow",
+            include_bytes!("../../assets/icons/meteocons/snow.svg").as_slice(),
+        ),
+        (
+            "meteo/thunderstorms",
+            include_bytes!("../../assets/icons/meteocons/thunderstorms.svg").as_slice(),
+        ),
+        (
+            "meteo/not-available",
+            include_bytes!("../../assets/icons/meteocons/not-available.svg").as_slice(),
+        ),
+    ] {
+        let texture = rasterize_svg(context, name, svg, WEATHER_ICON_PIXELS);
+        crate::ui::renderer::register_image(context, name, texture);
+    }
+}
+
 fn load(context: &egui::Context, name: &str, svg: &[u8]) -> TextureHandle {
     let svg = String::from_utf8_lossy(svg).replace("currentColor", "#FFFFFF");
-    let image = egui_extras::image::load_svg_bytes(svg.as_bytes())
-        .unwrap_or_else(|error| panic!("invalid bundled Lucide icon {name}: {error}"));
-    context.load_texture(name, image, egui::TextureOptions::LINEAR)
+    rasterize_svg(context, name, svg.as_bytes(), 96)
+}
+
+fn rasterize_svg(context: &egui::Context, name: &str, svg: &[u8], pixels: u32) -> TextureHandle {
+    let image = svg_image(svg, pixels)
+        .unwrap_or_else(|error| panic!("invalid bundled icon {name}: {error}"));
+    context.load_texture(
+        name,
+        image,
+        egui::TextureOptions::LINEAR.with_mipmap_mode(Some(egui::TextureFilter::Linear)),
+    )
+}
+
+fn svg_image(svg: &[u8], pixels: u32) -> Result<egui::ColorImage, String> {
+    egui_extras::image::load_svg_bytes_with_size(svg, Some(egui::SizeHint::Size(pixels, pixels)))
 }
 
 #[cfg(test)]
@@ -307,9 +346,22 @@ mod tests {
     fn bundled_lucide_icons_load_and_are_attributed_under_the_open_license() {
         let context = eframe::egui::Context::default();
         let icons = Icons::load(&context);
-        assert!(icons.pin.size()[0] > 0);
+        assert!(icons.pin.size()[0] >= 96);
         assert!(icons.battery_charging.size()[0] > 0);
         let license = include_str!("../../assets/icons/lucide/LICENSE");
         assert!(license.contains("ISC License"));
+    }
+    #[test]
+    fn weather_svg_keeps_its_color_and_rasters_above_retina_hero_size() {
+        let svg = include_bytes!("../../assets/icons/meteocons/partly-cloudy-night.svg");
+        let pixels = super::WEATHER_ICON_PIXELS as usize;
+        let image = super::svg_image(svg, super::WEATHER_ICON_PIXELS).unwrap();
+        assert_eq!(image.size, [pixels, pixels]);
+        let foreground = image.pixels.iter().filter(|pixel| pixel.a() > 200).count();
+        assert!(foreground > pixels * pixels / 20);
+        assert!(image
+            .pixels
+            .iter()
+            .any(|pixel| pixel.a() > 200 && pixel.r() != pixel.b()));
     }
 }

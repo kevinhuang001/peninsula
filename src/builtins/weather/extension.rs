@@ -343,20 +343,20 @@ impl RuntimeExtension for WeatherExtension {
             );
             (
                 snapshot.icon(),
-                format!("{:.0}°", snapshot.current.temperature),
+                temperature_label(snapshot.current.temperature),
                 color,
                 tooltip,
             )
         } else if let Some(error) = &self.error {
             (
-                "cloud-off",
+                "meteo/not-available",
                 "--°".to_owned(),
                 ColorSpec::MutedText,
                 error.clone(),
             )
         } else {
             (
-                "cloud-sun",
+                "meteo/partly-cloudy-day",
                 "--°".to_owned(),
                 ColorSpec::MutedText,
                 "正在获取天气…".to_owned(),
@@ -366,7 +366,7 @@ impl RuntimeExtension for WeatherExtension {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(WIDGET_ID),
             content: ViewNode::row(
-                vec![ViewNode::icon(icon, 16.0), text(label, 11.0, color)],
+                vec![weather_icon(icon, 25.0), text(label, 11.0, color)],
                 Flow {
                     gap: Some(5.0),
                     ..Default::default()
@@ -415,55 +415,63 @@ fn alert_notification(alert: &WeatherAlert, location: &Location) -> Notification
 fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str>) -> ViewNode {
     let current = &snapshot.current;
     let today = snapshot.today();
-    let high_low = today.map_or_else(String::new, |day| {
-        format!("  ·  ↑ {:.0}°  ↓ {:.0}°", day.high, day.low)
-    });
-    let mut hero = panel(
-        ViewNode::row(
+    let current_row = ViewNode::row(
+        vec![
+            column(
+                vec![
+                    ViewNode::row(
+                        vec![
+                            ViewNode::icon("map-pin", 13.0).color(ColorSpec::Info),
+                            strong(&snapshot.location.name, 13.0),
+                        ],
+                        flow(4.0, Align::Center),
+                    ),
+                    ViewNode::row(
+                        vec![
+                            strong(temperature_label(current.temperature), 40.0),
+                            text(snapshot.condition(), 14.0, ColorSpec::SecondaryText),
+                        ],
+                        flow(9.0, Align::Center),
+                    ),
+                ],
+                3.0,
+            )
+            .sized(Size::Fill(1.0), Size::Auto),
+            ViewNode::column(
+                vec![
+                    weather_icon(snapshot.icon(), 78.0),
+                    text(
+                        format!("{} 更新", snapshot.updated_hm()),
+                        9.5,
+                        ColorSpec::SecondaryText,
+                    ),
+                ],
+                flow(0.0, Align::Center),
+            ),
+        ],
+        flow(10.0, Align::Center),
+    )
+    .sized(Size::Fill(1.0), Size::Auto);
+    let mut temperatures = vec![temperature_stat("体感温度", current.apparent_temperature)];
+    if let Some(day) = today {
+        temperatures.push(temperature_stat("今日最高", day.high));
+        temperatures.push(temperature_stat("今日最低", day.low));
+    }
+    let hero = panel(
+        column(
             vec![
-                column(
-                    vec![
-                        ViewNode::row(
-                            vec![
-                                ViewNode::icon("map-pin", 13.0).color(ColorSpec::Info),
-                                strong(&snapshot.location.name, 13.0),
-                            ],
-                            flow(4.0, Align::Center),
-                        ),
-                        ViewNode::row(
-                            vec![
-                                strong(format!("{:.0}°", current.temperature), 41.0),
-                                text(snapshot.condition(), 15.0, ColorSpec::SecondaryText),
-                            ],
-                            flow(9.0, Align::Center),
-                        ),
-                        text(
-                            format!("体感 {:.0}°{high_low}", current.apparent_temperature),
-                            11.0,
-                            ColorSpec::SecondaryText,
-                        ),
-                    ],
-                    1.0,
-                )
-                .sized(Size::Fill(1.0), Size::Auto),
-                column(
-                    vec![
-                        ViewNode::icon(snapshot.icon(), 42.0).color(ColorSpec::Info),
-                        text(
-                            format!("{} 更新", snapshot.updated_hm()),
-                            10.0,
-                            ColorSpec::SecondaryText,
-                        ),
-                    ],
-                    4.0,
-                ),
+                current_row,
+                ViewNode::new(Node::Divider { vertical: false })
+                    .sized(Size::Fill(1.0), Size::Fixed(1.0))
+                    .color(ColorSpec::Border),
+                ViewNode::row(temperatures, flow(8.0, Align::Center))
+                    .sized(Size::Fill(1.0), Size::Auto),
             ],
-            flow(10.0, Align::Center),
+            8.0,
         ),
         ColorSpec::AccentSubtle,
-        [13.0, 10.0, 13.0, 10.0],
+        [13.0, 8.0, 13.0, 11.0],
     );
-    hero.size.width = Size::Fill(1.0);
 
     let mut sections = vec![hero];
     if error.is_some() {
@@ -574,6 +582,33 @@ fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str
         ColorSpec::MutedText,
     ));
     column(sections, 7.0).sized(Size::Fill(1.0), Size::Auto)
+}
+
+fn weather_icon(asset: &str, size: f32) -> ViewNode {
+    ViewNode::new(Node::Image {
+        asset: asset.into(),
+    })
+    .sized(Size::Fixed(size), Size::Fixed(size))
+}
+
+fn temperature_label(value: f64) -> String {
+    let rounded = value.round();
+    if rounded < 0.0 {
+        format!("−{:.0}°", rounded.abs())
+    } else {
+        format!("{:.0}°", rounded.abs())
+    }
+}
+
+fn temperature_stat(label: &str, value: f64) -> ViewNode {
+    column(
+        vec![
+            text(label, 10.0, ColorSpec::SecondaryText),
+            strong(temperature_label(value), 15.0),
+        ],
+        2.0,
+    )
+    .sized(Size::Fill(1.0), Size::Auto)
 }
 
 fn flow(gap: f32, align: Align) -> Flow {
@@ -777,7 +812,7 @@ mod tests {
         let Node::Row(_, children) = &views[0].content.kind else {
             panic!("weather compact row");
         };
-        assert!(matches!(&children[0].kind, Node::Icon { name, .. } if name == "cloud"));
+        assert!(matches!(&children[0].kind, Node::Image { asset } if asset == "meteo/overcast"));
         assert!(matches!(&children[1].kind, Node::Text { text, .. } if text == "15°"));
         assert!(views[0]
             .tooltip
@@ -794,7 +829,10 @@ mod tests {
         let tree = serde_json::to_string(&view.root).unwrap();
         for visible in [
             "上海",
-            "体感 14°",
+            "体感温度",
+            "14°",
+            "今日最高",
+            "今日最低",
             "日出",
             "06:18",
             "日落",
