@@ -116,30 +116,7 @@ impl Snapshot {
             .collect()
     }
 
-    pub fn sun_progress(&self) -> f32 {
-        let Some(today) = self.today() else {
-            return 0.0;
-        };
-        let Some(now) = clock_minutes(&self.updated_at) else {
-            return 0.0;
-        };
-        let Some(sunrise) = clock_minutes(&today.sunrise) else {
-            return 0.0;
-        };
-        let Some(sunset) = clock_minutes(&today.sunset) else {
-            return 0.0;
-        };
-        if sunset <= sunrise {
-            return 0.0;
-        }
-        if now <= sunrise {
-            0.0
-        } else if now >= sunset {
-            1.0
-        } else {
-            (now - sunrise) as f32 / (sunset - sunrise) as f32
-        }
-    }
+
 
     pub fn daylight(&self) -> Option<String> {
         let today = self.today()?;
@@ -536,7 +513,6 @@ mod tests {
         assert_eq!(snapshot.daily[0].sunrise, "06:18");
         assert_eq!(snapshot.daily[0].sunset, "16:57");
         assert_eq!(snapshot.day_labels(), ["今天", "明天"]);
-        assert!((snapshot.sun_progress() - 1.0).abs() < f32::EPSILON);
         assert_eq!(snapshot.daylight().as_deref(), Some("10小时39分"));
         assert_eq!(snapshot.hourly_from_now(1)[0].temperature, 14.6);
     }

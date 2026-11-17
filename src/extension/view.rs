@@ -66,12 +66,9 @@ pub enum ViewNode {
         high: Vec<f32>,
         low: Vec<f32>,
     },
-    /// A progress arc between two labelled times, such as sunrise and sunset.
-    ArcMeter {
-        start_label: String,
-        end_label: String,
-        center_label: Option<String>,
-        progress: f32,
+    /// A single rounded bar of compact labelled values.
+    InfoBar {
+        cells: Vec<StatCell>,
     },
     /// Forces a child to a fixed height inside a column.
     Sized {

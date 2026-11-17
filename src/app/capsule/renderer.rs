@@ -85,10 +85,11 @@ fn paint_node(
         }
         ViewNode::Icon { name, color } => {
             if let Some(icon) = Icon::from_name(name) {
+                let side = (rect.width().min(rect.height()) - 8.0).max(1.0);
                 icons.paint(
                     ui.painter(),
                     icon,
-                    rect.shrink(5.0),
+                    Rect::from_center_size(rect.center(), Vec2::splat(side)),
                     color_from_role(*color),
                     opacity,
                 );
@@ -247,17 +248,17 @@ fn paint_node(
                     text_left = cell_rect.left() + 27.0;
                 }
                 painter.text(
-                    Pos2::new(text_left, cell_rect.top() + 4.0),
-                    Align2::LEFT_TOP,
+                    Pos2::new(text_left, cell_rect.center().y),
+                    Align2::LEFT_CENTER,
                     &cell.label,
                     FontId::proportional(8.6),
                     MUTED.linear_multiply(opacity),
                 );
                 painter.text(
-                    Pos2::new(text_left, cell_rect.bottom() - 5.0),
-                    Align2::LEFT_BOTTOM,
+                    Pos2::new(cell_rect.right() - 8.0, cell_rect.center().y),
+                    Align2::RIGHT_CENTER,
                     &cell.value,
-                    FontId::proportional(10.5),
+                    FontId::proportional(10.2),
                     color_from_role(cell.color).linear_multiply(opacity),
                 );
             }
@@ -359,71 +360,57 @@ fn paint_node(
                 );
             }
         }
-        ViewNode::ArcMeter {
-            start_label,
-            end_label,
-            center_label,
-            progress,
-        } => {
-            let painter = ui.painter();
-            let baseline = rect.bottom() - 1.0;
-            let arc_left = rect.left() + 88.0;
-            let arc_right = rect.right() - 88.0;
-            let radius = ((arc_right - arc_left) * 0.5).min(rect.height() - 8.0);
-            if radius > 2.0 {
-                let center = Pos2::new(rect.center().x, baseline);
-                let arc_points = |from: f32, to: f32| {
-                    let segments = 32;
-                    (0..=segments)
-                        .map(|index| {
-                            let angle = from + (to - from) * index as f32 / segments as f32;
-                            center + Vec2::new(angle.cos(), -angle.sin()) * radius
-                        })
-                        .collect::<Vec<_>>()
-                };
-                painter.add(egui::Shape::line(
-                    arc_points(std::f32::consts::PI, 0.0),
-                    Stroke::new(1.2_f32, Color32::from_rgb(62, 68, 79).linear_multiply(opacity)),
-                ));
-                let progress = progress.clamp(0.0, 1.0);
-                let angle = std::f32::consts::PI * (1.0 - progress);
-                painter.add(egui::Shape::line(
-                    arc_points(std::f32::consts::PI, angle),
-                    Stroke::new(1.8_f32, Color32::from_rgb(255, 186, 92).linear_multiply(opacity)),
-                ));
-                let sun = center + Vec2::new(angle.cos(), -angle.sin()) * radius;
-                painter.circle_filled(
-                    sun,
-                    4.2,
-                    Color32::from_rgba_unmultiplied(255, 186, 92, 38).linear_multiply(opacity),
-                );
-                painter.circle_filled(
-                    sun,
-                    2.4,
-                    Color32::from_rgb(255, 200, 112).linear_multiply(opacity),
-                );
+        ViewNode::InfoBar { cells } => {
+            if cells.is_empty() {
+                return None;
             }
-            painter.text(
-                Pos2::new(rect.left() + 2.0, rect.center().y),
-                Align2::LEFT_CENTER,
-                start_label,
-                FontId::proportional(8.8),
-                MUTED.linear_multiply(opacity),
-            );
-            painter.text(
-                Pos2::new(rect.right() - 2.0, rect.center().y),
-                Align2::RIGHT_CENTER,
-                end_label,
-                FontId::proportional(8.8),
-                MUTED.linear_multiply(opacity),
-            );
-            if let Some(label) = center_label {
+            let painter = ui.painter();
+            painter.rect_filled(rect, 9.0, CARD.linear_multiply(opacity));
+            let section_width = rect.width() / cells.len() as f32;
+            for (index, cell) in cells.iter().enumerate() {
+                let section = Rect::from_min_size(
+                    Pos2::new(rect.left() + index as f32 * section_width, rect.top()),
+                    Vec2::new(section_width, rect.height()),
+                );
+                if index > 0 {
+                    painter.line_segment(
+                        [
+                            Pos2::new(section.left(), section.top() + 8.0),
+                            Pos2::new(section.left(), section.bottom() - 8.0),
+                        ],
+                        Stroke::new(
+                            1.0_f32,
+                            Color32::from_rgb(48, 52, 60).linear_multiply(opacity),
+                        ),
+                    );
+                }
+                let mut text_left = section.left() + 10.0;
+                if let Some(name) = cell.icon.as_deref().and_then(Icon::from_name) {
+                    icons.paint(
+                        painter,
+                        name,
+                        Rect::from_center_size(
+                            Pos2::new(section.left() + 15.0, section.center().y),
+                            Vec2::splat(12.0),
+                        ),
+                        color_from_role(cell.color).linear_multiply(opacity),
+                        opacity,
+                    );
+                    text_left = section.left() + 27.0;
+                }
                 painter.text(
-                    Pos2::new(rect.center().x, rect.top() + 1.0),
-                    Align2::CENTER_TOP,
-                    label,
-                    FontId::proportional(8.2),
+                    Pos2::new(text_left, section.center().y),
+                    Align2::LEFT_CENTER,
+                    &cell.label,
+                    FontId::proportional(8.6),
                     MUTED.linear_multiply(opacity),
+                );
+                painter.text(
+                    Pos2::new(section.right() - 8.0, section.center().y),
+                    Align2::RIGHT_CENTER,
+                    &cell.value,
+                    FontId::proportional(10.6),
+                    color_from_role(cell.color).linear_multiply(opacity),
                 );
             }
         }
@@ -610,7 +597,6 @@ fn preferred_height(node: &ViewNode) -> f32 {
             }
         }
         ViewNode::RangeChart { .. } => 78.0,
-        ViewNode::ArcMeter { .. } => 28.0,
         ViewNode::Sized { height, .. } => *height,
         ViewNode::Divider => 9.0,
         ViewNode::Spacer { size } => size[1],
