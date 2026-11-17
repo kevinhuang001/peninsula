@@ -11,7 +11,7 @@ pub(super) fn parse_gpu_utilization(text: &str) -> Option<f32> {
 pub(super) fn gpu_utilization() -> Option<f32> {
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("ioreg")
+        let output = crate::core::external::process::command("ioreg")
             .args(["-r", "-c", "IOAccelerator", "-d", "1"])
             .output()
             .ok()?;
@@ -36,7 +36,7 @@ pub(super) fn gpu_utilization() -> Option<f32> {
     }
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("nvidia-smi")
+        let output = crate::core::external::process::command("nvidia-smi")
             .args([
                 "--query-gpu=utilization.gpu",
                 "--format=csv,noheader,nounits",
@@ -52,7 +52,7 @@ pub(super) fn gpu_utilization() -> Option<f32> {
             }
         }
         let script = "$s=Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction Stop; ($s.CounterSamples | Where-Object {$_.InstanceName -match 'engtype_3D'} | Measure-Object -Property CookedValue -Maximum).Maximum";
-        let output = std::process::Command::new("powershell")
+        let output = crate::core::external::process::command("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", script])
             .output()
             .ok()?;

@@ -17,6 +17,8 @@
 - 可选启用 Bilibili 私信和收到的赞通知；通过系统 OpenCLI 和现有 Chrome 登录态读取，不要求输入 Cookie。
 - 顶部月亮按钮可手动常开免打扰；在计划时段中关闭时，只跳过当前时段，之后仍按计划启用。
 - 右键胶囊打开退出菜单。
+- 同一用户只运行一个应用实例；重复启动直接退出，正常退出或异常终止后都能重新启动。
+- Windows 后台命令（包括 OpenCLI、PowerShell 和 GPU 采样）统一隐藏控制台窗口；支持 npm 安装的 `opencli.cmd`。
 - CPU、网络和电池信息由跨平台 Rust 库采集。GPU 使用率按系统能力读取：macOS 使用 IOAccelerator，Linux 读取 DRM `gpu_busy_percent`，Windows 优先使用 NVIDIA `nvidia-smi`，并回退到 Windows GPU Engine 性能计数器；系统未提供数据时明确显示不可用。
 - Noto Sans SC 与吉祥物表情序列均随程序打包，不依赖系统字体；字体和表情资源各自附带许可证。
 - macOS 窗口加入所有桌面空间，并作为全屏辅助窗口显示在全屏应用上方。
