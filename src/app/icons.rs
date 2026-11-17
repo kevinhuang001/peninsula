@@ -4,6 +4,12 @@ use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, TextureHandle, Ve
 pub(crate) enum Icon {
     Pin,
     Dashboard,
+    Music,
+    MusicNote,
+    MediaPlay,
+    MediaPause,
+    MediaPrevious,
+    MediaNext,
     Moon,
     Settings,
     Battery,
@@ -192,13 +198,46 @@ impl Icons {
             painter.circle_filled(c + Vec2::new(0.0, r), 0.9, stroke.color);
             return;
         }
+        if matches!(icon, Icon::Music) {
+            let origin = rect.center();
+            let unit = rect.width().min(rect.height()) / 24.0;
+            let point = |x, y| origin + Vec2::new(x, y) * unit;
+            let color = color.linear_multiply(opacity);
+            let stroke = Stroke::new(1.8 * unit, color);
+            painter.line_segment([point(-3.0, 5.0), point(-3.0, -7.0)], stroke);
+            painter.line_segment([point(8.0, 2.0), point(8.0, -10.0)], stroke);
+            painter.line_segment([point(-3.0, -7.0), point(8.0, -10.0)], stroke);
+            painter.circle_filled(point(-5.4, 5.7), 2.8 * unit, color);
+            painter.circle_filled(point(5.6, 2.7), 2.8 * unit, color);
+            return;
+        }
+        if matches!(
+            icon,
+            Icon::MusicNote
+                | Icon::MediaPlay
+                | Icon::MediaPause
+                | Icon::MediaPrevious
+                | Icon::MediaNext
+        ) {
+            paint_media_icon(painter, icon, rect, color.linear_multiply(opacity));
+            return;
+        }
         let texture = match icon {
             Icon::Pin => &self.pin,
             Icon::Moon => &self.moon,
             Icon::Settings => &self.settings,
             Icon::Battery => &self.battery,
             Icon::BatteryCharging => &self.battery_charging,
-            Icon::Cpu | Icon::Gpu | Icon::Bell | Icon::Dashboard => unreachable!(),
+            Icon::Cpu
+            | Icon::Gpu
+            | Icon::Bell
+            | Icon::Dashboard
+            | Icon::Music
+            | Icon::MusicNote
+            | Icon::MediaPlay
+            | Icon::MediaPause
+            | Icon::MediaPrevious
+            | Icon::MediaNext => unreachable!(),
             Icon::ArrowDown => &self.arrow_down,
             Icon::ArrowUp => &self.arrow_up,
             Icon::Clock => &self.clock,
@@ -210,6 +249,51 @@ impl Icons {
             Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
             color.linear_multiply(opacity),
         );
+    }
+}
+
+fn paint_media_icon(painter: &Painter, icon: Icon, rect: Rect, color: Color32) {
+    let center = rect.center();
+    let unit = rect.width().min(rect.height()) / 24.0;
+    let at = |x, y| center + Vec2::new(x, y) * unit;
+    let triangle = |middle: f32, direction: f32| {
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                at(middle - 4.8 * direction, -7.0),
+                at(middle + 5.6 * direction, 0.0),
+                at(middle - 4.8 * direction, 7.0),
+            ],
+            color,
+            Stroke::NONE,
+        ));
+    };
+    match icon {
+        Icon::MediaPlay => triangle(0.0, 1.0),
+        Icon::MediaPrevious | Icon::MediaNext => {
+            let direction = if matches!(icon, Icon::MediaPrevious) {
+                -1.0
+            } else {
+                1.0
+            };
+            triangle(-5.4, direction);
+            triangle(5.4, direction);
+        }
+        Icon::MediaPause => {
+            for x in [-4.7, 4.7] {
+                painter.rect_filled(
+                    Rect::from_center_size(at(x, 0.0), Vec2::new(4.8, 19.0) * unit),
+                    1.3 * unit,
+                    color,
+                );
+            }
+        }
+        Icon::MusicNote => {
+            let stroke = Stroke::new(1.8 * unit, color);
+            painter.line_segment([at(1.0, 5.0), at(1.0, -8.0)], stroke);
+            painter.line_segment([at(1.0, -8.0), at(6.5, -4.5)], stroke);
+            painter.circle_filled(at(-2.1, 5.9), 3.1 * unit, color);
+        }
+        _ => unreachable!(),
     }
 }
 

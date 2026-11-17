@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+env:
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
+  CARGO_TERM_COLOR: always
+
 jobs:
   test:
     strategy:
@@ -14,7 +19,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - if: runner.os == 'Linux'
+      - name: Install Linux graphics libraries
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
       - run: cargo test --locked
       - run: cargo build --locked --release
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats

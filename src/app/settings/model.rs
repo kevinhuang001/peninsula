@@ -77,6 +77,7 @@ mod tests {
                 Section::About
             ]
         );
-        assert_eq!(registry().by_kind(ExtensionKind::Compact).len(), 9);
+        let music = usize::from(cfg!(any(target_os = "linux", target_os = "windows")));
+        assert_eq!(registry().by_kind(ExtensionKind::Compact).len(), 9 + music);
     }
 }

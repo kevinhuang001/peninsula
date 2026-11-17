@@ -1,0 +1,79 @@
+name: Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, codex/weather-integration]
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
+  SCCACHE_CACHE_SIZE: 2G
+  CARGO_TERM_COLOR: always
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-installer
+          cache-all-crates: true
+      - name: Test
+        run: cargo test --locked
+      - name: Build release
+        run: cargo build --locked --release
+      - name: Install NSIS
+        run: choco install nsis --yes --no-progress
+      - name: Package installer
+        id: package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $quad = ($version.Split(".") | Select-Object -First 3)
+          while ($quad.Count -lt 4) { $quad += "0" }
+          $quad = $quad -join "."
+          $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target\release\island-lab.exe dist\island-lab.exe
+          Copy-Item assets\icons\app.ico dist\app.ico
+          & $nsis "/DAPP_VERSION=$version" "/DAPP_VERSION_QUAD=$quad" `
+            "/DAPP_EXE_PATH=$PWD\dist\island-lab.exe" `
+            "/DICON_PATH=$PWD\assets\icons\app.ico" `
+            "/DOUT_DIR=$PWD\dist" "scripts\installer.nsi"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Compress-Archive -Path dist\island-lab.exe, dist\app.ico -DestinationPath "dist\Peninsula-$version-windows-x64-portable.zip" -Force
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Get-ChildItem dist | Format-Table Name, Length
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Peninsula-${{ steps.package.outputs.version }}-windows-x64
+          path: |
+            dist/*setup.exe
+            dist/*portable.zip
+          if-no-files-found: error
+      - name: Attach to tag release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*setup.exe
+            dist/*portable.zip
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats

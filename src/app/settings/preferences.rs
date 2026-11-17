@@ -100,6 +100,10 @@ impl CompactPreferences {
                     ) else {
                         continue;
                     };
+                    #[cfg(target_os = "macos")]
+                    if id.as_str() == "builtin.music/lyrics" {
+                        continue;
+                    }
                     explicit_ids.insert(id.clone());
                     if let Some(item) = settings.compact_items.iter_mut().find(|item| item.id == id)
                     {

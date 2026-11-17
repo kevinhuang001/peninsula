@@ -69,13 +69,19 @@ mod tests {
     #[test]
     fn notification_center_is_always_first_and_is_the_default_widget() {
         let ids = widget_ids();
-        assert_eq!(ids.len(), 5);
         assert_eq!(ids[0], default_widget_id());
-        assert_eq!(ids[0].as_str(), crate::extension::NOTIFICATION_CENTER_ID);
-        assert_eq!(ids[1].as_str(), "builtin.system-monitor/overview");
-        assert_eq!(ids[2].as_str(), "builtin.pomodoro/timer");
-        assert_eq!(ids[3].as_str(), "builtin.kuaidi/shipments");
-        assert_eq!(ids[4].as_str(), "builtin.weather/forecast");
+        assert_eq!(
+            ids.iter().map(ExtensionId::as_str).collect::<Vec<_>>(),
+            [
+                crate::extension::NOTIFICATION_CENTER_ID,
+                "builtin.system-monitor/overview",
+                "builtin.pomodoro/timer",
+                "builtin.kuaidi/shipments",
+                "builtin.weather/forecast",
+                #[cfg(any(target_os = "linux", target_os = "windows"))]
+                "builtin.music/now-playing",
+            ]
+        );
     }
 
     #[test]
@@ -89,11 +95,12 @@ mod tests {
     fn arrow_keys_move_in_both_directions_and_wrap_at_the_ends() {
         use eframe::egui::{Context, Event, Key, Modifiers, RawInput};
         let ids = widget_ids();
+        let last = ids.len() - 1;
         for (start, key, target) in [
             (2, Key::ArrowLeft, 1),
-            (0, Key::ArrowLeft, 4),
+            (0, Key::ArrowLeft, last),
             (1, Key::ArrowRight, 2),
-            (4, Key::ArrowRight, 0),
+            (last, Key::ArrowRight, 0),
         ] {
             let ctx = Context::default();
             let _ = ctx.run(

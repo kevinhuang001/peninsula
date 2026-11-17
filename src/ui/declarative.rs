@@ -317,6 +317,20 @@ pub enum ChartKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LineChartPoint {
+    pub label: String,
+    pub value: Option<f32>,
+    pub image: Option<String>,
+    pub tooltip: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RasterImage {
+    pub size: [u16; 2],
+    pub rgba: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ViewNode {
     pub kind: Node,
     #[serde(default)]
@@ -354,6 +368,7 @@ pub enum Node {
     Image {
         asset: String,
     },
+    RasterImage(RasterImage),
     Sprite {
         frames: Vec<String>,
         frame_ms: u32,
@@ -371,6 +386,8 @@ pub enum Node {
     ProgressBar {
         fraction: f32,
         label: String,
+        #[serde(default)]
+        marker: bool,
     },
     ProgressRing {
         fraction: f32,
@@ -383,6 +400,10 @@ pub enum Node {
         labels: Vec<String>,
         high: Vec<f32>,
         low: Vec<f32>,
+        unit: String,
+    },
+    LineChart {
+        points: Vec<LineChartPoint>,
         unit: String,
     },
     Chart {
@@ -398,6 +419,8 @@ pub enum Node {
         label: String,
         action: Action,
         enabled: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        icon: Option<String>,
     },
     /// Interactive wrapper for a composed action, e.g. a notification body.
     ActionArea {
@@ -445,6 +468,7 @@ impl ViewNode {
             label: label.into(),
             action,
             enabled: true,
+            icon: None,
         })
     }
     pub fn subtle_button(label: impl Into<String>, action: Action) -> Self {

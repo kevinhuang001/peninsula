@@ -20,6 +20,13 @@ ureq = { version = "2.12", default-features = false, features = ["tls", "proxy-f
 
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+zbus = { version = "5", default-features = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = ["Foundation", "Foundation_Collections", "Media_Control", "Storage_Streams", "Win32_System_WinRT"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 regex = "1"

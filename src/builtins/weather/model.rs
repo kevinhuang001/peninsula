@@ -1,5 +1,5 @@
 use serde_json::Value;
-use time::{Date, Month};
+use time::{Date, Month, OffsetDateTime, UtcOffset};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Location {
@@ -30,7 +30,6 @@ pub struct CurrentWeather {
     pub weather_code: u8,
     pub is_day: bool,
     pub cloud_cover: u8,
-    pub pressure: f64,
     pub wind_speed: f64,
     pub wind_gusts: f64,
     pub wind_direction: u16,
@@ -60,11 +59,12 @@ pub struct DailyForecast {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HourlyForecast {
     pub time: String,
-    pub temperature: f64,
+    pub temperature: Option<f64>,
     pub apparent_temperature: f64,
     pub precipitation_probability: u8,
     pub rainfall: f64,
-    pub weather_code: u8,
+    pub weather_code: Option<u8>,
+    pub is_day: Option<bool>,
     pub wind_speed: f64,
     pub wind_gusts: f64,
     pub uv_index: f64,
@@ -75,6 +75,7 @@ pub struct HourlyForecast {
 pub struct Snapshot {
     pub location: Location,
     pub timezone: String,
+    pub utc_offset: Option<UtcOffset>,
     pub updated_at: String,
     pub current: CurrentWeather,
     pub daily: Vec<DailyForecast>,
@@ -114,14 +115,6 @@ impl Snapshot {
             .collect()
     }
 
-    pub fn daylight(&self) -> Option<String> {
-        let today = self.today()?;
-        let sunrise = clock_minutes(&today.sunrise)?;
-        let sunset = clock_minutes(&today.sunset)?;
-        let minutes = sunset.saturating_sub(sunrise);
-        Some(format!("{}小时{}分", minutes / 60, minutes % 60))
-    }
-
     pub fn hourly_from_now(&self, count: usize) -> Vec<&HourlyForecast> {
         let Some(start) = self
             .hourly
@@ -132,6 +125,37 @@ impl Snapshot {
             return Vec::new();
         };
         self.hourly.iter().skip(start).take(count).collect()
+    }
+
+    pub fn upcoming_hours(&self, now: OffsetDateTime, count: usize) -> Vec<&HourlyForecast> {
+        let location_time = self.utc_offset.map(|offset| {
+            let now = now.to_offset(offset);
+            format!("{}T{:02}:{:02}", now.date(), now.hour(), now.minute())
+        });
+        let cutoff = location_time
+            .as_deref()
+            .map_or(self.updated_at.as_str(), |local| {
+                local.max(&self.updated_at)
+            });
+        self.hourly
+            .iter()
+            .filter(|hour| hour.time.as_str() > cutoff)
+            .take(count)
+            .collect()
+    }
+
+    pub fn hourly_icon(&self, hour: &HourlyForecast) -> &'static str {
+        let Some(code) = hour.weather_code else {
+            return "meteo/not-available";
+        };
+        let daylight = || {
+            let (date, clock) = hour.time.split_once('T')?;
+            let day = self.daily.iter().find(|day| day.date == date)?;
+            let time = clock_minutes(clock)?;
+            Some((clock_minutes(&day.sunrise)?..clock_minutes(&day.sunset)?).contains(&time))
+        };
+        let is_day = hour.is_day.or_else(daylight).unwrap_or(self.current.is_day);
+        weather_icon(code, is_day)
     }
 }
 
@@ -198,14 +222,28 @@ pub fn parse_snapshot(json: &str, location: Location) -> Result<Snapshot, String
     let times = array(hourly, "time")?;
     let mut hourly_forecasts = Vec::with_capacity(times.len());
     for (index, time) in times.iter().enumerate() {
-        let time = time.as_str().unwrap_or_default().to_owned();
+        let Some(time) = time.as_str().filter(|time| {
+            time.split_once('T').is_some_and(|(date, clock)| {
+                parse_date(date).is_some() && clock_minutes(clock).is_some()
+            })
+        }) else {
+            continue;
+        };
+        let field = |key: &str| hourly[key].as_array().and_then(|values| values.get(index));
         hourly_forecasts.push(HourlyForecast {
-            time,
-            temperature: f64_at(hourly, "temperature_2m", index),
+            time: time.to_owned(),
+            temperature: field("temperature_2m")
+                .and_then(Value::as_f64)
+                .filter(|v| v.is_finite()),
             apparent_temperature: f64_at(hourly, "apparent_temperature", index),
             precipitation_probability: u8_at(hourly, "precipitation_probability", index),
             rainfall: f64_at(hourly, "rain", index) + f64_at(hourly, "showers", index),
-            weather_code: u8_at(hourly, "weather_code", index),
+            weather_code: field("weather_code")
+                .and_then(Value::as_u64)
+                .and_then(|code| u8::try_from(code).ok()),
+            is_day: field("is_day")
+                .and_then(Value::as_u64)
+                .map(|value| value != 0),
             wind_speed: f64_at(hourly, "wind_speed_10m", index),
             wind_gusts: f64_at(hourly, "wind_gusts_10m", index),
             uv_index: f64_at(hourly, "uv_index", index),
@@ -225,6 +263,10 @@ pub fn parse_snapshot(json: &str, location: Location) -> Result<Snapshot, String
 
     let snapshot = Snapshot {
         location,
+        utc_offset: root["utc_offset_seconds"]
+            .as_i64()
+            .and_then(|seconds| i32::try_from(seconds).ok())
+            .and_then(|seconds| UtcOffset::from_whole_seconds(seconds).ok()),
         timezone: root
             .get("timezone")
             .and_then(Value::as_str)
@@ -240,7 +282,6 @@ pub fn parse_snapshot(json: &str, location: Location) -> Result<Snapshot, String
             weather_code: u8_field(current, "weather_code"),
             is_day: current.get("is_day").and_then(Value::as_u64).unwrap_or(1) != 0,
             cloud_cover: u8_field(current, "cloud_cover"),
-            pressure: f64_field(current, "pressure_msl"),
             wind_speed: f64_field(current, "wind_speed_10m"),
             wind_gusts: f64_field(current, "wind_gusts_10m"),
             wind_direction: u16_field(current, "wind_direction_10m"),
@@ -333,14 +374,6 @@ pub fn uv_level(uv: f64) -> &'static str {
     }
 }
 
-pub fn format_visibility(meters: f64) -> String {
-    if meters >= 1000.0 {
-        format!("{:.0} km", meters / 1000.0)
-    } else {
-        format!("{:.0} m", meters.max(0.0))
-    }
-}
-
 pub fn time_hm(value: &str) -> String {
     let clock = value.rsplit('T').next().unwrap_or(value);
     let mut parts = clock.split(':');
@@ -358,7 +391,7 @@ fn clock_minutes(value: &str) -> Option<u16> {
     let (hour, minute) = clock.split_once(':')?;
     let hour = hour.parse::<u16>().ok()?;
     let minute = minute.get(..2)?.parse::<u16>().ok()?;
-    Some(hour * 60 + minute)
+    (hour < 24 && minute < 60).then(|| hour * 60 + minute)
 }
 
 fn weekday_label(value: &str) -> String {
@@ -442,9 +475,10 @@ fn str_at(value: &Value, key: &str, index: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_visibility, parse_snapshot, time_hm, uv_level, weather_description, weather_icon,
-        wind_direction, wind_level, Location,
+        parse_snapshot, time_hm, uv_level, weather_description, weather_icon, wind_direction,
+        wind_level, HourlyForecast, Location, Snapshot,
     };
+    use time::{Date, Month, UtcOffset};
 
     fn location() -> Location {
         Location {
@@ -469,7 +503,6 @@ mod tests {
                 "precipitation": 0.0,
                 "weather_code": 3,
                 "cloud_cover": 89,
-                "pressure_msl": 1021.5,
                 "wind_speed_10m": 6.8,
                 "wind_direction_10m": 358,
                 "wind_gusts_10m": 14.8,
@@ -495,11 +528,12 @@ mod tests {
             },
             "hourly": {
                 "time": ["2026-11-17T17:00", "2026-11-17T18:00", "2026-11-17T19:00"],
-                "temperature_2m": [15.1, 14.6, 14.2],
+                "temperature_2m": [15.1, 14.6, null],
                 "apparent_temperature": [14.0, 13.5, 13.1],
                 "precipitation_probability": [10, 20, 30],
                 "precipitation": [0.0, 0.1, 0.2],
-                "weather_code": [3, 3, 61],
+                "weather_code": [3, 2, null],
+                "is_day": [0, 0, 0],
                 "wind_speed_10m": [7.0, 7.5, 8.0],
                 "wind_gusts_10m": [15.0, 16.0, 17.0],
                 "uv_index": [0.0, 0.0, 0.0],
@@ -521,8 +555,51 @@ mod tests {
         assert_eq!(snapshot.daily[0].sunrise, "06:18");
         assert_eq!(snapshot.daily[0].sunset, "16:57");
         assert_eq!(snapshot.day_labels(), ["今天", "明天"]);
-        assert_eq!(snapshot.daylight().as_deref(), Some("10小时39分"));
-        assert_eq!(snapshot.hourly_from_now(1)[0].temperature, 14.6);
+        assert_eq!(snapshot.hourly_from_now(1)[0].temperature, Some(14.6));
+        assert_eq!(
+            snapshot.hourly_icon(&snapshot.hourly[1]),
+            "meteo/partly-cloudy-night"
+        );
+        assert_eq!(snapshot.hourly[2].temperature, None);
+        assert_eq!(
+            snapshot.hourly_icon(&snapshot.hourly[2]),
+            "meteo/not-available"
+        );
+    }
+
+    #[test]
+    fn hourly_chart_uses_the_forecast_city_clock_and_crosses_midnight() {
+        let snapshot = Snapshot {
+            updated_at: "2026-11-17T21:45".into(),
+            utc_offset: Some(UtcOffset::from_hms(8, 0, 0).unwrap()),
+            hourly: [
+                "2026-11-17T22:00",
+                "2026-11-17T23:00",
+                "2026-11-18T00:00",
+                "2026-11-18T01:00",
+                "2026-11-18T02:00",
+                "2026-11-18T03:00",
+                "2026-11-18T04:00",
+            ]
+            .into_iter()
+            .map(|time| HourlyForecast {
+                time: time.into(),
+                ..Default::default()
+            })
+            .collect(),
+            ..Default::default()
+        };
+        let now = Date::from_calendar_date(2026, Month::November, 17)
+            .unwrap()
+            .with_hms(14, 0, 0)
+            .unwrap()
+            .assume_utc();
+        let labels: Vec<_> = snapshot
+            .upcoming_hours(now, 5)
+            .iter()
+            .map(|hour| time_hm(&hour.time))
+            .collect();
+        assert_eq!(labels, ["23:00", "00:00", "01:00", "02:00", "03:00"]);
     }
 
     #[test]
@@ -543,8 +620,6 @@ mod tests {
     fn units_and_clock_labels_are_human_readable() {
         assert_eq!(time_hm("2026-11-17T06:18"), "06:18");
         assert_eq!(time_hm("06:18"), "06:18");
-        assert_eq!(format_visibility(22320.0), "22 km");
-        assert_eq!(format_visibility(800.0), "800 m");
         assert_eq!(uv_level(0.0), "低");
         assert_eq!(uv_level(9.0), "很高");
         assert_eq!(wind_direction(0), "北");

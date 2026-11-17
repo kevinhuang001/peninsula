@@ -35,10 +35,37 @@ pub(super) fn width(preferences: &CompactPreferences, available: &[&CompactView]
         .clamp(MIN_WIDTH, MAX_WIDTH)
 }
 
+pub(super) fn fitted_widths(views: &[&CompactView], capsule_width: f32) -> Vec<f32> {
+    let available =
+        (capsule_width - HORIZONTAL_PADDING - ITEM_GAP * views.len().saturating_sub(1) as f32)
+            .max(0.0);
+    let preferred: f32 = views.iter().map(|view| view.preferred_width).sum();
+    let minimum: f32 = views
+        .iter()
+        .map(|view| view.min_width.min(view.preferred_width))
+        .sum();
+    views
+        .iter()
+        .map(|view| {
+            let floor = view.min_width.min(view.preferred_width);
+            if available >= preferred {
+                view.preferred_width
+            } else if available >= minimum {
+                floor
+                    + (view.preferred_width - floor)
+                        * ((available - minimum) / (preferred - minimum))
+            } else {
+                floor * (available / minimum)
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        item_widths, width, CAPSULE_HEIGHT, CHIP_HEIGHT, HORIZONTAL_PADDING, ITEM_GAP, MAX_WIDTH,
+        fitted_widths, item_widths, width, CAPSULE_HEIGHT, CHIP_HEIGHT, HORIZONTAL_PADDING,
+        ITEM_GAP, MAX_WIDTH,
     };
     use crate::{
         app::settings::CompactPreferences,
@@ -125,6 +152,11 @@ mod tests {
             width(&preferences, &views.iter().collect::<Vec<_>>()),
             required.min(MAX_WIDTH)
         );
+        let references: Vec<_> = views.iter().collect();
+        let fitted: f32 = fitted_widths(&references, MAX_WIDTH).into_iter().sum();
+        assert!(
+            fitted + ITEM_GAP * (views.len() - 1) as f32 + HORIZONTAL_PADDING <= MAX_WIDTH + 0.01
+        );
     }
 
     #[test]
@@ -134,7 +166,14 @@ mod tests {
         preferences.move_compact_item(&ExtensionId::builtin("builtin.system-monitor/battery"), -1);
         assert_eq!(
             item_widths(&preferences, &views.iter().collect::<Vec<_>>()),
-            [54.0, 38.0, 88.0, 68.0].to_vec()
+            [
+                54.0,
+                38.0,
+                88.0,
+                68.0,
+                #[cfg(any(target_os = "linux", target_os = "windows"))]
+                176.0,
+            ]
         );
     }
 }

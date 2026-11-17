@@ -212,6 +212,7 @@ fn widget_transmits_action_id_and_never_activates_disabled_or_clipped_control() 
                         label: "Enabled".into(),
                         action: Action::Custom("switch".into()),
                         enabled,
+                        icon: None,
                     })
                     .sized(Size::Fill(1.0), Size::Fixed(22.0)),
                 ],

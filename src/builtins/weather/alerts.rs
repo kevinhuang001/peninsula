@@ -97,7 +97,7 @@ pub fn derive(snapshot: &Snapshot) -> Vec<WeatherAlert> {
         );
     let thunder_code = next_12
         .iter()
-        .map(|hour| hour.weather_code)
+        .filter_map(|hour| hour.weather_code)
         .chain(std::iter::once(snapshot.current.weather_code))
         .max()
         .unwrap_or_default();
@@ -292,6 +292,7 @@ mod tests {
                 ..Location::default()
             },
             timezone: "Asia/Shanghai".into(),
+            utc_offset: None,
             updated_at: "2026-11-17T17:45".into(),
             current: CurrentWeather {
                 weather_code: 3,
@@ -311,11 +312,11 @@ mod tests {
             hourly: (0..24)
                 .map(|hour| HourlyForecast {
                     time: format!("2026-11-17T{:02}:00", hour.min(23)),
-                    temperature: 15.0,
+                    temperature: Some(15.0),
                     rainfall: 0.0,
                     wind_gusts: 10.0,
                     visibility: 10_000.0,
-                    weather_code: 3,
+                    weather_code: Some(3),
                     ..HourlyForecast::default()
                 })
                 .collect(),

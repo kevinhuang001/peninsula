@@ -30,11 +30,16 @@ opencli plugin install github:kevinhuang001/opencli-kuaidi
 
 如果某个平台查询失败，Widget 会提示并保留该平台上次的结果。平台不再返回的订单会从列表移除；只有查询到明确的签收状态时才提示签收。
 
-天气页显示当前温度、体感温度、日出日落、湿度、风、降水概率、紫外线、气压、能见度和未来七天气温曲线。收起态显示天气图标与当前温度。天气状态使用 [Bas Milius 的 Meteocons](https://github.com/basmilius/meteocons) 静态 SVG，采用 MIT 许可证。地点、更新间隔和风险提醒可在「设置 → 天气」调整。更新间隔为 1–180 分钟，默认 10 分钟。
+天气页显示当前温度、体感温度、日出日落、湿度、风、降水概率和紫外线。逐小时折线图从所选城市的下一整点开始，显示未来五小时的气温和天气图标。未来七天的最高温和最低温曲线也在天气页中。收起态显示天气图标与当前温度。地点、更新间隔和风险提醒可在「设置 → 天气」调整。更新间隔为 1–180 分钟，默认 10 分钟。天气图标使用 MIT 许可的静态 SVG。[Bas Milius 的 Meteocons](https://github.com/basmilius/meteocons)
 
 天气数据由 [Open-Meteo](https://open-meteo.com/) 提供。极端天气提醒使用预测值与阈值比较。阈值设计参考 [schlpbch/open-meteo-mcp-rust 的 `get_weather_alerts`](https://github.com/schlpbch/open-meteo-mcp-rust/blob/f0b84f5ab954de3c6a2a79bc83a9def53c3b43c5/src/tools/alerts.rs)（Apache-2.0）。Peninsula 使用逐小时和逐日预报生成提示，参考项目提供了参数和默认阈值。
 
 展开态固定按钮左侧的仪表盘按钮会打开一个独立窗口，按屏幕空间排列所有 Widget。展开 Widget 的最小宽度为屏幕宽度的 25%，最小高度为屏幕高度的 160/900。较小的内容会在展开区域内居中。
+
+Windows 和 Linux 提供音乐扩展。检测到正在播放的媒体会话时显示音乐 Widget 和 Compact 歌词。暂停后保留播放控制，停止会话或退出播放器后隐藏。Widget 展示歌曲、进度、上一首、播放/暂停、下一首及歌词。带时间轴的歌词会同步到 Compact，纯文本歌词可以在 Widget 内滚动阅读。
+
+- Windows 读取系统媒体会话。Linux 读取支持 MPRIS 的播放器，播放本地文件时优先读取同名 `.lrc`。
+- 在线查词时会将歌名和艺人提交给 [LRCLIB](https://lrclib.net/)、网易云音乐或 QQ 音乐。音乐界面与歌词实现参考 [岛仔（Daozai）](https://github.com/Renly1994/xiaotang-daozai)，保留其 MIT 许可。
 
 扩展可通过 `CompactView.visibility` 声明当前是否显示，宿主同时应用用户的 Compact 开关。番茄钟首次开始后才出现，暂停时保留，重置后隐藏。
 
@@ -53,6 +58,15 @@ cargo run
 ./scripts/install-macos.sh
 ```
 
+在 Windows 上构建安装包（需要 NSIS，`choco install nsis`）：
+
+```powershell
+cargo build --locked --release
+makensis /DAPP_VERSION=0.1.0 scripts/installer.nsi
+```
+
+`Windows installer` workflow 会在推送到 `main` / `codex/weather-integration` 或打 `v*` 标签时，用 sccache 和 Rust 缓存构建 release，上传 `Peninsula-<版本>-windows-x64-setup.exe` 与便携版 zip。安装包按用户安装到 `%LOCALAPPDATA%\Programs\Peninsula`，不需要管理员权限。
+
 CI 会在 macOS、Windows 和 Linux 上运行测试并构建 release。
 
 ## 扩展架构
@@ -66,6 +80,8 @@ CI 会在 macOS、Windows 和 Linux 上运行测试并构建 release。
 通知使用 `(source_extension_id, notification_id)` 作为稳定标识。通知扩展分别提供提醒和通知中心条目的视图数据；Core 将这些数据交给统一的渲染器并回传用户操作。Rust 扩展仍在应用进程内运行；OpenCLI 插件只是由系统 OpenCLI 执行的集成资源，不是 Peninsula 的动态插件加载器或公开 SDK。
 
 ### 声明式 Widget
+
+Widget 注册后默认为可见。扩展可通过 `RuntimeExtension::widget_visibility` 返回 `Hidden`，宿主会将它从轮播和仪表盘同时移除。运行时状态变化时，扩展返回 Widget ID 让宿主刷新缓存。Compact 由组件自己的 `CompactView::visibility` 和用户的 Compact 显示设置共同决定。
 
 扩展在 `src/ui/declarative.rs` 提供的数据类型上组合视图；展开页、收起态扩展组件和通知界面都由 `src/ui/renderer/` 绘制。扩展可以返回不同的数据和操作 ID，窗口大小、位置、切页和操作路由由宿主决定。视图在数据失效或到达刷新期限时重建；计时器暂停时不做定时重建。
 

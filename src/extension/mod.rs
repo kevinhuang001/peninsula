@@ -15,7 +15,7 @@ pub use registry::{ExtensionRegistry, RegistrationError, NOTIFICATION_CENTER_ID}
 pub use view::{
     Action, ActionInvocation, AlertInteraction, CompactView, CompactVisibility, Event,
     ExtensionOutput, HostScheduler, NotificationPresentationProvider, RuntimeExtension,
-    ScheduledTask,
+    ScheduledTask, WidgetVisibility,
 };
 
 pub use crate::ui::declarative::{ViewNode, WidgetView};

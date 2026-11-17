@@ -8,11 +8,11 @@ fi
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 APP="$HOME/Applications/灵动岛.app"
-STAGE="$ROOT/target/macos-app-stage"
+STAGE="$ROOT/target/macos-app-stage.app"
 
 cd "$ROOT"
 cargo build --locked --release
-rm -rf "$STAGE" "$APP"
+rm -rf "$STAGE"
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources/Licenses" "$HOME/Applications"
 cp target/release/island-lab "$STAGE/Contents/MacOS/island-lab"
 cp assets/icons/meteocons/LICENSE "$STAGE/Contents/Resources/Licenses/Meteocons.txt"
@@ -29,6 +29,9 @@ cat > "$STAGE/Contents/Info.plist" <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
+codesign --force --sign - "$STAGE"
+codesign --verify --strict "$STAGE"
+rm -rf "$APP"
 mv "$STAGE" "$APP"
 open -n "$APP"
 echo "Installed and launched: $APP"

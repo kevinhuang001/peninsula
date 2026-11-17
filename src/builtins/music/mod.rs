@@ -1,0 +1,460 @@
+mod lyrics;
+mod platform;
+mod view;
+
+use crate::{
+    extension::{
+        Action, Capability, CompactView, CompactVisibility, ExtensionContext, ExtensionDescriptor,
+        ExtensionId, ExtensionKind, ExtensionOutput, NotificationPresentationProvider,
+        RuntimeExtension, WidgetVisibility,
+    },
+    ui::declarative::{Overflow, ScrollAxes, WidgetBounds, WidgetView},
+};
+use lyrics::Lyrics;
+use platform::{Backend, Command, Playback, Track};
+use std::{
+    collections::VecDeque,
+    sync::{mpsc, Arc},
+    thread,
+    time::{Duration, Instant},
+};
+
+const WIDGET_ID: &str = "builtin.music/now-playing";
+const COMPACT_ID: &str = "builtin.music/lyrics";
+const WIDGET_SIZE: [f32; 2] = [368.0, 188.0];
+const COMPACT_WIDTH: f32 = 176.0;
+const POLL_INTERVAL: Duration = Duration::from_millis(800);
+const IDLE_INTERVAL: Duration = Duration::from_secs(2);
+const DISCONNECTED_AFTER: Duration = Duration::from_secs(4);
+
+pub(super) fn descriptors() -> Vec<ExtensionDescriptor> {
+    vec![
+        ExtensionDescriptor::builtin(WIDGET_ID, ExtensionKind::Widget, "音乐", "music", true, 5)
+            .with_size_hint(WIDGET_SIZE[0], WIDGET_SIZE[1])
+            .with_widget_bounds(WidgetBounds {
+                fit_height: true,
+                overflow: Overflow::Scroll(ScrollAxes::Vertical),
+                ..Default::default()
+            })
+            .with_capabilities(vec![Capability::View, Capability::Action]),
+        ExtensionDescriptor::builtin(COMPACT_ID, ExtensionKind::Compact, "歌词", "music", true, 9)
+            .with_size_hint(COMPACT_WIDTH, 28.0),
+    ]
+}
+
+enum MediaUpdate {
+    Snapshot(Option<Playback>),
+    ControlFailed(String),
+}
+
+type ControlRequest = (String, Command);
+type LyricsResult = Result<Option<Arc<Lyrics>>, ()>;
+
+#[derive(Default)]
+pub(super) struct MusicExtension {
+    playback: Option<Playback>,
+    controller: Option<mpsc::Sender<ControlRequest>>,
+    media_updates: Option<mpsc::Receiver<MediaUpdate>>,
+    lyric_requests: Option<mpsc::Sender<Track>>,
+    lyric_updates: Option<mpsc::Receiver<(Track, LyricsResult)>>,
+    lyric_result: Option<LyricsResult>,
+    lyric_cache: VecDeque<(Track, Option<Arc<Lyrics>>)>,
+    active_line: Option<usize>,
+    plain_lyrics_open: bool,
+    control_failed: bool,
+}
+
+impl NotificationPresentationProvider for MusicExtension {}
+
+impl RuntimeExtension for MusicExtension {
+    fn descriptors(&self) -> Vec<ExtensionDescriptor> {
+        descriptors()
+    }
+
+    fn on_start(&mut self, _context: &ExtensionContext) -> Result<(), String> {
+        let (controller, controls) = mpsc::channel();
+        let (media_output, media_updates) = mpsc::channel();
+        let (lyric_requests, requests) = mpsc::channel();
+        let (lyric_output, lyric_updates) = mpsc::channel();
+        thread::Builder::new()
+            .name("music-session".into())
+            .spawn(move || watch_media(controls, media_output))
+            .map_err(|error| error.to_string())?;
+        thread::Builder::new()
+            .name("music-lyrics".into())
+            .spawn(move || fetch_lyrics(requests, lyric_output))
+            .map_err(|error| error.to_string())?;
+        self.controller = Some(controller);
+        self.media_updates = Some(media_updates);
+        self.lyric_requests = Some(lyric_requests);
+        self.lyric_updates = Some(lyric_updates);
+        Ok(())
+    }
+
+    fn on_stop(&mut self, _context: &ExtensionContext) -> Result<(), String> {
+        self.controller = None;
+        self.media_updates = None;
+        self.lyric_requests = None;
+        self.lyric_updates = None;
+        self.set_playback(None);
+        Ok(())
+    }
+
+    fn widget_visibility(&self, id: &ExtensionId) -> WidgetVisibility {
+        if id.as_str() == WIDGET_ID && self.playback.is_some() {
+            WidgetVisibility::Visible
+        } else {
+            WidgetVisibility::Hidden
+        }
+    }
+
+    fn widget_view(&self, id: &ExtensionId) -> Option<WidgetView> {
+        if id.as_str() != WIDGET_ID {
+            return None;
+        }
+        let playback = self.playback.as_ref()?;
+        Some(view::widget(
+            playback,
+            self.lyric_result.as_ref(),
+            self.active_line,
+            self.control_failed,
+            self.plain_lyrics_open,
+        ))
+    }
+
+    fn compact_views(&self) -> Vec<CompactView> {
+        let Some(playback) = self.playback.as_ref() else {
+            return Vec::new();
+        };
+        let lyric = self
+            .lyric_result
+            .as_ref()
+            .and_then(|result| result.as_ref().ok())
+            .and_then(Option::as_deref)
+            .and_then(|lyrics| lyrics.current_line(self.active_line));
+        let title = &playback.track.title;
+        let mut tooltip = title.clone();
+        if !playback.track.artist.is_empty() {
+            tooltip.push_str(" · ");
+            tooltip.push_str(&playback.track.artist);
+        }
+        if let Some(lyric) = lyric {
+            tooltip = format!("{lyric}\n{tooltip}");
+        }
+        vec![CompactView {
+            id: ExtensionId::builtin(COMPACT_ID),
+            source_extension_id: ExtensionId::builtin(WIDGET_ID),
+            content: view::compact(lyric.unwrap_or(title), lyric.is_some()),
+            visibility: CompactVisibility::Visible,
+            min_width: 84.0,
+            preferred_width: COMPACT_WIDTH,
+            priority: 0,
+            tooltip: Some(tooltip),
+        }]
+    }
+
+    fn update(&mut self, now: Instant) -> ExtensionOutput {
+        let mut changed = false;
+        while let Some(update) = self
+            .media_updates
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            match update {
+                MediaUpdate::Snapshot(playback) => changed |= self.set_playback(playback),
+                MediaUpdate::ControlFailed(session) => {
+                    if self
+                        .playback
+                        .as_ref()
+                        .is_some_and(|playing| playing.session == session)
+                    {
+                        self.control_failed = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        while let Some((track, result)) = self
+            .lyric_updates
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            if let Ok(lyrics) = &result {
+                self.lyric_cache
+                    .retain(|(entry, _)| !same_song(entry, &track));
+                self.lyric_cache.push_front((track.clone(), lyrics.clone()));
+                self.lyric_cache.truncate(48);
+            }
+            if self
+                .playback
+                .as_ref()
+                .is_some_and(|current| same_song(&current.track, &track))
+            {
+                self.lyric_result = Some(result);
+                changed = true;
+            }
+        }
+
+        let line = self.playback.as_ref().and_then(|playback| {
+            self.lyric_result
+                .as_ref()?
+                .as_ref()
+                .ok()?
+                .as_ref()?
+                .current_index(playback.position_at(now))
+        });
+        changed |= self.active_line != line;
+        self.active_line = line;
+
+        if changed {
+            invalidate()
+        } else {
+            ExtensionOutput::default()
+        }
+    }
+
+    fn on_action(&mut self, action: Action, _now: Instant) -> ExtensionOutput {
+        let Some(playback) = &self.playback else {
+            return ExtensionOutput::default();
+        };
+        let command = match action {
+            Action::Toggle => Command::Toggle,
+            Action::Custom(ref name) if name == "previous" => Command::Previous,
+            Action::Advance => Command::Next,
+            Action::Custom(ref name) if name == "lyrics-retry" => {
+                self.lyric_result = None;
+                self.request_lyrics();
+                return invalidate();
+            }
+            Action::Custom(ref name) if name == "lyrics-plain" => {
+                self.plain_lyrics_open = !self.plain_lyrics_open;
+                return invalidate();
+            }
+            _ => return ExtensionOutput::default(),
+        };
+        if !playback.controls.allows(command) {
+            return ExtensionOutput::default();
+        }
+        self.control_failed = self
+            .controller
+            .as_ref()
+            .is_none_or(|sender| sender.send((playback.session.clone(), command)).is_err());
+        invalidate()
+    }
+}
+
+impl MusicExtension {
+    fn set_playback(&mut self, next: Option<Playback>) -> bool {
+        let next = next.filter(|next| {
+            next.playing
+                || self
+                    .playback
+                    .as_ref()
+                    .is_some_and(|old| old.session == next.session)
+        });
+        let song_changed = match (&self.playback, &next) {
+            (Some(previous), Some(next)) => !same_song(&previous.track, &next.track),
+            (None, None) => false,
+            _ => true,
+        };
+        let presentation_changed = match (&self.playback, &next) {
+            (Some(previous), Some(next)) => {
+                previous.session != next.session
+                    || previous.playing != next.playing
+                    || previous.controls != next.controls
+                    || previous.artwork != next.artwork
+                    || (previous.position_at(next.observed) - next.position_at(next.observed)).abs()
+                        > 1.25
+            }
+            _ => song_changed,
+        };
+        self.playback = next;
+        if song_changed {
+            self.active_line = None;
+            self.plain_lyrics_open = false;
+            self.lyric_result = self.playback.as_ref().and_then(|playback| {
+                self.lyric_cache
+                    .iter()
+                    .find(|(track, _)| same_song(track, &playback.track))
+                    .map(|(_, lyrics)| Ok(lyrics.clone()))
+            });
+            if self.lyric_result.is_none() {
+                self.request_lyrics();
+            }
+        }
+        if song_changed || presentation_changed {
+            self.control_failed = false;
+        }
+        song_changed || presentation_changed
+    }
+
+    fn request_lyrics(&mut self) {
+        if let Some(playback) = &self.playback {
+            if self
+                .lyric_requests
+                .as_ref()
+                .is_none_or(|sender| sender.send(playback.track.clone()).is_err())
+            {
+                self.lyric_result = Some(Err(()));
+            }
+        }
+    }
+}
+
+fn same_song(a: &Track, b: &Track) -> bool {
+    a.title == b.title
+        && a.artist == b.artist
+        && a.album == b.album
+        && a.file == b.file
+        && match (a.duration, b.duration) {
+            (Some(a), Some(b)) => (a - b).abs() < 2.0,
+            _ => true,
+        }
+}
+
+fn invalidate() -> ExtensionOutput {
+    ExtensionOutput {
+        invalidated: vec![
+            ExtensionId::builtin(WIDGET_ID),
+            ExtensionId::builtin(COMPACT_ID),
+        ],
+        ..Default::default()
+    }
+}
+
+fn watch_media(controls: mpsc::Receiver<ControlRequest>, output: mpsc::Sender<MediaUpdate>) {
+    let mut backend = Backend::default();
+    let mut session = None::<String>;
+    let mut last_success = Instant::now();
+    loop {
+        let snapshot = match backend.observe(session.as_deref()) {
+            Ok(snapshot) => {
+                last_success = Instant::now();
+                Some(snapshot)
+            }
+            Err(_) if last_success.elapsed() >= DISCONNECTED_AFTER => Some(None),
+            Err(_) => None,
+        };
+        if let Some(snapshot) = snapshot {
+            session = snapshot.as_ref().map(|playback| playback.session.clone());
+            if output.send(MediaUpdate::Snapshot(snapshot)).is_err() {
+                return;
+            }
+        }
+        let interval = if session.is_some() {
+            POLL_INTERVAL
+        } else {
+            IDLE_INTERVAL
+        };
+        match controls.recv_timeout(interval) {
+            Ok((target, command)) => {
+                let failed = session.as_deref() != Some(&target)
+                    || backend.control(&target, command).is_err();
+                if failed && output.send(MediaUpdate::ControlFailed(target)).is_err() {
+                    return;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+        }
+    }
+}
+
+fn fetch_lyrics(requests: mpsc::Receiver<Track>, output: mpsc::Sender<(Track, LyricsResult)>) {
+    let agent = lyrics::agent();
+    while let Ok(first) = requests.recv() {
+        let track = requests.try_iter().last().unwrap_or(first);
+        let result = lyrics::lookup(&track, &agent).map(|lyrics| lyrics.map(Arc::new));
+        if output.send((track, result)).is_err() {
+            return;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(playing: bool, seconds: f64, now: Instant) -> Playback {
+        Playback {
+            session: "player".into(),
+            track: Track {
+                title: "示例歌曲".into(),
+                artist: "示例艺人".into(),
+                album: String::new(),
+                file: None,
+                duration: Some(100.0),
+            },
+            playing,
+            controls: platform::Controls::default(),
+            position: seconds,
+            rate: 1.0,
+            observed: now,
+            artwork: None,
+        }
+    }
+
+    #[test]
+    fn player_must_be_detected_playing_before_its_widget_or_compact_appears() {
+        let mut music = MusicExtension::default();
+        let id = ExtensionId::builtin(WIDGET_ID);
+        let now = Instant::now();
+        assert!(!music.set_playback(Some(sample(false, 0.0, now))));
+        assert_eq!(music.widget_visibility(&id), WidgetVisibility::Hidden);
+        assert!(music.widget_view(&id).is_none());
+        assert!(music.compact_views().is_empty());
+
+        assert!(music.set_playback(Some(sample(true, 1.0, now))));
+        assert_eq!(music.widget_visibility(&id), WidgetVisibility::Visible);
+        assert!(music.widget_view(&id).is_some());
+        assert_eq!(
+            music.compact_views()[0].visibility,
+            CompactVisibility::Visible
+        );
+
+        assert!(music.set_playback(Some(sample(false, 2.0, now))));
+        assert_eq!(music.widget_visibility(&id), WidgetVisibility::Visible);
+        assert!(music.set_playback(None));
+        assert_eq!(music.widget_visibility(&id), WidgetVisibility::Hidden);
+        assert!(music.compact_views().is_empty());
+    }
+
+    #[test]
+    fn compact_lyric_follows_playback_seek_and_pause() {
+        let mut music = MusicExtension::default();
+        let now = Instant::now();
+        music.set_playback(Some(sample(true, 0.0, now)));
+        music.lyric_result = Some(Ok(Some(Arc::new(Lyrics::Synced(vec![
+            lyrics::Line {
+                at: 0.5,
+                text: "第一句".into(),
+            },
+            lyrics::Line {
+                at: 1.5,
+                text: "第二句".into(),
+            },
+        ])))));
+        assert_eq!(
+            music.update(now + Duration::from_secs(1)).invalidated.len(),
+            2
+        );
+        assert!(music.compact_views()[0]
+            .tooltip
+            .as_deref()
+            .unwrap()
+            .starts_with("第一句"));
+        assert_eq!(
+            music.update(now + Duration::from_secs(2)).invalidated.len(),
+            2
+        );
+        assert!(music.compact_views()[0]
+            .tooltip
+            .as_deref()
+            .unwrap()
+            .starts_with("第二句"));
+
+        music.set_playback(Some(sample(false, 1.0, now + Duration::from_secs(2))));
+        music.update(now + Duration::from_secs(10));
+        assert_eq!(music.active_line, Some(0));
+    }
+}

@@ -28,6 +28,8 @@ fn preferences_round_trip_and_migrate_legacy_flags_order_and_quiet_hours() {
             "builtin.downloads/status",
             "builtin.pomodoro/status",
             "builtin.weather/current",
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            "builtin.music/lyrics",
         ]
     );
     assert!(legacy.quiet_hours.manual_enabled);
@@ -43,7 +45,10 @@ fn duplicate_and_invalid_ids_are_ignored_and_items_can_be_reordered() {
     let mut preferences = CompactPreferences::parse(
         "compact_order=3,3,99,1\nextension=builtin.test/widget|true|20\nextension= bad id |true|1\n",
     );
-    assert_eq!(preferences.compact_items.len(), 10);
+    assert_eq!(
+        preferences.compact_items.len(),
+        CompactPreferences::default().compact_items.len() + 1
+    );
     assert_eq!(
         preferences.ordered_compact_items()[0].id,
         id("builtin.system-monitor/gpu")
@@ -52,6 +57,21 @@ fn duplicate_and_invalid_ids_are_ignored_and_items_can_be_reordered() {
     let ordered = preferences.ordered_compact_items();
     assert_eq!(ordered[5].id, id("builtin.clock/time"));
     assert!(!preferences.move_compact_item(&id("builtin.system-monitor/gpu"), -1));
+}
+
+#[test]
+fn saved_music_compact_preference_is_only_available_on_supported_platforms() {
+    let preferences = CompactPreferences::parse("extension=builtin.music/lyrics|true|0\n");
+    assert_eq!(
+        preferences.is_enabled(&id("builtin.music/lyrics")),
+        cfg!(any(target_os = "linux", target_os = "windows"))
+    );
+    assert_eq!(
+        preferences
+            .encode()
+            .contains("extension=builtin.music/lyrics"),
+        cfg!(any(target_os = "linux", target_os = "windows"))
+    );
 }
 
 #[test]

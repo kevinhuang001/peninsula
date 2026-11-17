@@ -1,6 +1,6 @@
 use crate::{
     app::{
-        compact_layout::{CHIP_HEIGHT, ITEM_GAP},
+        compact_layout::{fitted_widths, CHIP_HEIGHT, ITEM_GAP},
         icons::Icons,
         mascot::Mascot,
         settings::CompactPreferences,
@@ -38,15 +38,15 @@ pub(super) fn show(
         .into_iter()
         .filter(|item| prefs.is_enabled(&item.id))
         .filter_map(|item| available_views.iter().find(|view| view.id == item.id))
+        .copied()
         .collect();
-    let total = views.iter().map(|view| view.preferred_width).sum::<f32>()
-        + ITEM_GAP * views.len().saturating_sub(1) as f32;
+    let widths = fitted_widths(&views, rect.width());
+    let total = widths.iter().sum::<f32>() + ITEM_GAP * views.len().saturating_sub(1) as f32;
     let mut x = rect.center().x - total * 0.5;
     let center_y = rect.center().y;
 
     let mut action = None;
-    for view in views {
-        let width = view.preferred_width;
+    for (view, width) in views.into_iter().zip(widths) {
         let item_rect = Rect::from_center_size(
             Pos2::new(x + width * 0.5, center_y),
             Vec2::new(width, CHIP_HEIGHT),

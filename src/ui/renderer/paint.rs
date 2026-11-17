@@ -4,7 +4,11 @@ use eframe::egui::{
     self, pos2, vec2, Color32, FontFamily, FontId, Id, Rect, Sense, Stroke, StrokeKind, Ui,
     UiBuilder, Vec2,
 };
-use std::{sync::Arc, time::Duration};
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::Arc,
+    time::Duration,
+};
 
 fn font_size(style: TextStyle) -> f32 {
     match style.font_size {
@@ -89,6 +93,12 @@ fn named_icon(name: &str) -> Option<Icon> {
         "gpu" => Icon::Gpu,
         "clock" => Icon::Clock,
         "moon" => Icon::Moon,
+        "music" => Icon::Music,
+        "music-note" => Icon::MusicNote,
+        "media-play" => Icon::MediaPlay,
+        "media-pause" => Icon::MediaPause,
+        "media-previous" => Icon::MediaPrevious,
+        "media-next" => Icon::MediaNext,
         "arrow-down" | "download" => Icon::ArrowDown,
         "arrow-up" => Icon::ArrowUp,
         "close" => Icon::Close,
@@ -134,7 +144,9 @@ impl Renderer<'_> {
             Node::ProgressBar { .. } => vec2(100.0, 16.0),
             Node::ProgressRing { .. } | Node::Gauge { .. } => Vec2::splat(60.0),
             Node::Chart { .. } | Node::Sparkline(_) | Node::RangeChart { .. } => vec2(100.0, 36.0),
+            Node::LineChart { .. } => vec2(120.0, 104.0),
             Node::Image { asset } => image_size(ui, asset),
+            Node::RasterImage(image) => vec2(f32::from(image.size[0]), f32::from(image.size[1])),
             Node::Sprite { frames, .. } => frames
                 .first()
                 .map_or(Vec2::ZERO, |asset| image_size(ui, asset)),
@@ -320,6 +332,9 @@ impl Renderer<'_> {
                     _ => egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label),
                 };
                 r.widget_info(|| info.clone());
+                if matches!(node.kind, Node::Control { icon: Some(_), .. }) {
+                    r.clone().on_hover_text(label);
+                }
             }
         }
         let inner = layout::inset(rect, node.style.padding);
@@ -481,6 +496,15 @@ impl Renderer<'_> {
                 }
             }
             Node::Image { asset } => paint_image(ui, &painter, asset, rect, opacity),
+            Node::RasterImage(image) => paint_raster(
+                ui,
+                &painter,
+                id,
+                image,
+                rect,
+                opacity,
+                point(node.style.normal.corner_radius.unwrap_or(0.0)),
+            ),
             Node::Sprite { frames, frame_ms } => {
                 if !frames.is_empty() {
                     let period = (*frame_ms).max(16);
@@ -534,7 +558,11 @@ impl Renderer<'_> {
                 };
                 painter.line_segment(line, Stroke::new(1.0, fg));
             }
-            Node::ProgressBar { fraction, label } => {
+            Node::ProgressBar {
+                fraction,
+                label,
+                marker,
+            } => {
                 let fraction = ratio(*fraction);
                 let track = color(
                     node.style
@@ -542,6 +570,21 @@ impl Renderer<'_> {
                         .background
                         .unwrap_or(ColorSpec::SurfaceVariant),
                 );
+                if *marker {
+                    let center = rect.center().y;
+                    let radius = (rect.height() * 0.5).min(2.5);
+                    let x = egui::lerp(rect.left() + radius..=rect.right() - radius, fraction);
+                    let line = |right| {
+                        Rect::from_min_max(
+                            pos2(rect.left(), center - radius * 0.7),
+                            pos2(right, center + radius * 0.7),
+                        )
+                    };
+                    painter.rect_filled(line(rect.right()), radius, track);
+                    painter.rect_filled(line(x), radius, fg.gamma_multiply(0.77));
+                    painter.circle_filled(pos2(x, center), radius, fg);
+                    return;
+                }
                 let label_color = color(ColorSpec::PrimaryText);
                 let mut scope = ui.new_child(
                     UiBuilder::new()
@@ -617,6 +660,16 @@ impl Renderer<'_> {
             }
             Node::Sparkline(values) => chart(&painter, rect, ChartKind::Line, values, fg),
             Node::Chart { kind, values } => chart(&painter, rect, *kind, values, fg),
+            Node::LineChart { points, unit } => line_chart(
+                ui,
+                rect,
+                id,
+                points,
+                unit,
+                fg,
+                color(ColorSpec::MutedText),
+                opacity,
+            ),
             Node::RangeChart {
                 labels,
                 high,
@@ -633,7 +686,9 @@ impl Renderer<'_> {
                 opacity,
                 color(ColorSpec::MutedText),
             ),
-            Node::Control { kind, label, .. } => {
+            Node::Control {
+                kind, label, icon, ..
+            } => {
                 if let ControlKind::Toggle { checked } = kind {
                     let track = Rect::from_center_size(
                         pos2(rect.left() + 14.0, rect.center().y),
@@ -670,6 +725,10 @@ impl Renderer<'_> {
                         },
                         fg,
                     );
+                } else if let Some(icon) = icon.as_deref().and_then(named_icon) {
+                    let extent = rect.width().min(rect.height()) * 0.76;
+                    let target = Rect::from_center_size(rect.center(), Vec2::splat(extent));
+                    self.icons.paint(&painter, icon, target, fg, 1.0);
                 } else {
                     text(
                         ui,
@@ -814,6 +873,115 @@ fn range_chart(
     }
 }
 
+fn line_chart(
+    ui: &Ui,
+    rect: Rect,
+    id: Id,
+    points: &[LineChartPoint],
+    unit: &str,
+    accent: Color32,
+    muted: Color32,
+    opacity: f32,
+) {
+    let points = &points[..points.len().min(31)];
+    if points.is_empty() {
+        return;
+    }
+    let values = points
+        .iter()
+        .filter_map(|point| point.value.filter(|v| v.is_finite()));
+    let (min, max) = values
+        .map(f64::from)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
+            (min.min(value), max.max(value))
+        });
+    let span = (max - min).max(1.0) * 1.3;
+    let has_images = points.iter().any(|point| point.image.is_some());
+    let top = rect.top() + 20.0;
+    let bottom = rect.bottom() - if has_images { 43.0 } else { 20.0 };
+    if bottom <= top {
+        return;
+    }
+    let width = rect.width() / points.len() as f32;
+    let painter = ui.painter().with_clip_rect(rect);
+    for level in [0.0, 0.5, 1.0] {
+        painter.hline(
+            rect.x_range(),
+            egui::lerp(top..=bottom, level),
+            Stroke::new(1.0, muted.gamma_multiply(0.23)),
+        );
+    }
+
+    let mut previous: Option<egui::Pos2> = None;
+    for (index, point) in points.iter().enumerate() {
+        let cell = Rect::from_min_size(
+            rect.min + vec2(width * index as f32, 0.0),
+            vec2(width, rect.height()),
+        );
+        let x = cell.center().x;
+        let sample = point.value.filter(|v| v.is_finite()).map(|value| {
+            let ratio = 0.5 + ((f64::from(value) - (min + max) * 0.5) / span) as f32;
+            (pos2(x, egui::lerp(bottom..=top, ratio)), value)
+        });
+        let position = sample.map(|(position, _)| position);
+        if let (Some(a), Some(b)) = (previous, position) {
+            painter.add(egui::Shape::convex_polygon(
+                vec![a, b, pos2(b.x, bottom), pos2(a.x, bottom)],
+                accent.gamma_multiply(0.13),
+                Stroke::NONE,
+            ));
+            painter.line_segment([a, b], Stroke::new(1.8, accent));
+        }
+        previous = position;
+        let labels = painter.with_clip_rect(cell);
+        if let Some((position, value)) = sample {
+            painter.circle_filled(position, 2.7, accent);
+            let value = format!("{value:.1}");
+            let value = value.strip_suffix(".0").unwrap_or(&value);
+            let value = if value == "-0" { "0" } else { value };
+            labels.text(
+                position - vec2(0.0, 5.0),
+                egui::Align2::CENTER_BOTTOM,
+                format!("{value}{unit}"),
+                FontId::proportional(11.0),
+                accent,
+            );
+        } else {
+            labels.text(
+                pos2(x, (top + bottom) * 0.5),
+                egui::Align2::CENTER_CENTER,
+                "—",
+                FontId::proportional(11.0),
+                muted,
+            );
+        }
+        if let Some(image) = &point.image {
+            paint_image(
+                ui,
+                &labels,
+                image,
+                Rect::from_center_size(pos2(x, rect.bottom() - 26.0), Vec2::splat(28.0)),
+                opacity,
+            );
+        }
+        labels.text(
+            pos2(x, rect.bottom() - 1.0),
+            egui::Align2::CENTER_BOTTOM,
+            &point.label,
+            FontId::proportional(10.0),
+            muted,
+        );
+        if let Some(tooltip) = &point.tooltip {
+            ui.interact(
+                cell.intersect(ui.clip_rect()),
+                id.with(index),
+                Sense::hover(),
+            )
+            .on_hover_text(tooltip);
+        }
+    }
+}
+
 fn chart(painter: &egui::Painter, rect: Rect, kind: ChartKind, values: &[f32], color: Color32) {
     let step = values.len().div_ceil(1024).max(1);
     let data: Vec<_> = values
@@ -884,4 +1052,46 @@ fn paint_image(ui: &Ui, painter: &egui::Painter, asset: &str, rect: Rect, opacit
             Color32::WHITE.linear_multiply(opacity),
         );
     }
+}
+
+fn paint_raster(
+    ui: &Ui,
+    painter: &egui::Painter,
+    id: Id,
+    image: &RasterImage,
+    rect: Rect,
+    opacity: f32,
+    radius: f32,
+) {
+    let size = image.size.map(usize::from);
+    if size.iter().any(|side| !(1..=256).contains(side))
+        || image.rgba.len() != size[0] * size[1] * 4
+    {
+        return;
+    }
+    let mut hasher = DefaultHasher::new();
+    image.size.hash(&mut hasher);
+    image.rgba.hash(&mut hasher);
+    let key = hasher.finish();
+    let texture_id = id.with("raster");
+    let cached = ui.data(|data| data.get_temp::<(u64, egui::TextureHandle)>(texture_id));
+    let texture = match cached {
+        Some((previous, texture)) if previous == key => texture,
+        _ => {
+            let texture = ui.ctx().load_texture(
+                "widget raster",
+                egui::ColorImage::from_rgba_unmultiplied(size, &image.rgba),
+                egui::TextureOptions::LINEAR,
+            );
+            ui.data_mut(|data| data.insert_temp(texture_id, (key, texture.clone())));
+            texture
+        }
+    };
+    painter.add(
+        egui::epaint::RectShape::filled(rect, radius, Color32::WHITE.linear_multiply(opacity))
+            .with_texture(
+                texture.id(),
+                Rect::from_min_max(egui::Pos2::ZERO, pos2(1.0, 1.0)),
+            ),
+    );
 }

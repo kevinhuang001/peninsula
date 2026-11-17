@@ -1,6 +1,8 @@
 pub mod bilibili;
 pub mod download;
 pub mod kuaidi;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+mod music;
 pub mod performance;
 pub mod pomodoro;
 pub mod weather;
@@ -12,6 +14,7 @@ use crate::{
         Action, ExtensionContext, ExtensionId, ExtensionKind, ExtensionLifecycleRecord,
         ExtensionOutput, ExtensionRegistry, LifecycleManager, Notification, NotificationAction,
         NotificationPresentation, ReloadPolicy, RuntimeExtension, Settings, ViewNode, WidgetView,
+        WidgetVisibility,
     },
 };
 use std::{
@@ -53,7 +56,7 @@ fn icon_text(
 
 pub fn registry() -> ExtensionRegistry {
     let mut registry = ExtensionRegistry::default();
-    for descriptor in [notifications::descriptor()]
+    let descriptors = [notifications::descriptor()]
         .into_iter()
         .chain(performance::descriptors())
         .chain(download::descriptors())
@@ -63,9 +66,10 @@ pub fn registry() -> ExtensionRegistry {
             std::iter::once(bilibili::BilibiliExtension::default())
                 .flat_map(|extension| extension.descriptors()),
         )
-        .chain(weather::descriptors())
-        .chain(extras::descriptors())
-    {
+        .chain(weather::descriptors());
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let descriptors = descriptors.chain(music::descriptors());
+    for descriptor in descriptors.chain(extras::descriptors()) {
         registry
             .register(descriptor)
             .expect("built-in extension descriptors must be valid");
@@ -102,6 +106,8 @@ impl BuiltinExtensions {
                 Box::new(weather::WeatherExtension::new(
                     weather::WeatherPreferences::default(),
                 )),
+                #[cfg(any(target_os = "linux", target_os = "windows"))]
+                Box::new(music::MusicExtension::default()),
                 Box::new(extras::CompactExtras),
             ],
             lifecycle: LifecycleManager::load(Some(lifecycle_path())),
@@ -275,6 +281,12 @@ impl BuiltinExtensions {
         self.registry
             .widget_list()
             .into_iter()
+            .filter(|descriptor| {
+                self.owners.get(&descriptor.id).is_none_or(|&owner| {
+                    self.extensions[owner].widget_visibility(&descriptor.id)
+                        == WidgetVisibility::Visible
+                })
+            })
             .map(|descriptor| descriptor.id.clone())
             .collect()
     }

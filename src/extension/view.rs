@@ -11,6 +11,14 @@ pub enum CompactVisibility {
     Hidden,
 }
 
+/// A Widget with a hidden runtime state is omitted from both the carousel and dashboard.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum WidgetVisibility {
+    #[default]
+    Visible,
+    Hidden,
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CompactView {
     /// Preference key for a compact component. One extension can provide
@@ -130,6 +138,9 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
     }
     fn widget_view(&self, _widget_id: &ExtensionId) -> Option<WidgetView> {
         None
+    }
+    fn widget_visibility(&self, _widget_id: &ExtensionId) -> WidgetVisibility {
+        WidgetVisibility::Visible
     }
     fn compact_refresh_interval(&self) -> Option<std::time::Duration> {
         None

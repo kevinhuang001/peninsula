@@ -181,7 +181,6 @@ fn forecast_url(location: &Location) -> String {
         "precipitation",
         "weather_code",
         "cloud_cover",
-        "pressure_msl",
         "wind_speed_10m",
         "wind_direction_10m",
         "wind_gusts_10m",
@@ -208,6 +207,7 @@ fn forecast_url(location: &Location) -> String {
     .join(",");
     let hourly = [
         "temperature_2m",
+        "is_day",
         "apparent_temperature",
         "precipitation_probability",
         "rain",
@@ -286,6 +286,13 @@ mod tests {
             ..Location::default()
         };
         let url = forecast_url(&location);
+        let url = url::Url::parse(&url).unwrap();
+        let hourly = url
+            .query_pairs()
+            .find(|(key, _)| key == "hourly")
+            .unwrap()
+            .1;
+        assert!(hourly.split(',').any(|field| field == "is_day"));
         for field in [
             "apparent_temperature",
             "sunrise",
@@ -295,7 +302,7 @@ mod tests {
             "precipitation_probability_max",
             "forecast_days=7",
         ] {
-            assert!(url.contains(field), "missing {field}");
+            assert!(url.as_str().contains(field), "missing {field}");
         }
     }
 }

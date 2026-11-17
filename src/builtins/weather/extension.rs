@@ -1,7 +1,9 @@
 use super::{
     alerts::{self, WeatherAlert},
     client,
-    model::{format_visibility, uv_level, wind_direction, wind_level, Location, Snapshot},
+    model::{
+        time_hm, uv_level, weather_description, wind_direction, wind_level, Location, Snapshot,
+    },
     preferences::WeatherPreferences,
 };
 use crate::{
@@ -25,8 +27,9 @@ pub const COMPACT_ID: &str = "builtin.weather/current";
 pub const ALERTS_ID: &str = "builtin.weather/alerts";
 
 const RETRY_INTERVAL: Duration = Duration::from_secs(60);
-const WIDGET_SIZE: [f32; 2] = [506.0, 334.0];
+const WIDGET_SIZE: [f32; 2] = [506.0, 456.0];
 const COMPACT_WIDTH: f32 = 68.0;
+const HOURLY_COUNT: usize = 5;
 
 pub fn descriptors() -> Vec<ExtensionDescriptor> {
     vec![
@@ -84,6 +87,7 @@ pub struct WeatherExtension {
     alert_history_path: Option<PathBuf>,
     next_refresh: Instant,
     last_success: Option<Instant>,
+    forecast_hour: Option<i64>,
 }
 
 impl WeatherExtension {
@@ -99,6 +103,7 @@ impl WeatherExtension {
             alert_history_path: None,
             next_refresh: Instant::now(),
             last_success: None,
+            forecast_hour: None,
         }
     }
 
@@ -217,7 +222,12 @@ impl WeatherExtension {
 
     fn root(&self) -> ViewNode {
         if let Some(snapshot) = &self.snapshot {
-            weather_root(snapshot, &self.alerts, self.error.as_deref())
+            weather_root(
+                snapshot,
+                &self.alerts,
+                self.error.as_deref(),
+                time::OffsetDateTime::now_utc(),
+            )
         } else if let Some(error) = &self.error {
             error_root(error)
         } else {
@@ -242,6 +252,7 @@ impl WeatherExtension {
             alert_history_path: None,
             next_refresh: Instant::now() + Duration::from_secs(3600),
             last_success: None,
+            forecast_hour: None,
         }
     }
 }
@@ -297,6 +308,18 @@ impl RuntimeExtension for WeatherExtension {
                 ExtensionId::builtin(WIDGET_ID),
                 ExtensionId::builtin(COMPACT_ID),
             ];
+        }
+        let forecast_hour = self
+            .snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.utc_offset)
+            .map(|offset| {
+                (time::OffsetDateTime::now_utc().unix_timestamp()
+                    + i64::from(offset.whole_seconds()))
+                .div_euclid(3600)
+            });
+        if std::mem::replace(&mut self.forecast_hour, forecast_hour) != forecast_hour && !changed {
+            output.invalidated.push(ExtensionId::builtin(WIDGET_ID));
         }
         output
     }
@@ -421,7 +444,12 @@ fn alert_notification(alert: &WeatherAlert, location: &Location) -> Notification
     }
 }
 
-fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str>) -> ViewNode {
+fn weather_root(
+    snapshot: &Snapshot,
+    alerts: &[WeatherAlert],
+    error: Option<&str>,
+    now: time::OffsetDateTime,
+) -> ViewNode {
     let current = &snapshot.current;
     let today = snapshot.today();
     let current_row = ViewNode::row(
@@ -507,60 +535,53 @@ fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str
             [9.0, 6.0, 9.0, 6.0],
         ));
     }
+    sections.push(hourly_chart(snapshot, now));
+    // Six cards, one three-column grid: the sun block fills the first row and
+    // humidity/wind/rain the second, so the section stays exactly two rows.
+    let mut metrics = Vec::with_capacity(6);
     if let Some(day) = today {
-        sections.push(grid(vec![
-            metric("sunrise", "日出", day.sunrise.clone(), ColorSpec::Warning),
-            metric("sunset", "日落", day.sunset.clone(), ColorSpec::Warning),
-            metric(
-                "sun",
-                "日照时长",
-                snapshot.daylight().unwrap_or_else(|| "—".into()),
-                ColorSpec::Warning,
-            ),
-        ]));
+        metrics.push(metric(
+            "sunrise",
+            "日出",
+            day.sunrise.clone(),
+            ColorSpec::Warning,
+        ));
+        metrics.push(metric(
+            "sunset",
+            "日落",
+            day.sunset.clone(),
+            ColorSpec::Warning,
+        ));
     }
-    sections.push(grid(vec![
-        metric(
-            "droplet",
-            "湿度",
-            format!("{}%", current.humidity),
-            ColorSpec::Info,
+    metrics.push(metric(
+        "sun",
+        "紫外线",
+        format!("{:.0} · {}", current.uv_index, uv_level(current.uv_index)),
+        ColorSpec::Info,
+    ));
+    metrics.push(metric(
+        "droplet",
+        "湿度",
+        format!("{}%", current.humidity),
+        ColorSpec::Info,
+    ));
+    metrics.push(metric(
+        "wind",
+        &format!(
+            "{}风 · {}级",
+            wind_direction(current.wind_direction),
+            wind_level(current.wind_speed)
         ),
-        metric(
-            "wind",
-            &format!(
-                "{}风 · {}级",
-                wind_direction(current.wind_direction),
-                wind_level(current.wind_speed)
-            ),
-            format!("{:.0} km/h", current.wind_speed),
-            ColorSpec::Info,
-        ),
-        metric(
-            "cloud-rain",
-            "降水概率",
-            format!("{}%", current.precipitation_probability),
-            ColorSpec::Info,
-        ),
-        metric(
-            "sun",
-            "紫外线",
-            format!("{:.0} · {}", current.uv_index, uv_level(current.uv_index)),
-            ColorSpec::Info,
-        ),
-        metric(
-            "gauge",
-            "气压",
-            format!("{:.0} hPa", current.pressure),
-            ColorSpec::Info,
-        ),
-        metric(
-            "eye",
-            "能见度",
-            format_visibility(current.visibility),
-            ColorSpec::Info,
-        ),
-    ]));
+        format!("{:.0} km/h", current.wind_speed),
+        ColorSpec::Info,
+    ));
+    metrics.push(metric(
+        "cloud-rain",
+        "降水概率",
+        format!("{}%", current.precipitation_probability),
+        ColorSpec::Info,
+    ));
+    sections.push(grid(metrics));
 
     let heading = ViewNode::row(
         vec![
@@ -591,6 +612,45 @@ fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str
         ColorSpec::MutedText,
     ));
     column(sections, 7.0).sized(Size::Fill(1.0), Size::Auto)
+}
+
+fn hourly_chart(snapshot: &Snapshot, now: time::OffsetDateTime) -> ViewNode {
+    let points: Vec<_> = snapshot
+        .upcoming_hours(now, HOURLY_COUNT)
+        .into_iter()
+        .map(|hour| {
+            let label = time_hm(&hour.time);
+            let asset = snapshot.hourly_icon(hour);
+            let condition = hour
+                .weather_code
+                .filter(|_| asset != "meteo/not-available")
+                .map_or("暂无天气信息", weather_description);
+            LineChartPoint {
+                tooltip: Some(format!("{label} · {condition}")),
+                label,
+                value: hour.temperature.map(|value| value as f32),
+                image: Some(asset.into()),
+            }
+        })
+        .collect();
+    let chart = if points.is_empty() {
+        text("暂无逐小时预报", 11.0, ColorSpec::SecondaryText)
+    } else {
+        ViewNode::new(Node::LineChart {
+            points,
+            unit: "°".into(),
+        })
+        .sized(Size::Fill(1.0), Size::Fixed(104.0))
+        .color(ColorSpec::Info)
+    };
+    panel(
+        column(
+            vec![strong(format!("未来 {HOURLY_COUNT} 小时"), 12.0), chart],
+            3.0,
+        ),
+        ColorSpec::SurfaceVariant,
+        [11.0, 9.0, 11.0, 5.0],
+    )
 }
 
 fn weather_icon(asset: &str, size: f32) -> ViewNode {
@@ -754,6 +814,7 @@ mod tests {
                 longitude: 121.46,
             },
             timezone: "Asia/Shanghai".into(),
+            utc_offset: None,
             updated_at: "2026-11-17T17:45".into(),
             current: CurrentWeather {
                 temperature: 14.9,
@@ -763,7 +824,6 @@ mod tests {
                 weather_code: 3,
                 is_day: false,
                 cloud_cover: 89,
-                pressure: 1021.5,
                 wind_speed: 6.8,
                 wind_gusts: 14.8,
                 wind_direction: 358,
@@ -783,7 +843,9 @@ mod tests {
             }],
             hourly: vec![HourlyForecast {
                 time: "2026-11-17T18:00".into(),
-                temperature: 14.6,
+                temperature: Some(14.6),
+                weather_code: Some(2),
+                is_day: Some(false),
                 ..HourlyForecast::default()
             }],
         }
@@ -846,10 +908,16 @@ mod tests {
             "06:18",
             "日落",
             "16:57",
-            "能见度",
+            "未来 5 小时",
+            "LineChart",
+            "18:00",
+            "meteo/partly-cloudy-night",
             "RangeChart",
         ] {
             assert!(tree.contains(visible), "missing {visible}");
+        }
+        for removed in ["日照时长", "气压", "能见度"] {
+            assert!(!tree.contains(removed), "unexpected {removed}");
         }
     }
 
