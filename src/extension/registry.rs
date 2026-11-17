@@ -42,30 +42,22 @@ impl ExtensionRegistry {
         result
     }
 
-    pub fn widget_list(&self, notification_unread: bool) -> Vec<&ExtensionDescriptor> {
+    /// The notification center is a permanently pinned first page.
+    pub fn widget_list(&self) -> Vec<&ExtensionDescriptor> {
         let mut widgets: Vec<_> = self
             .descriptors
             .iter()
             .filter(|descriptor| {
-                descriptor.kind == ExtensionKind::Widget && descriptor.default_enabled
+                descriptor.kind == ExtensionKind::Widget
+                    && (descriptor.default_enabled
+                        || descriptor.id.as_str() == NOTIFICATION_CENTER_ID)
             })
             .collect();
-        if notification_unread {
-            widgets.retain(|descriptor| descriptor.id.as_str() != NOTIFICATION_CENTER_ID);
-            if let Some(center) = self.get(&ExtensionId::builtin(NOTIFICATION_CENTER_ID)) {
-                widgets.insert(0, center);
-            }
-        }
-        widgets.sort_by_key(|descriptor| {
-            (
-                if notification_unread && descriptor.id.as_str() == NOTIFICATION_CENTER_ID {
-                    0
-                } else {
-                    descriptor.default_order + 1
-                },
-                descriptor.id.clone(),
-            )
-        });
+        widgets.sort_by_key(|descriptor| (
+            descriptor.id.as_str() != NOTIFICATION_CENTER_ID,
+            descriptor.default_order,
+            descriptor.id.clone(),
+        ));
         widgets
     }
 
@@ -89,18 +81,18 @@ pub fn builtins() -> ExtensionRegistry {
             "性能监控",
             "activity",
             true,
-            0,
+            10,
         )
         .with_size_hint(300.0, 76.0),
-        ExtensionDescriptor::builtin("builtin.pomodoro/timer", Widget, "番茄钟", "timer", true, 1)
+        ExtensionDescriptor::builtin("builtin.pomodoro/timer", Widget, "番茄钟", "timer", true, 20)
             .with_size_hint(300.0, 126.0)
             .with_capabilities(vec![
                 Capability::View,
                 Capability::Action,
                 Capability::Schedule,
             ]),
-        ExtensionDescriptor::builtin(NOTIFICATION_CENTER_ID, Widget, "通知中心", "bell", false, 2)
-            .with_size_hint(300.0, 170.0),
+        ExtensionDescriptor::builtin(NOTIFICATION_CENTER_ID, Widget, "通知中心", "bell", true, 0)
+            .with_size_hint(320.0, 230.0),
         ExtensionDescriptor::builtin("builtin.mascot/face", Compact, "表情", "mascot", true, 0)
             .with_size_hint(38.0, 28.0),
         ExtensionDescriptor::builtin(
@@ -179,7 +171,7 @@ mod tests {
         assert_eq!(registry.by_kind(ExtensionKind::Compact).len(), 7);
         assert_eq!(registry.by_kind(ExtensionKind::Notification).len(), 1);
         let ids: Vec<_> = registry
-            .widget_list(true)
+            .widget_list()
             .iter()
             .map(|item| item.id.as_str())
             .collect();
