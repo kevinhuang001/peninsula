@@ -2,7 +2,7 @@ use eframe::egui::Color32;
 
 pub(super) const TEXT: Color32 = Color32::from_rgb(255, 255, 255);
 pub(super) const SECONDARY_TEXT: Color32 = Color32::from_rgb(220, 225, 234);
-pub(super) const ACCENT: Color32 = Color32::from_rgb(45, 164, 255);
+pub(in crate::app) const ACCENT: Color32 = Color32::from_rgb(45, 164, 255);
 pub(super) const ACCENT_SOFT: Color32 = Color32::from_rgb(38, 70, 98);
 pub(super) const ACCENT_BORDER: Color32 = Color32::from_rgb(56, 118, 165);
 pub(super) const ACCENT_SELECTED: Color32 = Color32::from_rgb(42, 76, 111);

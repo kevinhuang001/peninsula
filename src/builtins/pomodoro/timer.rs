@@ -55,8 +55,8 @@ impl Pomodoro {
             Phase::Break => Phase::Focus,
         };
         self.remaining_seconds = self.phase_seconds();
-        self.running = false;
-        self.deadline = None;
+        self.running = true;
+        self.deadline = Some(now + Duration::from_secs_f32(self.remaining_seconds));
         true
     }
 
@@ -142,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn timer_deadline_switches_to_a_paused_break() {
+    fn timer_deadline_switches_to_a_running_break_and_keeps_the_cycle() {
         let start = Instant::now();
         let mut timer = Pomodoro {
             remaining_seconds: 0.1,
@@ -156,8 +156,9 @@ mod tests {
             timer.remaining_at(start + Duration::from_millis(101)),
             5.0 * 60.0
         );
-        assert!(!timer.running);
-        assert!(!timer.update(start + Duration::from_secs(10)));
+        assert!(timer.running);
+        assert!(timer.update(start + Duration::from_secs(5 * 60 + 102)));
+        assert_eq!(timer.phase, Phase::Focus);
     }
 
     #[test]

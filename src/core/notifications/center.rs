@@ -26,10 +26,7 @@ pub fn widget_view(
     page: usize,
     max_items: usize,
 ) -> WidgetView {
-    let mut children = vec![ViewNode::Button {
-        label: "全部清理".into(),
-        action: Action::Custom("core.notifications.clear_all".into()),
-    }];
+    let mut children = Vec::new();
     if entries.is_empty() {
         children.push(ViewNode::Text {
             text: "没有通知".into(),
@@ -82,6 +79,10 @@ pub fn widget_view(
             ]));
         }
     }
+    children.push(ViewNode::Button {
+        label: "全部清理".into(),
+        action: Action::Custom("core.notifications.clear_all".into()),
+    });
     WidgetView {
         root: ViewNode::Column(children),
         preferred_size: [300.0, 200.0],
@@ -116,8 +117,8 @@ mod tests {
         let ViewNode::Column(children) = view.root else {
             panic!("notification center should render as a column");
         };
-        assert!(matches!(children[0], ViewNode::Button { .. }));
-        assert!(matches!(children[1], ViewNode::Text { ref text, .. } if text == "没有通知"));
+        assert!(matches!(children[0], ViewNode::Text { ref text, .. } if text == "没有通知"));
+        assert!(matches!(children[1], ViewNode::Button { ref label, .. } if label == "全部清理"));
         assert_eq!(view.preferred_size[1], 200.0);
         assert_eq!(NOTIFICATION_CENTER_ID, "builtin.notifications/center");
     }
@@ -132,20 +133,22 @@ mod tests {
             panic!("notification center should render as a column");
         };
         assert!(
-            matches!(first[1], ViewNode::NotificationItem { ref title, .. } if title == "title one")
+            matches!(first[0], ViewNode::NotificationItem { ref title, .. } if title == "title one")
         );
         assert!(
-            matches!(first[3], ViewNode::NotificationItem { ref title, .. } if title == "title three")
+            matches!(first[2], ViewNode::NotificationItem { ref title, .. } if title == "title three")
         );
         assert!(
-            matches!(second[1], ViewNode::NotificationItem { ref title, .. } if title == "title four")
+            matches!(second[0], ViewNode::NotificationItem { ref title, .. } if title == "title four")
         );
-        assert!(matches!(first[4], ViewNode::Row(_)));
+        assert!(matches!(first[3], ViewNode::Row(_)));
+        assert!(matches!(first[4], ViewNode::Button { ref label, .. } if label == "全部清理"));
         assert!(matches!(
-            second[2],
+            second[1],
             ViewNode::Row(ref controls)
                 if matches!(controls[0], ViewNode::Button { ref label, .. } if label == "上一页")
                     && matches!(controls[2], ViewNode::Text { ref text, .. } if text.is_empty())
         ));
+        assert!(matches!(second[2], ViewNode::Button { ref label, .. } if label == "全部清理"));
     }
 }

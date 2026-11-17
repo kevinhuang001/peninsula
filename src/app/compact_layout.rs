@@ -10,7 +10,7 @@ pub(super) const COMPACT_TEXT_SIZE: f32 = 10.0;
 pub(super) const COMPACT_ICON_GAP: f32 = 4.0;
 
 const MIN_WIDTH: f32 = 64.0;
-const MAX_WIDTH: f32 = 480.0;
+const MAX_WIDTH: f32 = 600.0;
 
 pub(super) fn item_widths(preferences: &CompactPreferences, available: &[CompactView]) -> Vec<f32> {
     let mut widths = Vec::new();
@@ -128,6 +128,9 @@ mod tests {
         let mut preferences = CompactPreferences::default();
         let views = available_views();
         preferences.move_compact_item(&ExtensionId::builtin("builtin.system-monitor/battery"), -1);
-        assert_eq!(item_widths(&preferences, &views), [54.0, 38.0].to_vec());
+        assert_eq!(
+            item_widths(&preferences, &views),
+            [54.0, 38.0, 88.0].to_vec()
+        );
     }
 }

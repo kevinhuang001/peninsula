@@ -6,6 +6,8 @@ use crate::{
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
+use crate::app::settings::theme::ACCENT;
+
 const CARD: Color32 = Color32::from_rgb(27, 29, 34);
 const MUTED: Color32 = Color32::from_rgb(177, 183, 194);
 
@@ -221,8 +223,8 @@ fn paint_node(
             if ui
                 .put(
                     clear_rect,
-                    egui::Button::new("×")
-                        .fill(Color32::from_rgb(56, 62, 74))
+                    egui::Button::new(egui::RichText::new("×").color(Color32::WHITE))
+                        .fill(ACCENT)
                         .corner_radius(7.0),
                 )
                 .clicked()
@@ -242,8 +244,8 @@ fn paint_node(
         ViewNode::Button { label, action } => {
             let response = ui.put(
                 rect.shrink(1.0),
-                egui::Button::new(label)
-                    .fill(Color32::from_rgb(56, 62, 74))
+                egui::Button::new(egui::RichText::new(label).color(Color32::WHITE))
+                    .fill(ACCENT)
                     .corner_radius(8.0),
             );
             if response.clicked() {
@@ -254,7 +256,7 @@ fn paint_node(
             }
         }
         ViewNode::ProgressRing { fraction, label } => {
-            let radius = 29.0_f32.min(rect.height() * 0.5 - 2.0);
+            let radius = (rect.width().min(rect.height()) * 0.5 - 3.0).max(2.0);
             let center = Pos2::new(rect.center().x, rect.center().y);
             ui.painter().circle_stroke(
                 center,

@@ -1,18 +1,28 @@
 use super::timer::{Phase, Pomodoro};
 use crate::extension::{
-    Action, Event, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput, Notification,
-    NotificationAction, NotificationAlertView, NotificationCenterItemView,
-    NotificationPresentationProvider, NotificationPriority, RefreshHint, RuntimeExtension,
-    ScheduledTask, ViewNode, WidgetView,
+    Action, ColorRole, CompactNode, CompactView, Event, ExtensionDescriptor, ExtensionId,
+    ExtensionKind, ExtensionOutput, Notification, NotificationAction, NotificationAlertView,
+    NotificationCenterItemView, NotificationPresentationProvider, NotificationPriority,
+    RefreshHint, RuntimeExtension, ScheduledTask, ViewNode, WidgetView,
 };
 use std::time::{Instant, SystemTime};
 
 pub const WIDGET_ID: &str = "builtin.pomodoro/timer";
+pub const COMPACT_ID: &str = "builtin.pomodoro/status";
 pub const NOTIFICATION_ID: &str = "builtin.pomodoro/notifications";
 const TIMER_TASK: &str = "builtin.pomodoro/timer";
 
 pub fn descriptors() -> Vec<ExtensionDescriptor> {
     vec![
+        ExtensionDescriptor::builtin(
+            COMPACT_ID,
+            ExtensionKind::Compact,
+            "番茄钟进度",
+            "timer",
+            true,
+            7,
+        )
+        .with_size_hint(88.0, 28.0),
         ExtensionDescriptor::builtin(WIDGET_ID, ExtensionKind::Widget, "番茄钟", "timer", true, 2)
             .with_size_hint(300.0, 126.0)
             .with_capabilities(vec![
@@ -92,47 +102,82 @@ impl RuntimeExtension for PomodoroExtension {
         let now = Instant::now();
         let phase = self.timer.phase;
         Some(WidgetView {
-            root: ViewNode::Column(vec![
+            root: ViewNode::Row(vec![
                 ViewNode::ProgressRing {
                     fraction: self.timer.progress_at(now),
                     label: Some(format_time(self.timer.remaining_at(now))),
                 },
-                ViewNode::Text {
-                    text: if phase == Phase::Focus {
-                        "专注中"
-                    } else {
-                        "休息中"
-                    }
-                    .into(),
-                    style: crate::extension::TextStyle::Small,
-                },
-                ViewNode::Row(vec![
-                    ViewNode::Button {
-                        label: "专注".into(),
-                        action: Action::Select("focus".into()),
-                    },
-                    ViewNode::Button {
-                        label: "休息".into(),
-                        action: Action::Select("break".into()),
-                    },
-                    ViewNode::Button {
-                        label: if self.timer.running {
-                            "暂停"
+                ViewNode::Column(vec![
+                    ViewNode::Text {
+                        text: if phase == Phase::Focus {
+                            "专注中"
                         } else {
-                            "开始"
+                            "休息中"
                         }
                         .into(),
-                        action: Action::Toggle,
+                        style: crate::extension::TextStyle::Heading,
                     },
-                    ViewNode::Button {
-                        label: "重置".into(),
-                        action: Action::Reset,
-                    },
+                    ViewNode::Spacer { size: [0.0, 1.0] },
+                    ViewNode::Row(vec![
+                        ViewNode::Button {
+                            label: if self.timer.running {
+                                "暂停"
+                            } else {
+                                "开始"
+                            }
+                            .into(),
+                            action: Action::Toggle,
+                        },
+                        ViewNode::Button {
+                            label: "重置".into(),
+                            action: Action::Reset,
+                        },
+                    ]),
                 ]),
             ]),
-            preferred_size: [300.0, 126.0],
+            preferred_size: [300.0, 104.0],
             refresh_hint: RefreshHint::EverySecond,
         })
+    }
+
+    fn compact_views(&self) -> Vec<CompactView> {
+        let now = Instant::now();
+        let progress = self.timer.progress_at(now);
+        vec![CompactView {
+            id: ExtensionId::builtin(COMPACT_ID),
+            source_extension_id: ExtensionId::builtin(WIDGET_ID),
+            content: CompactNode::Row(vec![
+                CompactNode::Progress {
+                    fraction: progress,
+                    label: String::new(),
+                },
+                CompactNode::IconText {
+                    icon: if self.timer.phase == Phase::Focus {
+                        "clock"
+                    } else {
+                        "moon"
+                    }
+                    .into(),
+                    text: format_time(self.timer.remaining_at(now)),
+                    color: if self.timer.phase == Phase::Focus {
+                        ColorRole::Warning
+                    } else {
+                        ColorRole::Success
+                    },
+                },
+            ]),
+            min_width: 88.0,
+            preferred_width: 88.0,
+            priority: 7,
+            tooltip: Some(
+                if self.timer.running {
+                    "番茄钟运行中"
+                } else {
+                    "番茄钟已暂停"
+                }
+                .into(),
+            ),
+        }]
     }
 
     fn on_action(&mut self, action: Action, now: Instant) -> ExtensionOutput {
@@ -164,14 +209,15 @@ impl RuntimeExtension for PomodoroExtension {
             return ExtensionOutput::default();
         }
         let completed_phase = self.timer.phase;
+        let old_deadline = self.timer.deadline();
         if !self.timer.update(now) {
             return ExtensionOutput::default();
         }
-        ExtensionOutput {
-            invalidated: vec![ExtensionId::builtin(WIDGET_ID)],
-            notifications: vec![self.completion_notification(completed_phase)],
-            ..ExtensionOutput::default()
-        }
+        let mut output = self.action_output(old_deadline);
+        output
+            .notifications
+            .push(self.completion_notification(completed_phase));
+        output
     }
 }
 

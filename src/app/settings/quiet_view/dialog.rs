@@ -53,7 +53,9 @@ pub(super) fn show(
             Pos2::new(popup.left() + 12.0, button_top),
             Vec2::new(80.0, 21.0),
         ),
-        egui::Button::new(egui::RichText::new("取消").color(TEXT)).frame(false),
+        egui::Button::new(egui::RichText::new("取消").color(Color32::WHITE))
+            .fill(ACCENT)
+            .corner_radius(7.0),
     );
     let save = ui.put(
         Rect::from_min_size(

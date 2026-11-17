@@ -4,6 +4,8 @@ use crate::{
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, RichText, Vec2};
 
+use crate::app::settings::theme::ACCENT;
+
 const MAX_EXTENSION_ACTIONS: usize = 4;
 
 pub fn show_alert(
@@ -82,7 +84,7 @@ pub fn show_alert(
                         .color(Color32::WHITE)
                         .size(10.0),
                 )
-                .fill(Color32::from_rgb(56, 62, 74))
+                .fill(ACCENT)
                 .corner_radius(8.0),
             )
             .clicked()
@@ -98,7 +100,7 @@ pub fn show_alert(
         .put(
             confirm,
             egui::Button::new(RichText::new("确定").color(Color32::WHITE).size(10.0))
-                .fill(Color32::from_rgb(56, 62, 74))
+                .fill(ACCENT)
                 .corner_radius(8.0),
         )
         .clicked()

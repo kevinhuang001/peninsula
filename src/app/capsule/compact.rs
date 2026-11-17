@@ -234,6 +234,7 @@ fn icon_id(name: &str) -> Icon {
         "arrow-down" => Icon::ArrowDown,
         "arrow-up" => Icon::ArrowUp,
         "clock" => Icon::Clock,
+        "moon" => Icon::Moon,
         _ => Icon::Close,
     }
 }

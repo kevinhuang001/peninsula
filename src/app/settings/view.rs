@@ -171,14 +171,14 @@ fn paint_bilibili_options(
         ),
     ];
     for (index, (label, enabled)) in rows.into_iter().enumerate() {
-        let rect = Rect::from_min_size(
+        let row = Rect::from_min_size(
             Pos2::new(
                 panel.left() + 12.0,
                 panel.top() + 60.0 + index as f32 * 30.0,
             ),
             Vec2::new(panel.width() - 24.0, 26.0),
         );
-        changed |= ui.put(rect, egui::Checkbox::new(enabled, label)).changed();
+        changed |= paint_checkbox_row(ui, row, index, label, enabled);
     }
     let interval = Rect::from_min_size(
         Pos2::new(panel.left() + 12.0, panel.top() + 182.0),
@@ -238,6 +238,57 @@ fn paint_bilibili_options(
         changed = true;
     }
     changed
+}
+
+fn paint_checkbox_row(
+    ui: &mut egui::Ui,
+    row: Rect,
+    index: usize,
+    label: &str,
+    enabled: &mut bool,
+) -> bool {
+    let response = ui.interact(
+        row,
+        egui::Id::new(("bilibili-option", index)),
+        Sense::click(),
+    );
+    ui.painter().rect_filled(row, 6.0, ROW);
+    let checkbox = Rect::from_center_size(
+        Pos2::new(row.left() + 19.0, row.center().y),
+        Vec2::splat(16.0),
+    );
+    ui.painter()
+        .rect_filled(checkbox, 4.0, if *enabled { ACCENT } else { BACKGROUND });
+    ui.painter().rect_stroke(
+        checkbox,
+        4.0,
+        Stroke::new(1.0, if *enabled { ACCENT } else { BORDER }),
+        egui::StrokeKind::Inside,
+    );
+    if *enabled {
+        let points = [
+            Pos2::new(checkbox.left() + 4.0, checkbox.center().y),
+            Pos2::new(checkbox.left() + 7.0, checkbox.bottom() - 4.0),
+            Pos2::new(checkbox.right() - 3.0, checkbox.top() + 4.0),
+        ];
+        ui.painter().add(egui::Shape::line(
+            points.to_vec(),
+            Stroke::new(1.7, Color32::WHITE),
+        ));
+    }
+    ui.painter().text(
+        Pos2::new(row.left() + 34.0, row.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(11.0),
+        TEXT,
+    );
+    if response.clicked() {
+        *enabled = !*enabled;
+        true
+    } else {
+        false
+    }
 }
 
 fn paint_pomodoro_options(
@@ -399,20 +450,13 @@ fn paint_option(
 
 fn text_button(ui: &egui::Ui, rect: Rect, id: impl std::hash::Hash, label: &str) -> bool {
     let response = ui.interact(rect, egui::Id::new(id), Sense::click());
-    if response.hovered() {
-        ui.painter()
-            .rect_filled(rect, 5.0, Color32::from_white_alpha(18));
-    }
+    ui.painter().rect_filled(rect, 5.0, ACCENT);
     ui.painter().text(
         rect.center(),
         Align2::CENTER_CENTER,
         label,
         FontId::proportional(12.0),
-        if response.hovered() {
-            TEXT
-        } else {
-            SECONDARY_TEXT
-        },
+        Color32::WHITE,
     );
     response.clicked()
 }

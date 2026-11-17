@@ -75,6 +75,6 @@ mod tests {
                 Section::About
             ]
         );
-        assert_eq!(registry().by_kind(ExtensionKind::Compact).len(), 7);
+        assert_eq!(registry().by_kind(ExtensionKind::Compact).len(), 8);
     }
 }
