@@ -410,3 +410,31 @@ fn content_height_grows_for_wrapped_text_and_additional_rows() {
         );
     });
 }
+
+#[test]
+fn semantic_text_uses_the_shared_palette_in_both_themes() {
+    let ctx = egui::Context::default();
+    let icons = Icons::load(&ctx);
+    for dark in [true, false] {
+        ctx.set_theme(if dark {
+            egui::Theme::Dark
+        } else {
+            egui::Theme::Light
+        });
+        let _ = ctx.run(RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let theme = Renderer::new(ui, &icons).theme;
+                let palette = TextPalette::for_mode(dark);
+                for (role, expected) in [
+                    (ColorSpec::SecondaryText, palette.secondary),
+                    (ColorSpec::MutedText, palette.muted),
+                    (ColorSpec::Success, palette.success),
+                    (ColorSpec::Warning, palette.warning),
+                    (ColorSpec::Danger, palette.danger),
+                ] {
+                    assert_eq!(theme.color(ui, role), expected);
+                }
+            });
+        });
+    }
+}

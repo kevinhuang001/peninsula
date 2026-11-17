@@ -4,7 +4,7 @@ mod paint;
 use crate::{
     app::icons::Icons,
     extension::{ActionInvocation, ExtensionId},
-    ui::declarative::*,
+    ui::{declarative::*, palette::TextPalette},
 };
 use eframe::egui::{self, pos2, vec2, Color32, Id, Rect, Ui, UiBuilder, Vec2};
 use std::collections::HashMap;
@@ -173,11 +173,11 @@ impl Theme {
 
     fn color(&self, ui: &Ui, color: ColorSpec) -> Color32 {
         use ColorSpec::*;
-        let paired = |dark, light| if self.dark { dark } else { light };
+        let text = TextPalette::for_mode(self.dark);
         match color {
             PrimaryText => ui.visuals().text_color(),
-            SecondaryText => paired(Color32::from_gray(215), Color32::from_gray(65)),
-            MutedText => ui.visuals().weak_text_color(),
+            SecondaryText => text.secondary,
+            MutedText => text.muted,
             Surface => ui.visuals().panel_fill,
             SurfaceVariant => ui.visuals().widgets.noninteractive.bg_fill,
             Accent => self.accent,
@@ -186,18 +186,9 @@ impl Theme {
                 .accent
                 .gamma_multiply(if self.dark { 0.26 } else { 0.12 }),
             Border => ui.visuals().widgets.noninteractive.bg_stroke.color,
-            Success => paired(
-                Color32::from_rgb(97, 222, 174),
-                Color32::from_rgb(0, 110, 70),
-            ),
-            Warning => paired(
-                Color32::from_rgb(255, 153, 77),
-                Color32::from_rgb(143, 73, 0),
-            ),
-            Danger => paired(
-                Color32::from_rgb(245, 120, 131),
-                ui.visuals().error_fg_color,
-            ),
+            Success => text.success,
+            Warning => text.warning,
+            Danger => text.danger,
             Info => ui.visuals().hyperlink_color,
             Transparent => Color32::TRANSPARENT,
             Rgba { r, g, b, a } => Color32::from_rgba_unmultiplied(r, g, b, a),
