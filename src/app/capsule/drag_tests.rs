@@ -34,6 +34,7 @@ fn dragging_the_page_right_reveals_the_previous_widget_on_release() {
                             CapsuleWidgets {
                                 compact_views: &[],
                                 widget_ids: &widget_ids,
+                                widget_titles: &[],
                                 widget_title: "测试",
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
@@ -69,7 +70,7 @@ fn dragging_the_page_right_reveals_the_previous_widget_on_release() {
 }
 
 #[test]
-fn bottom_pagination_dots_are_always_passive() {
+fn clicking_widget_body_does_not_change_the_page() {
     let ctx = egui::Context::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut mascot = Mascot::default();
@@ -97,6 +98,7 @@ fn bottom_pagination_dots_are_always_passive() {
                             CapsuleWidgets {
                                 compact_views: &[],
                                 widget_ids: &widget_ids,
+                                widget_titles: &[],
                                 widget_title: "测试",
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
@@ -164,6 +166,7 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
                             CapsuleWidgets {
                                 compact_views: &[],
                                 widget_ids: &widget_ids,
+                                widget_titles: &[],
                                 widget_title: "测试",
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
@@ -233,6 +236,7 @@ fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
                             CapsuleWidgets {
                                 compact_views: &[],
                                 widget_ids: &widget_ids,
+                                widget_titles: &[],
                                 widget_title: "测试",
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),

@@ -50,7 +50,11 @@ fn minimum_widget_size(screen: Vec2) -> Vec2 {
 fn widget_limit(window_size: Vec2) -> [f32; 2] {
     [
         window_size.x,
-        (window_size.y - WINDOW_TOP_PADDING - capsule::EXPANDED_BASE_HEIGHT).max(0.0),
+        (window_size.y
+            - WINDOW_TOP_PADDING
+            - capsule::EXPANDED_BASE_HEIGHT
+            - capsule::NAVIGATION_HEIGHT)
+            .max(0.0),
     ]
 }
 const CLEAR_ALL_ACTION: &str = "core.notifications.clear_all";
@@ -412,6 +416,10 @@ impl eframe::App for IslandApp {
         }
 
         let widget_ids = self.extensions.widget_ids();
+        let widget_titles: Vec<_> = widget_ids
+            .iter()
+            .map(|id| self.extensions.widget_title(id))
+            .collect();
         if !widget_ids.contains(&self.active_widget) {
             self.active_widget = widget_ids[0].clone();
         }
@@ -464,7 +472,9 @@ impl eframe::App for IslandApp {
             widget_limit,
             [fitted_width, None],
         );
-        let widget_width = widget_width.max(minimum.x.min(widget_limit[0]));
+        let widget_width = widget_width
+            .max(minimum.x.min(widget_limit[0]))
+            .max(capsule::navigation_width(context, &widget_titles).min(widget_limit[0]));
         let content_height = if let Some(view) =
             widget_view.as_deref().filter(|view| view.bounds.fit_height)
         {
@@ -589,6 +599,7 @@ impl eframe::App for IslandApp {
                             settings_view: &mut self.settings_view,
                             active_widget: &mut self.active_widget,
                             widget_ids: &widget_ids,
+                            widget_titles: &widget_titles,
                             widget_title: &widget_title,
                             widget_view,
                             widget_body_limit: capsule::body_size(widget_width, content_height),
@@ -721,6 +732,9 @@ impl eframe::App for IslandApp {
             context.input(|input| (input.raw_scroll_delta, input.time, input.modifiers));
         let swipe_hovering = platform::pointer_inside(frame, swipe_region, pointer);
         let eligible = swipe_hovering
+            && !interactive_rect
+                .zip(pointer)
+                .is_some_and(|(rect, point)| capsule::navigation_rect(rect).contains(point))
             && can_turn_page
             && !crate::ui::renderer::scrolls_horizontally(widget_view)
             && modifiers == egui::Modifiers::NONE;
