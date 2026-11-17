@@ -86,27 +86,46 @@ fn show_cards(
     minimum: Vec2,
 ) -> Vec<ActionInvocation> {
     let columns = column_count(ui.available_width(), minimum.x);
-    let rows = cards.len().div_ceil(columns).max(1);
-    let row_limit =
-        ((ui.available_height() - GAP * (rows - 1) as f32) / rows as f32).max(minimum.y);
+    let room = ui.available_height();
     let mut actions = Vec::new();
     egui::ScrollArea::vertical()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(GAP);
-            for row in cards.chunks(columns) {
-                let width =
-                    (ui.available_width() - GAP * (row.len() - 1) as f32) / row.len() as f32;
-                let content_width = (width - 2.0 * PAD).max(1.0);
-                let heights: Vec<_> = row
-                    .iter()
-                    .map(|card| {
-                        renderer::content_height(ui.ctx(), &card.view.root, content_width, icons)
-                            .max(1.0)
-                    })
-                    .collect();
-                let largest = heights.iter().copied().fold(0.0, f32::max);
-                let height = (largest + HEADER + FOOTER).clamp(minimum.y, row_limit);
+            let rows = cards
+                .chunks(columns)
+                .map(|row| {
+                    let width =
+                        (ui.available_width() - GAP * (row.len() - 1) as f32) / row.len() as f32;
+                    let content_width = (width - 2.0 * PAD).max(1.0);
+                    let heights: Vec<_> = row
+                        .iter()
+                        .map(|card| {
+                            let measured = renderer::content_height(
+                                ui.ctx(),
+                                &card.view.root,
+                                content_width,
+                                icons,
+                            );
+                            if card.view.bounds.fit_height {
+                                measured.max(1.0)
+                            } else {
+                                measured.max(card.view.preferred_size[1]).max(1.0)
+                            }
+                        })
+                        .collect();
+                    (row, width, heights)
+                })
+                .collect::<Vec<_>>();
+            let mut row_heights: Vec<_> = rows
+                .iter()
+                .map(|(_, _, heights)| {
+                    (heights.iter().copied().fold(0.0, f32::max) + HEADER + FOOTER).max(minimum.y)
+                })
+                .collect();
+            let budget = room - GAP * rows.len().saturating_sub(1) as f32;
+            fit_row_heights(&mut row_heights, minimum.y, budget);
+            for ((row, width, heights), height) in rows.into_iter().zip(row_heights) {
                 ui.horizontal_top(|ui| {
                     for (card, content_height) in row.iter().zip(heights) {
                         let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
@@ -118,6 +137,18 @@ fn show_cards(
             }
         });
     actions
+}
+
+fn fit_row_heights(heights: &mut [f32], minimum: f32, budget: f32) {
+    let minimum_total = minimum * heights.len() as f32;
+    let desired_extra = heights.iter().sum::<f32>() - minimum_total;
+    if desired_extra <= 0.0 {
+        return;
+    }
+    let extra_scale = ((budget - minimum_total) / desired_extra).clamp(0.0, 1.0);
+    for height in heights {
+        *height = minimum + (*height - minimum) * extra_scale;
+    }
 }
 
 fn paint_card(
@@ -177,5 +208,13 @@ mod tests {
         assert_eq!(column_count(1280.0, 360.0), 3);
         assert_eq!(column_count(800.0, 360.0), 2);
         assert_eq!(column_count(670.0, 360.0), 1);
+    }
+    #[test]
+    fn compact_rows_leave_space_for_taller_content() {
+        let mut heights = [160.0, 570.0];
+        fit_row_heights(&mut heights, 160.0, 700.0);
+        assert_eq!(heights, [160.0, 540.0]);
+        fit_row_heights(&mut heights, 160.0, 300.0);
+        assert_eq!(heights, [160.0, 160.0]);
     }
 }
