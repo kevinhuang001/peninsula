@@ -1,4 +1,5 @@
 use crate::app::icons::{Icon, Icons};
+use crate::app::settings::theme::WIDGET_BUTTON;
 use crate::extension::ExtensionId;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Vec2};
 
@@ -35,16 +36,15 @@ pub(super) fn paint_header(
     );
     let button_size = Vec2::splat(24.0);
     let pin_rect = header_button(rect, 76.0, button_size);
-    let pin = ui.put(pin_rect, egui::Button::new("").frame(false));
+    let pin = ui.put(
+        pin_rect,
+        egui::Button::new("").fill(WIDGET_BUTTON).corner_radius(7.0),
+    );
     icons.paint(
         ui.painter(),
         Icon::Pin,
         pin_rect.shrink(5.0),
-        if pinned {
-            Color32::from_rgb(91, 190, 255)
-        } else {
-            MUTED
-        },
+        Color32::WHITE,
         opacity,
     );
     let pin_toggled = pin
@@ -57,7 +57,10 @@ pub(super) fn paint_header(
 
     let quiet_rect = header_button(rect, 47.0, button_size);
     let quiet_toggled = ui
-        .put(quiet_rect, egui::Button::new("").frame(false))
+        .put(
+            quiet_rect,
+            egui::Button::new("").fill(WIDGET_BUTTON).corner_radius(7.0),
+        )
         .on_hover_text(if do_not_disturb {
             "关闭免打扰"
         } else {
@@ -68,17 +71,16 @@ pub(super) fn paint_header(
         ui.painter(),
         Icon::Moon,
         quiet_rect.shrink(5.0),
-        if do_not_disturb {
-            Color32::from_rgb(91, 190, 255)
-        } else {
-            MUTED
-        },
+        Color32::WHITE,
         opacity,
     );
 
     let gear_rect = header_button(rect, 19.0, button_size);
     let settings = ui
-        .put(gear_rect, egui::Button::new("").frame(false))
+        .put(
+            gear_rect,
+            egui::Button::new("").fill(WIDGET_BUTTON).corner_radius(7.0),
+        )
         .clicked();
     icons.paint(
         ui.painter(),
@@ -88,7 +90,7 @@ pub(super) fn paint_header(
             Icon::Settings
         },
         gear_rect.shrink(5.0),
-        MUTED,
+        Color32::WHITE,
         opacity,
     );
     (pin_toggled, quiet_toggled, settings)

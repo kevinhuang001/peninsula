@@ -55,6 +55,7 @@ pub enum ViewNode {
     ProgressRing {
         fraction: f32,
         label: Option<String>,
+        color: ColorRole,
     },
     Sprite {
         asset: String,
@@ -115,6 +116,7 @@ pub enum CompactNode {
     Progress {
         fraction: f32,
         label: String,
+        color: ColorRole,
     },
     Sprite {
         asset: String,

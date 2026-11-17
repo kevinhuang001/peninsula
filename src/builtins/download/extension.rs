@@ -91,6 +91,7 @@ impl RuntimeExtension for DownloadExtension {
                 label: download
                     .progress()
                     .map_or_else(|| "↓".into(), |value| format!("{:.0}%", value * 100.0)),
+                color: ColorRole::Accent,
             },
             CompactNode::Column(vec![
                 CompactNode::Text {

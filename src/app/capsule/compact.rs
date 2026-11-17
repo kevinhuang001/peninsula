@@ -16,8 +16,6 @@ use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec
 
 use super::draw_compact_chip;
 
-const DOWN: Color32 = Color32::from_rgb(80, 190, 255);
-
 pub(super) struct CompactContent<'a> {
     pub(super) mascot: &'a mut Mascot,
     pub(super) prefs: &'a CompactPreferences,
@@ -138,8 +136,12 @@ fn render_node(
                 COMPACT_TEXT_SIZE,
             );
         }
-        CompactNode::Progress { fraction, label } => {
-            paint_progress(ui, rect, *fraction, label, opacity);
+        CompactNode::Progress {
+            fraction,
+            label,
+            color,
+        } => {
+            paint_progress(ui, rect, *fraction, label, role_color(*color), opacity);
         }
         CompactNode::Sprite { size, .. } => {
             render_sprite(
@@ -259,7 +261,14 @@ fn paint_text(ui: &egui::Ui, position: Pos2, text: &str, color: Color32, opacity
     );
 }
 
-fn paint_progress(ui: &egui::Ui, rect: Rect, fraction: f32, label: &str, opacity: f32) {
+fn paint_progress(
+    ui: &egui::Ui,
+    rect: Rect,
+    fraction: f32,
+    label: &str,
+    color: Color32,
+    opacity: f32,
+) {
     let center = rect.center();
     let radius = (rect.height().min(rect.width()) * 0.5 - 2.0).max(2.0);
     ui.painter().circle_stroke(
@@ -282,7 +291,7 @@ fn paint_progress(ui: &egui::Ui, rect: Rect, fraction: f32, label: &str, opacity
             .collect();
         ui.painter().add(egui::Shape::line(
             points,
-            Stroke::new(2.0_f32, DOWN.linear_multiply(opacity)),
+            Stroke::new(2.0_f32, color.linear_multiply(opacity)),
         ));
     }
     ui.painter().text(

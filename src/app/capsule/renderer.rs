@@ -6,7 +6,7 @@ use crate::{
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
-use crate::app::settings::theme::ACCENT;
+use crate::app::settings::theme::WIDGET_BUTTON;
 
 const CARD: Color32 = Color32::from_rgb(27, 29, 34);
 const MUTED: Color32 = Color32::from_rgb(177, 183, 194);
@@ -224,7 +224,7 @@ fn paint_node(
                 .put(
                     clear_rect,
                     egui::Button::new(egui::RichText::new("×").color(Color32::WHITE))
-                        .fill(ACCENT)
+                        .fill(WIDGET_BUTTON)
                         .corner_radius(7.0),
                 )
                 .clicked()
@@ -245,7 +245,7 @@ fn paint_node(
             let response = ui.put(
                 rect.shrink(1.0),
                 egui::Button::new(egui::RichText::new(label).color(Color32::WHITE))
-                    .fill(ACCENT)
+                    .fill(WIDGET_BUTTON)
                     .corner_radius(8.0),
             );
             if response.clicked() {
@@ -255,7 +255,11 @@ fn paint_node(
                 });
             }
         }
-        ViewNode::ProgressRing { fraction, label } => {
+        ViewNode::ProgressRing {
+            fraction,
+            label,
+            color,
+        } => {
             let radius = (rect.width().min(rect.height()) * 0.5 - 3.0).max(2.0);
             let center = Pos2::new(rect.center().x, rect.center().y);
             ui.painter().circle_stroke(
@@ -265,7 +269,7 @@ fn paint_node(
             );
             ui.painter().add(egui::Shape::line(
                 progress_points(center, radius, *fraction),
-                Stroke::new(3.0_f32, Color32::from_rgb(255, 117, 107)),
+                Stroke::new(3.0_f32, color_from_role(*color)),
             ));
             if let Some(label) = label {
                 ui.painter().text(

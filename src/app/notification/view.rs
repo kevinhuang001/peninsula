@@ -4,7 +4,7 @@ use crate::{
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, RichText, Vec2};
 
-use crate::app::settings::theme::ACCENT;
+use crate::app::settings::theme::WIDGET_BUTTON;
 
 const MAX_EXTENSION_ACTIONS: usize = 4;
 
@@ -49,7 +49,13 @@ pub fn show_alert(
         Pos2::new(rect.right() - 48.0, rect.top() + 14.0),
         Vec2::splat(26.0),
     );
-    if ui.put(close, egui::Button::new("").frame(false)).clicked() {
+    if ui
+        .put(
+            close,
+            egui::Button::new("").fill(WIDGET_BUTTON).corner_radius(7.0),
+        )
+        .clicked()
+    {
         return Some(AlertInteraction::Close);
     }
     icons.paint(
@@ -84,7 +90,7 @@ pub fn show_alert(
                         .color(Color32::WHITE)
                         .size(10.0),
                 )
-                .fill(ACCENT)
+                .fill(WIDGET_BUTTON)
                 .corner_radius(8.0),
             )
             .clicked()
@@ -100,7 +106,7 @@ pub fn show_alert(
         .put(
             confirm,
             egui::Button::new(RichText::new("确定").color(Color32::WHITE).size(10.0))
-                .fill(ACCENT)
+                .fill(WIDGET_BUTTON)
                 .corner_radius(8.0),
         )
         .clicked()

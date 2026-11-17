@@ -541,17 +541,7 @@ pub fn run() -> eframe::Result<()> {
             ..Default::default()
         },
         Box::new(|cc| {
-            let mut visuals = egui::Visuals::dark();
-            for style in [
-                &mut visuals.widgets.inactive,
-                &mut visuals.widgets.hovered,
-                &mut visuals.widgets.active,
-                &mut visuals.widgets.open,
-            ] {
-                style.bg_fill = crate::app::settings::theme::ACCENT;
-                style.fg_stroke.color = egui::Color32::WHITE;
-            }
-            cc.egui_ctx.set_visuals(visuals);
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
             fonts::install(&cc.egui_ctx);
             Ok(Box::new(IslandApp::new(&cc.egui_ctx)))
         }),

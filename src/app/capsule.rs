@@ -151,7 +151,13 @@ pub(super) fn show(
         (settings, pin_toggled)
     };
     capsule.context_menu(|ui| {
-        if ui.button("退出灵动岛").clicked() {
+        if ui
+            .add(
+                egui::Button::new(egui::RichText::new("退出灵动岛").color(egui::Color32::WHITE))
+                    .fill(crate::app::settings::theme::WIDGET_BUTTON),
+            )
+            .clicked()
+        {
             context.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     });

@@ -106,6 +106,11 @@ impl RuntimeExtension for PomodoroExtension {
                 ViewNode::ProgressRing {
                     fraction: self.timer.progress_at(now),
                     label: Some(format_time(self.timer.remaining_at(now))),
+                    color: if phase == Phase::Focus {
+                        ColorRole::Warning
+                    } else {
+                        ColorRole::Success
+                    },
                 },
                 ViewNode::Column(vec![
                     ViewNode::Text {
@@ -150,14 +155,13 @@ impl RuntimeExtension for PomodoroExtension {
                 CompactNode::Progress {
                     fraction: progress,
                     label: String::new(),
-                },
-                CompactNode::IconText {
-                    icon: if self.timer.phase == Phase::Focus {
-                        "clock"
+                    color: if self.timer.phase == Phase::Focus {
+                        ColorRole::Warning
                     } else {
-                        "moon"
-                    }
-                    .into(),
+                        ColorRole::Success
+                    },
+                },
+                CompactNode::Text {
                     text: format_time(self.timer.remaining_at(now)),
                     color: if self.timer.phase == Phase::Focus {
                         ColorRole::Warning

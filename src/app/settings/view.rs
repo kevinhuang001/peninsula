@@ -2,7 +2,8 @@ use super::{
     model::Section,
     quiet_view::{self, QuietDialog},
     theme::{
-        ACCENT, ACCENT_SELECTED, BACKGROUND, BORDER, PANEL, ROW, SECONDARY_TEXT, SWITCH_OFF, TEXT,
+        ACCENT, ACCENT_SELECTED, BACKGROUND, BORDER, PANEL, ROW, SECONDARY_TEXT, SETTINGS_BUTTON,
+        SWITCH_OFF, SWITCH_ON, TEXT,
     },
     CompactPreferences,
 };
@@ -221,7 +222,8 @@ fn paint_bilibili_options(
     let check_clicked = ui
         .put(
             Rect::from_min_size(buttons.min, Vec2::new(each_width, buttons.height())),
-            egui::Button::new("检查连接"),
+            egui::Button::new(egui::RichText::new("检查连接").color(Color32::WHITE))
+                .fill(SETTINGS_BUTTON),
         )
         .clicked();
     let immediate_clicked = ui
@@ -230,7 +232,8 @@ fn paint_bilibili_options(
                 Pos2::new(buttons.left() + each_width + 8.0, buttons.top()),
                 Vec2::new(each_width, buttons.height()),
             ),
-            egui::Button::new("立即检查"),
+            egui::Button::new(egui::RichText::new("立即检查").color(Color32::WHITE))
+                .fill(SETTINGS_BUTTON),
         )
         .clicked();
     if check_clicked || immediate_clicked {
@@ -258,11 +261,11 @@ fn paint_checkbox_row(
         Vec2::splat(16.0),
     );
     ui.painter()
-        .rect_filled(checkbox, 4.0, if *enabled { ACCENT } else { BACKGROUND });
+        .rect_filled(checkbox, 4.0, if *enabled { SWITCH_ON } else { BACKGROUND });
     ui.painter().rect_stroke(
         checkbox,
         4.0,
-        Stroke::new(1.0, if *enabled { ACCENT } else { BORDER }),
+        Stroke::new(1.0, if *enabled { SWITCH_ON } else { BORDER }),
         egui::StrokeKind::Inside,
     );
     if *enabled {
@@ -425,7 +428,7 @@ fn paint_option(
         preferences.set_enabled(&option, !enabled);
     }
     ui.painter()
-        .rect_filled(switch, 9.0, if enabled { ACCENT } else { SWITCH_OFF });
+        .rect_filled(switch, 9.0, if enabled { SWITCH_ON } else { SWITCH_OFF });
     ui.painter().circle_filled(
         Pos2::new(
             if enabled {
@@ -450,7 +453,7 @@ fn paint_option(
 
 fn text_button(ui: &egui::Ui, rect: Rect, id: impl std::hash::Hash, label: &str) -> bool {
     let response = ui.interact(rect, egui::Id::new(id), Sense::click());
-    ui.painter().rect_filled(rect, 5.0, ACCENT);
+    ui.painter().rect_filled(rect, 5.0, SETTINGS_BUTTON);
     ui.painter().text(
         rect.center(),
         Align2::CENTER_CENTER,

@@ -1,10 +1,7 @@
 mod dialog;
 
 use super::quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS};
-use super::theme::{
-    ACCENT, ACCENT_BORDER, ACCENT_SELECTED, ACCENT_SOFT, DANGER, ROW, ROW_DISABLED, SECONDARY_TEXT,
-    TEXT,
-};
+use super::theme::{ACCENT, ROW, ROW_DISABLED, SECONDARY_TEXT, SETTINGS_BUTTON, TEXT};
 pub(super) use dialog::QuietDialog;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Vec2};
 const DAYS: [&str; 7] = ["一", "二", "三", "四", "五", "六", "日"];
@@ -94,7 +91,6 @@ fn period_row(
         ),
         ("quiet-edit", index),
         "编辑",
-        TEXT,
     );
     let remove = action_button(
         ui,
@@ -104,7 +100,6 @@ fn period_row(
         ),
         ("quiet-remove", index),
         "×",
-        DANGER,
     );
     if edit {
         *dialog = Some(QuietDialog {
@@ -138,11 +133,11 @@ fn draw_add_button(
         Vec2::new(panel.width() - 16.0, 22.0),
     );
     let can_add = quiet.periods().len() < MAX_QUIET_PERIODS;
-    ui.painter().rect_filled(rect, 8.0, ACCENT_SOFT);
+    ui.painter().rect_filled(rect, 8.0, SETTINGS_BUTTON);
     ui.painter().rect_stroke(
         rect,
         8.0,
-        egui::Stroke::new(1.0_f32, ACCENT_BORDER),
+        egui::Stroke::new(1.0_f32, SETTINGS_BUTTON),
         egui::StrokeKind::Inside,
     );
     let response = ui.interact(rect, egui::Id::new("quiet-add-period"), Sense::click());
@@ -159,7 +154,11 @@ fn draw_add_button(
             "已达到时段上限"
         },
         FontId::proportional(11.0),
-        if can_add { TEXT } else { SECONDARY_TEXT },
+        if can_add {
+            Color32::WHITE
+        } else {
+            SECONDARY_TEXT
+        },
     );
     if response.clicked() && can_add {
         *dialog = Some(QuietDialog {
@@ -171,23 +170,15 @@ fn draw_add_button(
     false
 }
 
-fn action_button(
-    ui: &egui::Ui,
-    rect: Rect,
-    id: impl std::hash::Hash,
-    label: &str,
-    color: Color32,
-) -> bool {
+fn action_button(ui: &egui::Ui, rect: Rect, id: impl std::hash::Hash, label: &str) -> bool {
     let response = ui.interact(rect, egui::Id::new(id), Sense::click());
-    if response.hovered() {
-        ui.painter().rect_filled(rect, 5.0, ACCENT_SELECTED);
-    }
+    ui.painter().rect_filled(rect, 5.0, SETTINGS_BUTTON);
     ui.painter().text(
         rect.center(),
         Align2::CENTER_CENTER,
         label,
         FontId::proportional(if label == "×" { 14.0 } else { 10.5 }),
-        if response.hovered() { TEXT } else { color },
+        Color32::WHITE,
     );
     response.clicked()
 }
