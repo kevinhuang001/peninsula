@@ -50,6 +50,7 @@ pub(super) struct CapsuleWidgets<'a> {
     pub icons: &'a Icons,
     pub notification: Option<&'a Notification>,
     pub do_not_disturb: bool,
+    pub bilibili_status: &'a str,
 }
 
 pub(super) type CapsuleResult = (
@@ -141,6 +142,7 @@ pub(super) fn show(
                 settings_open: content.settings_open,
                 settings_view: content.settings_view,
                 preferences: content.preferences,
+                bilibili_status: content.bilibili_status,
             },
         );
         settings_changed = changed;
@@ -229,6 +231,7 @@ struct ExpandedContent<'a> {
     settings_open: bool,
     settings_view: &'a mut SettingsView,
     preferences: &'a mut CompactPreferences,
+    bilibili_status: &'a str,
 }
 
 fn paint_expanded(
@@ -248,6 +251,7 @@ fn paint_expanded(
         settings_open,
         settings_view,
         preferences,
+        bilibili_status,
     } = content;
     let mut widget_action = None;
     let reveal = progress.clamp(0.0, 1.0);
@@ -269,7 +273,7 @@ fn paint_expanded(
         },
     );
     let settings_changed = if settings_open {
-        settings_view.show(ui, rect, preferences)
+        settings_view.show(ui, rect, preferences, bilibili_status)
     } else {
         let body = Rect::from_min_max(
             Pos2::new(rect.left() + 10.0, rect.top() + 48.0),

@@ -1,0 +1,264 @@
+use std::{
+    collections::HashMap,
+    fs, io,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::Instant,
+};
+
+use super::ExtensionId;
+
+/// Host services available to in-process extension lifecycle hooks. This is an
+/// application convenience API, not a permission boundary.
+#[derive(Clone, Debug)]
+pub struct ExtensionContext {
+    data_dir: PathBuf,
+    config_dir: PathBuf,
+    scheduled: Arc<Mutex<Vec<(String, Instant)>>>,
+    canceled: Arc<Mutex<Vec<String>>>,
+}
+
+impl ExtensionContext {
+    pub fn new(data_dir: PathBuf, config_dir: PathBuf) -> Self {
+        Self {
+            data_dir,
+            config_dir,
+            scheduled: Arc::new(Mutex::new(Vec::new())),
+            canceled: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+    pub fn config_dir(&self) -> &Path {
+        &self.config_dir
+    }
+
+    pub fn extension_data_dir(&self, id: &ExtensionId) -> PathBuf {
+        self.data_dir
+            .join("extensions")
+            .join(id.as_str().replace('/', "_"))
+    }
+
+    pub fn log(&self, extension: &ExtensionId, message: &str) {
+        eprintln!("[{extension}] {message}");
+    }
+
+    pub fn config_value(&self, extension: &ExtensionId, key: &str) -> Option<String> {
+        if key.is_empty() || key.contains(['=', '\n', '\r']) {
+            return None;
+        }
+        let contents = fs::read_to_string(self.extension_config_path(extension)).ok()?;
+        contents.lines().find_map(|line| {
+            let (candidate, value) = line.split_once('=')?;
+            (candidate == key).then(|| value.to_owned())
+        })
+    }
+
+    pub fn set_config_value(
+        &self,
+        extension: &ExtensionId,
+        key: &str,
+        value: &str,
+    ) -> io::Result<()> {
+        if key.is_empty() || key.contains(['=', '\n', '\r']) || value.contains(['\n', '\r']) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid extension configuration value",
+            ));
+        }
+        let path = self.extension_config_path(extension);
+        let mut values = HashMap::new();
+        if let Ok(contents) = fs::read_to_string(&path) {
+            for line in contents.lines() {
+                if let Some((key, value)) = line.split_once('=') {
+                    values.insert(key.to_owned(), value.to_owned());
+                }
+            }
+        }
+        values.insert(key.to_owned(), value.to_owned());
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut lines: Vec<_> = values.into_iter().collect();
+        lines.sort_by(|left, right| left.0.cmp(&right.0));
+        fs::write(
+            path,
+            lines
+                .into_iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    }
+
+    pub fn schedule_at(&self, task_id: impl Into<String>, deadline: Instant) {
+        if let Ok(mut scheduled) = self.scheduled.lock() {
+            scheduled.push((task_id.into(), deadline));
+        }
+    }
+
+    pub fn cancel_task(&self, task_id: impl Into<String>) {
+        if let Ok(mut canceled) = self.canceled.lock() {
+            canceled.push(task_id.into());
+        }
+    }
+
+    pub fn drain_tasks(&self) -> (Vec<(String, Instant)>, Vec<String>) {
+        let scheduled = self
+            .scheduled
+            .lock()
+            .map(|mut queue| std::mem::take(&mut *queue))
+            .unwrap_or_default();
+        let canceled = self
+            .canceled
+            .lock()
+            .map(|mut queue| std::mem::take(&mut *queue))
+            .unwrap_or_default();
+        (scheduled, canceled)
+    }
+
+    fn extension_config_path(&self, id: &ExtensionId) -> PathBuf {
+        self.config_dir
+            .join("extensions")
+            .join(id.as_str().replace('/', "_"))
+            .with_extension("conf")
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ExtensionLifecycleRecord {
+    pub version: String,
+    pub enabled: bool,
+    pub initialized: bool,
+    pub last_result: String,
+    pub last_failure: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LifecycleManager {
+    path: Option<PathBuf>,
+    records: HashMap<ExtensionId, ExtensionLifecycleRecord>,
+}
+
+impl LifecycleManager {
+    pub fn load(path: Option<PathBuf>) -> Self {
+        let records = path
+            .as_deref()
+            .and_then(|path| fs::read_to_string(path).ok())
+            .map(|contents| parse_records(&contents))
+            .unwrap_or_default();
+        Self { path, records }
+    }
+
+    pub fn record(&self, id: &ExtensionId) -> Option<&ExtensionLifecycleRecord> {
+        self.records.get(id)
+    }
+
+    pub fn set(&mut self, id: ExtensionId, record: ExtensionLifecycleRecord) -> io::Result<()> {
+        self.records.insert(id, record);
+        self.save()
+    }
+
+    pub fn remove(&mut self, id: &ExtensionId) -> io::Result<()> {
+        self.records.remove(id);
+        self.save()
+    }
+
+    fn save(&self) -> io::Result<()> {
+        let Some(path) = self.path.as_deref() else {
+            return Ok(());
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut rows: Vec<_> = self.records.iter().collect();
+        rows.sort_by_key(|(id, _)| id.as_str());
+        let contents = rows
+            .into_iter()
+            .map(|(id, record)| {
+                format!(
+                    "{}\t{}\t{}\t{}\t{}\t{}",
+                    id,
+                    record.version,
+                    record.enabled,
+                    record.initialized,
+                    record.last_result.replace(['\t', '\n'], " "),
+                    record
+                        .last_failure
+                        .as_deref()
+                        .unwrap_or("")
+                        .replace(['\t', '\n'], " "),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let temporary = path.with_extension("tmp");
+        fs::write(&temporary, contents)?;
+        fs::rename(temporary, path)
+    }
+}
+
+fn parse_records(contents: &str) -> HashMap<ExtensionId, ExtensionLifecycleRecord> {
+    contents
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.splitn(6, '\t');
+            let id = ExtensionId::new(fields.next()?).ok()?;
+            let version = fields.next()?.to_owned();
+            let enabled = fields.next()?.parse().ok()?;
+            let initialized = fields.next()?.parse().ok()?;
+            let last_result = fields.next()?.to_owned();
+            let failure = fields.next().unwrap_or_default();
+            Some((
+                id,
+                ExtensionLifecycleRecord {
+                    version,
+                    enabled,
+                    initialized,
+                    last_result,
+                    last_failure: (!failure.is_empty()).then(|| failure.to_owned()),
+                },
+            ))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExtensionContext, ExtensionId, ExtensionLifecycleRecord, LifecycleManager};
+    use std::time::Instant;
+
+    #[test]
+    fn lifecycle_records_and_extension_configuration_persist() {
+        let root = std::env::temp_dir().join(format!("peninsula-lifecycle-{}", std::process::id()));
+        let id = ExtensionId::builtin("builtin.test/lifecycle");
+        let mut manager = LifecycleManager::load(Some(root.join("state.tsv")));
+        manager
+            .set(
+                id.clone(),
+                ExtensionLifecycleRecord {
+                    version: "1.2.3".into(),
+                    enabled: true,
+                    initialized: true,
+                    last_result: "on_start:ok".into(),
+                    last_failure: None,
+                },
+            )
+            .unwrap();
+        let loaded = LifecycleManager::load(Some(root.join("state.tsv")));
+        assert_eq!(loaded.record(&id).unwrap().version, "1.2.3");
+        assert!(loaded.record(&id).unwrap().initialized);
+
+        let context = ExtensionContext::new(root.clone(), root.join("config"));
+        context.set_config_value(&id, "mode", "ready").unwrap();
+        assert_eq!(context.config_value(&id, "mode").as_deref(), Some("ready"));
+        context.schedule_at("test", Instant::now());
+        context.cancel_task("old");
+        let (scheduled, canceled) = context.drain_tasks();
+        assert_eq!(scheduled[0].0, "test");
+        assert_eq!(canceled, vec!["old".to_owned()]);
+        let _ = std::fs::remove_dir_all(root);
+    }
+}

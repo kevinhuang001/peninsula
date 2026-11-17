@@ -1,9 +1,11 @@
 mod descriptor;
+mod lifecycle;
 mod notification;
 mod registry;
 mod view;
 
 pub use descriptor::{Capability, ExtensionDescriptor, ExtensionId, ExtensionKind};
+pub use lifecycle::{ExtensionContext, ExtensionLifecycleRecord, LifecycleManager};
 pub use notification::{
     Notification, NotificationAction, NotificationAlertView, NotificationCenterItemView,
     NotificationKey, NotificationPresentation, NotificationPriority, NotificationStatus,

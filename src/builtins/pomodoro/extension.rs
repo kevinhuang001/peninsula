@@ -147,6 +147,18 @@ impl RuntimeExtension for PomodoroExtension {
         self.action_output(old_deadline)
     }
 
+    fn set_pomodoro_durations(
+        &mut self,
+        focus_minutes: u16,
+        break_minutes: u16,
+    ) -> ExtensionOutput {
+        let old_deadline = self.timer.deadline();
+        if !self.timer.set_durations(focus_minutes, break_minutes) {
+            return ExtensionOutput::default();
+        }
+        self.action_output(old_deadline)
+    }
+
     fn on_event(&mut self, event: &Event, now: Instant) -> ExtensionOutput {
         if event != &Event::Custom(TIMER_TASK.into()) {
             return ExtensionOutput::default();

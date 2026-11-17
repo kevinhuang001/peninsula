@@ -22,6 +22,15 @@ pub struct CompactItemPreference {
 pub struct CompactPreferences {
     pub compact_items: Vec<CompactItemPreference>,
     pub quiet_hours: QuietHours,
+    pub pomodoro_focus_minutes: u16,
+    pub pomodoro_break_minutes: u16,
+    pub bilibili_enabled: bool,
+    pub bilibili_dm_enabled: bool,
+    pub bilibili_likes_enabled: bool,
+    pub bilibili_show_dm_summary: bool,
+    pub bilibili_poll_seconds: u16,
+    pub opencli_path: String,
+    pub bilibili_check_requested: bool,
 }
 
 impl Default for CompactPreferences {
@@ -38,6 +47,15 @@ impl Default for CompactPreferences {
         Self {
             compact_items,
             quiet_hours: QuietHours::default(),
+            pomodoro_focus_minutes: 25,
+            pomodoro_break_minutes: 5,
+            bilibili_enabled: false,
+            bilibili_dm_enabled: true,
+            bilibili_likes_enabled: true,
+            bilibili_show_dm_summary: true,
+            bilibili_poll_seconds: 60,
+            opencli_path: String::new(),
+            bilibili_check_requested: false,
         }
     }
 }
@@ -84,6 +102,33 @@ impl CompactPreferences {
                     settings.quiet_hours = parse_periods(value);
                     settings.quiet_hours.manual_enabled = manual;
                 }
+                "pomodoro_focus_minutes" => {
+                    settings.pomodoro_focus_minutes = parse_duration(value, 25);
+                }
+                "pomodoro_break_minutes" => {
+                    settings.pomodoro_break_minutes = parse_duration(value, 5);
+                }
+                "bilibili_enabled" => {
+                    settings.bilibili_enabled = parse_bool(value).unwrap_or(false);
+                }
+                "bilibili_dm_enabled" => {
+                    settings.bilibili_dm_enabled = parse_bool(value).unwrap_or(true)
+                }
+                "bilibili_likes_enabled" => {
+                    settings.bilibili_likes_enabled = parse_bool(value).unwrap_or(true)
+                }
+                "bilibili_show_dm_summary" => {
+                    settings.bilibili_show_dm_summary = parse_bool(value).unwrap_or(true)
+                }
+                "bilibili_poll_seconds" => {
+                    settings.bilibili_poll_seconds = value
+                        .trim()
+                        .parse::<u16>()
+                        .ok()
+                        .filter(|value| (15..=3600).contains(value))
+                        .unwrap_or(60)
+                }
+                "opencli_path" => settings.opencli_path = value.trim().to_owned(),
                 key => {
                     let Some(value) = parse_bool(value) else {
                         continue;
@@ -128,6 +173,32 @@ impl CompactPreferences {
         lines.push(format!(
             "quiet_periods={}",
             encode_periods(&self.quiet_hours)
+        ));
+        lines.push(format!(
+            "pomodoro_focus_minutes={}",
+            self.pomodoro_focus_minutes
+        ));
+        lines.push(format!(
+            "pomodoro_break_minutes={}",
+            self.pomodoro_break_minutes
+        ));
+        lines.push(format!("bilibili_enabled={}", self.bilibili_enabled));
+        lines.push(format!("bilibili_dm_enabled={}", self.bilibili_dm_enabled));
+        lines.push(format!(
+            "bilibili_likes_enabled={}",
+            self.bilibili_likes_enabled
+        ));
+        lines.push(format!(
+            "bilibili_show_dm_summary={}",
+            self.bilibili_show_dm_summary
+        ));
+        lines.push(format!(
+            "bilibili_poll_seconds={}",
+            self.bilibili_poll_seconds
+        ));
+        lines.push(format!(
+            "opencli_path={}",
+            self.opencli_path.replace(['\n', '\r'], "")
         ));
         format!("{}\n", lines.join("\n"))
     }
@@ -230,6 +301,15 @@ impl CompactPreferences {
             }
         }
     }
+}
+
+fn parse_duration(value: &str, default: u16) -> u16 {
+    value
+        .trim()
+        .parse::<u16>()
+        .ok()
+        .filter(|minutes| (1..=180).contains(minutes))
+        .unwrap_or(default)
 }
 
 fn legacy_compact_id(key: &str) -> Option<ExtensionId> {

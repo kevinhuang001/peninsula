@@ -59,7 +59,26 @@ struct IslandApp {
 
 impl IslandApp {
     fn new(context: &egui::Context) -> Self {
-        let extensions = BuiltinExtensions::new();
+        let preferences = CompactPreferences::load();
+        let mut extensions = BuiltinExtensions::new();
+        extensions.set_pomodoro_durations(
+            preferences.pomodoro_focus_minutes,
+            preferences.pomodoro_break_minutes,
+        );
+        if let Err(error) = extensions.configure_bilibili(
+            &preferences.opencli_path,
+            preferences.bilibili_dm_enabled,
+            preferences.bilibili_likes_enabled,
+            preferences.bilibili_show_dm_summary,
+            preferences.bilibili_poll_seconds,
+        ) {
+            eprintln!("Unable to configure Bilibili extension: {error}");
+        }
+        if preferences.bilibili_enabled {
+            if let Err(error) = extensions.set_bilibili_enabled(true) {
+                eprintln!("Unable to start Bilibili extension: {error}");
+            }
+        }
         let active_widget = extensions.widget_ids()[0].clone();
         let initial_widget_height = extensions.widget_height(&active_widget);
         Self {
@@ -70,7 +89,7 @@ impl IslandApp {
             state: IslandState::default(),
             icons: Icons::load(context),
             mascot: Mascot::default(),
-            preferences: CompactPreferences::load(),
+            preferences,
             settings_view: SettingsView::default(),
             settings_open: false,
             notification_center_page: 0,
@@ -94,8 +113,12 @@ impl IslandApp {
             self.scheduler.schedule_at(&task.task_id, task.deadline);
         }
         let published = !output.notifications.is_empty();
-        for notification in output.notifications {
+        for notification in output.notifications.iter().cloned() {
             self.notifications.publish(notification);
+        }
+        if !output.notifications.is_empty() {
+            self.extensions
+                .on_notifications_committed(&output.notifications);
         }
         if published {
             self.scheduler.on_event(Event::NotificationPublished);
@@ -216,6 +239,7 @@ impl eframe::App for IslandApp {
         for output in self.extensions.update(now) {
             self.apply_extension_output(output, context);
         }
+        self.apply_extension_output(self.extensions.drain_context_tasks(), context);
         self.scheduler.due_tasks(now);
         let events: Vec<_> = self.scheduler.drain_events().collect();
         for event in events {
@@ -304,6 +328,7 @@ impl eframe::App for IslandApp {
                 .unwrap_or_else(empty_widget_view)
         };
         let widget_title = self.extensions.widget_title(&self.active_widget);
+        let bilibili_status = self.extensions.bilibili_status();
 
         let mut interactive_rect = None;
         let mut drag_started = false;
@@ -345,6 +370,7 @@ impl eframe::App for IslandApp {
                             icons: &self.icons,
                             notification: notice.as_ref(),
                             do_not_disturb,
+                            bilibili_status: &bilibili_status,
                         },
                     );
                     action_result = Some((
@@ -401,6 +427,33 @@ impl eframe::App for IslandApp {
                 });
             }
             if preferences_changed {
+                for output in self.extensions.set_pomodoro_durations(
+                    self.preferences.pomodoro_focus_minutes,
+                    self.preferences.pomodoro_break_minutes,
+                ) {
+                    self.apply_extension_output(output, context);
+                }
+                if let Err(error) = self.extensions.configure_bilibili(
+                    &self.preferences.opencli_path,
+                    self.preferences.bilibili_dm_enabled,
+                    self.preferences.bilibili_likes_enabled,
+                    self.preferences.bilibili_show_dm_summary,
+                    self.preferences.bilibili_poll_seconds,
+                ) {
+                    eprintln!("Unable to configure Bilibili extension: {error}");
+                }
+                if let Err(error) = self
+                    .extensions
+                    .set_bilibili_enabled(self.preferences.bilibili_enabled)
+                {
+                    eprintln!("Unable to update Bilibili extension: {error}");
+                }
+                if self.preferences.bilibili_check_requested {
+                    self.preferences.bilibili_check_requested = false;
+                    if let Err(error) = self.extensions.request_bilibili_check() {
+                        eprintln!("Unable to check Bilibili connection: {error}");
+                    }
+                }
                 if let Err(error) = self.preferences.save() {
                     eprintln!("Unable to save settings: {error}");
                 }

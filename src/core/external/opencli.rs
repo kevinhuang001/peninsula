@@ -1,0 +1,240 @@
+use std::{
+    env,
+    ffi::OsString,
+    io::Read,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    sync::{mpsc, Mutex, OnceLock},
+    thread,
+    time::{Duration, Instant},
+};
+
+const OUTPUT_LIMIT: usize = 2 * 1024 * 1024;
+static CLI_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+#[derive(Clone, Debug)]
+pub struct OpenCli {
+    executable: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub struct CommandOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub status: i32,
+}
+
+impl OpenCli {
+    pub fn resolve(configured: Option<&Path>) -> Result<Self, String> {
+        if let Some(path) = configured.filter(|path| !path.as_os_str().is_empty()) {
+            return if path.is_file() {
+                Ok(Self {
+                    executable: path.to_owned(),
+                })
+            } else {
+                Err(format!("OpenCLI executable not found: {}", path.display()))
+            };
+        }
+        let mut candidates = Vec::new();
+        if let Some(path) = env::var_os("OPENCLI_PATH") {
+            candidates.push(PathBuf::from(path));
+        }
+        if let Some(paths) = env::var_os("PATH") {
+            candidates
+                .extend(env::split_paths(&paths).map(|dir| dir.join(executable_name("opencli"))));
+        }
+        for path in common_paths() {
+            candidates.push(path);
+        }
+        candidates
+            .into_iter()
+            .find(|path| path.is_file())
+            .map(|executable| Self { executable })
+            .ok_or_else(|| {
+                "OpenCLI was not found on PATH or in common installation locations".into()
+            })
+    }
+
+    pub fn version(&self, timeout: Duration) -> Result<String, String> {
+        let output = self.run(&["--version"], timeout)?;
+        if output.status != 0 {
+            return Err(command_error("opencli --version", &output));
+        }
+        Ok(output.stdout.trim().to_owned())
+    }
+
+    pub fn run(&self, args: &[&str], timeout: Duration) -> Result<CommandOutput, String> {
+        let _guard = CLI_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|_| "OpenCLI execution lock poisoned".to_owned())?;
+        let mut child = Command::new(&self.executable)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| format!("unable to start {}: {error}", self.executable.display()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "OpenCLI stdout was unavailable".to_owned())?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "OpenCLI stderr was unavailable".to_owned())?;
+        let (tx, rx) = mpsc::channel();
+        let out_tx = tx.clone();
+        let out_thread = thread::spawn(move || {
+            let _ = out_tx.send((true, read_capped(stdout)));
+        });
+        let err_thread = thread::spawn(move || {
+            let _ = tx.send((false, read_capped(stderr)));
+        });
+        let start = Instant::now();
+        let status = loop {
+            if let Some(status) = child
+                .try_wait()
+                .map_err(|error| format!("unable to wait for OpenCLI: {error}"))?
+            {
+                break status;
+            }
+            if start.elapsed() >= timeout {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = out_thread.join();
+                let _ = err_thread.join();
+                return Err(format!(
+                    "OpenCLI command timed out after {} seconds",
+                    timeout.as_secs()
+                ));
+            }
+            thread::sleep(Duration::from_millis(20));
+        };
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        for _ in 0..2 {
+            if let Ok((is_stdout, bytes)) = rx.recv_timeout(Duration::from_secs(2)) {
+                if is_stdout {
+                    out = bytes
+                } else {
+                    err = bytes
+                }
+            }
+        }
+        let _ = out_thread.join();
+        let _ = err_thread.join();
+        Ok(CommandOutput {
+            stdout: String::from_utf8_lossy(&out).into_owned(),
+            stderr: String::from_utf8_lossy(&err).into_owned(),
+            status: status.code().unwrap_or(-1),
+        })
+    }
+}
+
+fn read_capped(mut reader: impl Read) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(count) => {
+                let keep = count.min(OUTPUT_LIMIT.saturating_sub(output.len()));
+                output.extend_from_slice(&buffer[..keep]);
+            }
+        }
+    }
+    output
+}
+
+fn command_error(command: &str, output: &CommandOutput) -> String {
+    format!(
+        "{command} failed ({}): {}",
+        output.status,
+        output.stderr.trim()
+    )
+}
+
+fn executable_name(name: &str) -> OsString {
+    #[cfg(target_os = "windows")]
+    {
+        format!("{name}.exe").into()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        name.into()
+    }
+}
+
+fn common_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    #[cfg(target_os = "macos")]
+    paths.extend(
+        [
+            "/opt/homebrew/bin/opencli",
+            "/usr/local/bin/opencli",
+            "/opt/local/bin/opencli",
+        ]
+        .map(PathBuf::from),
+    );
+    #[cfg(target_os = "linux")]
+    paths.extend(
+        [
+            "/usr/local/bin/opencli",
+            "/usr/bin/opencli",
+            "/snap/bin/opencli",
+        ]
+        .map(PathBuf::from),
+    );
+    if let Some(home) = env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        paths.extend([
+            home.join(".local/bin/opencli"),
+            home.join(".npm-global/bin/opencli"),
+            home.join(".nvm/current/bin/opencli"),
+            home.join(".volta/bin/opencli"),
+            home.join(".fnm/current/bin/opencli"),
+        ]);
+        if let Ok(versions) = std::fs::read_dir(home.join(".nvm/versions/node")) {
+            paths.extend(
+                versions
+                    .flatten()
+                    .map(|entry| entry.path().join("bin/opencli")),
+            );
+        }
+    }
+    paths
+}
+
+pub fn parse_json(output: &CommandOutput) -> Result<serde_json::Value, String> {
+    if output.status != 0 {
+        return Err(command_error("OpenCLI", output));
+    }
+    serde_json::from_str(&output.stdout)
+        .map_err(|error| format!("OpenCLI returned invalid JSON: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_json, CommandOutput};
+
+    #[test]
+    fn command_json_parser_rejects_failed_commands_and_malformed_output() {
+        let successful = CommandOutput {
+            stdout: r#"{"ok":true}"#.into(),
+            stderr: String::new(),
+            status: 0,
+        };
+        assert!(parse_json(&successful).unwrap()["ok"].as_bool().unwrap());
+        let failed = CommandOutput {
+            status: 1,
+            ..successful.clone()
+        };
+        assert!(parse_json(&failed).is_err());
+        let malformed = CommandOutput {
+            stdout: "not json".into(),
+            ..successful
+        };
+        assert!(parse_json(&malformed).is_err());
+    }
+}

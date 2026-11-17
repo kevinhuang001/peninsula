@@ -47,6 +47,7 @@ fn horizontal_drag_changes_widget_once_on_release() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
+                                bilibili_status: "",
                             },
                         );
                     });
@@ -112,6 +113,7 @@ fn bottom_pagination_dots_are_always_passive() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
+                                bilibili_status: "",
                             },
                         );
                     });
@@ -178,6 +180,7 @@ fn expanded_pin_button_emits_toggle_without_starting_a_drag() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
+                                bilibili_status: "",
                             },
                         );
                         toggled = result.4;
@@ -241,6 +244,7 @@ fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
+                                bilibili_status: "",
                             },
                         );
                         toggled = result.5;

@@ -31,6 +31,18 @@ impl Default for Pomodoro {
 }
 
 impl Pomodoro {
+    pub fn set_durations(&mut self, focus_minutes: u16, break_minutes: u16) -> bool {
+        let focus_minutes = focus_minutes.clamp(1, 180);
+        let break_minutes = break_minutes.clamp(1, 180);
+        if (self.focus_minutes, self.break_minutes) == (focus_minutes, break_minutes) {
+            return false;
+        }
+        self.focus_minutes = focus_minutes;
+        self.break_minutes = break_minutes;
+        self.reset();
+        true
+    }
+
     pub fn update(&mut self, now: Instant) -> bool {
         let Some(deadline) = self.deadline else {
             return false;
@@ -160,5 +172,15 @@ mod tests {
         assert_eq!(timer.phase, Phase::Break);
         assert_eq!(timer.remaining_at(start), 5.0 * 60.0);
         assert!(!timer.running);
+    }
+
+    #[test]
+    fn configured_durations_apply_to_both_phases_and_reset_the_active_timer() {
+        let mut timer = Pomodoro::default();
+        timer.set_durations(50, 10);
+        assert_eq!(timer.remaining_at(Instant::now()), 50.0 * 60.0);
+        timer.select_phase(Phase::Break);
+        assert_eq!(timer.remaining_at(Instant::now()), 10.0 * 60.0);
+        assert!(!timer.set_durations(50, 10));
     }
 }

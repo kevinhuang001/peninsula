@@ -195,6 +195,31 @@ pub trait NotificationPresentationProvider {
 /// is data-only so the App can render views without knowing feature IDs.
 pub trait RuntimeExtension: NotificationPresentationProvider {
     fn descriptors(&self) -> Vec<super::ExtensionDescriptor>;
+    fn on_install(&mut self, _ctx: &super::ExtensionContext) -> Result<(), String> {
+        Ok(())
+    }
+    fn on_upgrade(
+        &mut self,
+        _ctx: &super::ExtensionContext,
+        _old_version: &str,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn on_enable(&mut self, _ctx: &super::ExtensionContext) -> Result<(), String> {
+        Ok(())
+    }
+    fn on_start(&mut self, _ctx: &super::ExtensionContext) -> Result<(), String> {
+        Ok(())
+    }
+    fn on_stop(&mut self, _ctx: &super::ExtensionContext) -> Result<(), String> {
+        Ok(())
+    }
+    fn on_disable(&mut self, _ctx: &super::ExtensionContext) -> Result<(), String> {
+        Ok(())
+    }
+    fn on_uninstall(&mut self, _ctx: &super::ExtensionContext) -> Result<(), String> {
+        Ok(())
+    }
     fn update(&mut self, _now: std::time::Instant) -> ExtensionOutput {
         ExtensionOutput::default()
     }
@@ -210,6 +235,31 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
     fn on_action(&mut self, _action: Action, _now: std::time::Instant) -> ExtensionOutput {
         ExtensionOutput::default()
     }
+    fn set_pomodoro_durations(
+        &mut self,
+        _focus_minutes: u16,
+        _break_minutes: u16,
+    ) -> ExtensionOutput {
+        ExtensionOutput::default()
+    }
+    fn configure_bilibili(
+        &mut self,
+        _ctx: &super::ExtensionContext,
+        _opencli_path: &str,
+        _dm_enabled: bool,
+        _likes_enabled: bool,
+        _show_dm_summary: bool,
+        _poll_seconds: u16,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn status_message(&self) -> Option<String> {
+        None
+    }
+    fn request_bilibili_check(&mut self, _ctx: &super::ExtensionContext) -> Result<(), String> {
+        Err("this extension does not support manual checks".into())
+    }
+    fn on_notifications_committed(&mut self, _notifications: &[super::Notification]) {}
 }
 
 pub trait HostScheduler {

@@ -11,7 +11,8 @@
 - 显示系统电量和充电状态。
 - 监听 Chromium 系浏览器、Firefox 和 macOS Safari 的下载；可在设置中启用收起态进度，完成后展开并提供打开文件和显示所在位置的操作。
 - 展开后查看 CPU、GPU、上下行网络速率。
-- 设置面板直接显示在胶囊内，左右两栏并留有更宽松的间距；可配置收缩状态内容，并按星期和起止时间设置免打扰时段。
+- 设置面板直接显示在胶囊内；可配置收缩状态内容、免打扰时段，以及番茄钟专注/休息时长（各 1–180 分钟）。
+- 可选启用 Bilibili 私信和收到的赞通知；通过系统 OpenCLI 和现有 Chrome 登录态读取，不要求输入 Cookie。
 - 顶部月亮按钮可手动常开免打扰；在计划时段中关闭时，只跳过当前时段，之后仍按计划启用。
 - 右键胶囊打开退出菜单。
 - CPU、网络和电池信息由跨平台 Rust 库采集。GPU 使用率按系统能力读取：macOS 使用 IOAccelerator，Linux 读取 DRM `gpu_busy_percent`，Windows 优先使用 NVIDIA `nvidia-smi`，并回退到 Windows GPU Engine 性能计数器；系统未提供数据时明确显示不可用。
@@ -39,9 +40,10 @@ CI 会在 macOS、Windows 和 Linux 上运行测试并构建 release。
 
 ## 扩展架构
 
-- `src/extension/` 定义扩展 ID、描述信息、Widget/Compact 视图数据、通知视图和操作契约。
+- `src/extension/` 定义扩展 ID、版本化描述、生命周期 Hook、Widget/Compact 视图数据、通知视图和操作契约；Hook 状态持久化在用户数据目录。
 - `src/core/` 管理扩展调度、操作分发、通知待处理状态和提醒展示队列。提醒关闭或超时不会清除通知；确认、扩展操作和逐条/全部清理会将其标记为已处理。
-- `src/builtins/` 注册 Download、Performance、Pomodoro 及表情和时钟 Compact。性能 Widget 与 Compact 共用一个采样器快照；番茄钟使用 Core Deadline 调度。
+- `src/builtins/` 注册 Download、Performance、Pomodoro、Bilibili 通知及表情和时钟 Compact。性能 Widget 与 Compact 共用一个采样器快照；番茄钟使用 Core Deadline 调度，并保存专注/休息时长。
+- `src/core/external/opencli.rs` 负责检测并执行系统 OpenCLI；`integrations/opencli/peninsula-bilibili/` 提供私信与收到的赞只读命令。
 - `src/app/` 只负责 egui 绘制、胶囊交互、页面切换和窗口行为。
 
-通知使用 `(source_extension_id, notification_id)` 作为稳定标识。通知扩展分别提供提醒和通知中心条目的视图数据；App 绘制这些数据并回传用户操作。当前架构只支持进程内置扩展，本阶段不包含外部插件加载器或公开 SDK。
+通知使用 `(source_extension_id, notification_id)` 作为稳定标识。通知扩展分别提供提醒和通知中心条目的视图数据；App 绘制这些数据并回传用户操作。Rust 扩展仍在应用进程内运行；OpenCLI 插件只是由系统 OpenCLI 执行的集成资源，不是 Peninsula 的动态插件加载器或公开 SDK。

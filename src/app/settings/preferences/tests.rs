@@ -67,3 +67,27 @@ fn saves_preferences_to_disk_and_replaces_existing_content() {
     );
     std::fs::remove_dir_all(folder).unwrap();
 }
+
+#[test]
+fn pomodoro_and_bilibili_settings_round_trip_with_duration_bounds() {
+    let preferences = CompactPreferences {
+        pomodoro_focus_minutes: 50,
+        pomodoro_break_minutes: 10,
+        bilibili_enabled: true,
+        bilibili_dm_enabled: false,
+        bilibili_poll_seconds: 90,
+        opencli_path: "/Applications/Open CLI/opencli".into(),
+        ..CompactPreferences::default()
+    };
+    assert_eq!(
+        CompactPreferences::parse(&preferences.encode()),
+        preferences
+    );
+
+    let invalid = CompactPreferences::parse(
+        "pomodoro_focus_minutes=0\npomodoro_break_minutes=181\nbilibili_poll_seconds=3\n",
+    );
+    assert_eq!(invalid.pomodoro_focus_minutes, 25);
+    assert_eq!(invalid.pomodoro_break_minutes, 5);
+    assert_eq!(invalid.bilibili_poll_seconds, 60);
+}

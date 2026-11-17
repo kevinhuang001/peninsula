@@ -47,6 +47,7 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
+                                bilibili_status: "",
                             },
                         )
                         .0;
@@ -122,6 +123,7 @@ fn in_capsule_settings_toggle_updates_compact_preferences() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
+                                bilibili_status: "",
                             },
                         );
                         changed = result.6;
@@ -192,6 +194,7 @@ fn settings_close_button_returns_to_the_active_widget() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
+                                bilibili_status: "",
                             },
                         )
                         .1;

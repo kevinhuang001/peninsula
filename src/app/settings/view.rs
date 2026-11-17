@@ -31,6 +31,7 @@ impl SettingsView {
         ui: &mut egui::Ui,
         capsule: Rect,
         preferences: &mut CompactPreferences,
+        bilibili_status: &str,
     ) -> bool {
         let body = Rect::from_min_max(
             Pos2::new(capsule.left() + 12.0, capsule.top() + 41.0),
@@ -41,7 +42,7 @@ impl SettingsView {
         paint_panel(ui, sidebar, BACKGROUND);
         paint_panel(ui, content, PANEL);
         self.paint_sections(ui, sidebar);
-        self.paint_content(ui, content, preferences)
+        self.paint_content(ui, content, preferences, bilibili_status)
     }
 
     fn paint_sections(&mut self, ui: &egui::Ui, sidebar: Rect) {
@@ -93,6 +94,7 @@ impl SettingsView {
         ui: &mut egui::Ui,
         panel: Rect,
         preferences: &mut CompactPreferences,
+        bilibili_status: &str,
     ) -> bool {
         let painter = ui.painter().clone();
         painter.text(
@@ -120,6 +122,18 @@ impl SettingsView {
                 &mut preferences.quiet_hours,
                 &mut self.quiet_dialog,
             ),
+            Section::Pomodoro => paint_pomodoro_options(ui, panel, preferences),
+            Section::Bilibili => {
+                let changed = paint_bilibili_options(ui, panel, preferences);
+                painter.text(
+                    Pos2::new(panel.left() + 14.0, panel.top() + 282.0),
+                    Align2::LEFT_TOP,
+                    bilibili_status,
+                    FontId::proportional(9.5),
+                    SECONDARY_TEXT,
+                );
+                changed
+            }
             Section::About => {
                 painter.text(
                     Pos2::new(panel.left() + 14.0, panel.top() + 76.0),
@@ -139,6 +153,131 @@ impl SettingsView {
             }
         }
     }
+}
+
+fn paint_bilibili_options(
+    ui: &mut egui::Ui,
+    panel: Rect,
+    preferences: &mut CompactPreferences,
+) -> bool {
+    let mut changed = false;
+    let rows = [
+        ("启用 Bilibili 通知", &mut preferences.bilibili_enabled),
+        ("新私信通知", &mut preferences.bilibili_dm_enabled),
+        ("收到的赞通知", &mut preferences.bilibili_likes_enabled),
+        (
+            "显示私信内容摘要",
+            &mut preferences.bilibili_show_dm_summary,
+        ),
+    ];
+    for (index, (label, enabled)) in rows.into_iter().enumerate() {
+        let rect = Rect::from_min_size(
+            Pos2::new(
+                panel.left() + 12.0,
+                panel.top() + 60.0 + index as f32 * 30.0,
+            ),
+            Vec2::new(panel.width() - 24.0, 26.0),
+        );
+        changed |= ui.put(rect, egui::Checkbox::new(enabled, label)).changed();
+    }
+    let interval = Rect::from_min_size(
+        Pos2::new(panel.left() + 12.0, panel.top() + 182.0),
+        Vec2::new(panel.width() - 24.0, 28.0),
+    );
+    ui.painter().text(
+        interval.left_center() + Vec2::new(3.0, 0.0),
+        Align2::LEFT_CENTER,
+        "检查间隔",
+        FontId::proportional(11.0),
+        TEXT,
+    );
+    changed |= ui
+        .put(
+            Rect::from_min_size(
+                Pos2::new(interval.right() - 92.0, interval.top()),
+                Vec2::new(86.0, 27.0),
+            ),
+            egui::DragValue::new(&mut preferences.bilibili_poll_seconds)
+                .range(15..=3600)
+                .suffix(" 秒"),
+        )
+        .changed();
+    let path = Rect::from_min_size(
+        Pos2::new(panel.left() + 12.0, panel.top() + 216.0),
+        Vec2::new(panel.width() - 24.0, 28.0),
+    );
+    changed |= ui
+        .put(
+            path,
+            egui::TextEdit::singleline(&mut preferences.opencli_path)
+                .hint_text("OpenCLI 路径（自动检测）"),
+        )
+        .changed();
+    let buttons = Rect::from_min_size(
+        Pos2::new(panel.left() + 12.0, panel.top() + 250.0),
+        Vec2::new(panel.width() - 24.0, 26.0),
+    );
+    let each_width = (buttons.width() - 8.0) * 0.5;
+    let check_clicked = ui
+        .put(
+            Rect::from_min_size(buttons.min, Vec2::new(each_width, buttons.height())),
+            egui::Button::new("检查连接"),
+        )
+        .clicked();
+    let immediate_clicked = ui
+        .put(
+            Rect::from_min_size(
+                Pos2::new(buttons.left() + each_width + 8.0, buttons.top()),
+                Vec2::new(each_width, buttons.height()),
+            ),
+            egui::Button::new("立即检查"),
+        )
+        .clicked();
+    if check_clicked || immediate_clicked {
+        preferences.bilibili_check_requested = true;
+        changed = true;
+    }
+    changed
+}
+
+fn paint_pomodoro_options(
+    ui: &mut egui::Ui,
+    panel: Rect,
+    preferences: &mut CompactPreferences,
+) -> bool {
+    let mut changed = false;
+    for (index, (label, value)) in [
+        ("专注时长", &mut preferences.pomodoro_focus_minutes),
+        ("休息时长", &mut preferences.pomodoro_break_minutes),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let row = Rect::from_min_size(
+            Pos2::new(
+                panel.left() + 10.0,
+                panel.top() + 62.0 + index as f32 * 44.0,
+            ),
+            Vec2::new(panel.width() - 20.0, 36.0),
+        );
+        ui.painter().rect_filled(row, 7.0, ROW);
+        ui.painter().text(
+            Pos2::new(row.left() + 10.0, row.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::proportional(11.0),
+            TEXT,
+        );
+        let response = ui.put(
+            Rect::from_min_size(
+                Pos2::new(row.right() - 95.0, row.top() + 4.0),
+                Vec2::new(86.0, 28.0),
+            ),
+            egui::DragValue::new(value).range(1..=180).suffix(" 分钟"),
+        );
+        changed |= response.changed();
+    }
+    changed
 }
 
 fn paint_compact_options(

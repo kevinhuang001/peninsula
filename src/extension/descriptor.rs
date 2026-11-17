@@ -71,6 +71,8 @@ pub struct ExtensionDescriptor {
     pub size_hint: [f32; 2],
     pub capabilities: Vec<Capability>,
     pub schema_version: u32,
+    pub version: String,
+    pub requires_setup: bool,
 }
 
 impl ExtensionDescriptor {
@@ -97,6 +99,8 @@ impl ExtensionDescriptor {
                 }
             },
             schema_version: 1,
+            version: env!("CARGO_PKG_VERSION").into(),
+            requires_setup: false,
         }
     }
 
@@ -107,6 +111,16 @@ impl ExtensionDescriptor {
 
     pub fn with_capabilities(mut self, capabilities: Vec<Capability>) -> Self {
         self.capabilities = capabilities;
+        self
+    }
+
+    pub fn with_version(mut self, version: impl Into<String>) -> Self {
+        self.version = version.into();
+        self
+    }
+
+    pub fn with_setup(mut self, requires_setup: bool) -> Self {
+        self.requires_setup = requires_setup;
         self
     }
 }
