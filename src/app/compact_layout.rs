@@ -37,7 +37,9 @@ pub(super) fn width(preferences: &CompactPreferences, available: &[&CompactView]
 
 #[cfg(test)]
 mod tests {
-    use super::{item_widths, width, CAPSULE_HEIGHT, CHIP_HEIGHT, HORIZONTAL_PADDING, ITEM_GAP};
+    use super::{
+        item_widths, width, CAPSULE_HEIGHT, CHIP_HEIGHT, HORIZONTAL_PADDING, ITEM_GAP, MAX_WIDTH,
+    };
     use crate::{
         app::settings::CompactPreferences,
         builtins,

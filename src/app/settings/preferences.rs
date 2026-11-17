@@ -19,7 +19,7 @@ pub struct CompactItemPreference {
     pub order: u32,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CompactPreferences {
     pub compact_items: Vec<CompactItemPreference>,
     pub quiet_hours: QuietHours,
@@ -134,6 +134,9 @@ impl CompactPreferences {
                 }
                 "opencli_path" => settings.opencli_path = value.trim().to_owned(),
                 key => {
+                    if settings.weather.apply_line(key, value) {
+                        continue;
+                    }
                     let Some(value) = parse_bool(value) else {
                         continue;
                     };

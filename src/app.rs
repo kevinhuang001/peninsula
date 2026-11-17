@@ -598,6 +598,8 @@ impl eframe::App for IslandApp {
                 if let Err(error) = self.preferences.save() {
                     eprintln!("Unable to save settings: {error}");
                 }
+                self.extensions
+                    .apply_weather_preferences(&self.preferences.weather);
             }
             if let Some(action) = widget_action {
                 self.dispatch_widget_action(action, now, context);

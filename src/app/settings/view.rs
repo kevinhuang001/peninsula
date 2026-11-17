@@ -5,6 +5,7 @@ use super::{
         ACCENT, ACCENT_SELECTED, BACKGROUND, BORDER, CHECKBOX_ON, PANEL, ROW, SECONDARY_TEXT,
         SWITCH_OFF, SWITCH_ON, TEXT,
     },
+    weather_view::{self, WeatherSearch},
     CompactPreferences,
 };
 use crate::{
@@ -32,10 +33,11 @@ const BILIBILI_INTERVAL_HEIGHT: f32 = 28.0;
 const STATUS_GAP: f32 = 8.0;
 const ABOUT_GAP: f32 = 6.0;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Default)]
 pub struct SettingsView {
     section: Section,
     quiet_dialog: Option<QuietDialog>,
+    weather_search: WeatherSearch,
 }
 
 struct SettingsLayout {

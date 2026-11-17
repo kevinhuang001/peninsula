@@ -3,6 +3,7 @@ pub mod download;
 pub mod kuaidi;
 pub mod performance;
 pub mod pomodoro;
+pub mod weather;
 
 use crate::ui::declarative::{RefreshHint, WidgetBounds};
 use crate::{
@@ -62,6 +63,7 @@ pub fn registry() -> ExtensionRegistry {
             std::iter::once(bilibili::BilibiliExtension::default())
                 .flat_map(|extension| extension.descriptors()),
         )
+        .chain(weather::descriptors())
         .chain(extras::descriptors())
     {
         registry
@@ -247,6 +249,18 @@ impl BuiltinExtensions {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    pub fn apply_weather_preferences(&mut self, preferences: &WeatherPreferences) {
+        for extension in &mut self.extensions {
+            let Some(any) = extension.as_any_mut() else {
+                continue;
+            };
+            if let Some(weather) = any.downcast_mut::<WeatherExtension>() {
+                weather.set_preferences(preferences);
+                return;
             }
         }
     }

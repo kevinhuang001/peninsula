@@ -4,6 +4,7 @@ pub(super) mod quiet_hours;
 mod quiet_view;
 pub(super) mod theme;
 mod view;
+mod weather_view;
 
 pub use preferences::CompactPreferences;
 pub use view::SettingsView;

@@ -26,6 +26,27 @@ pub(crate) struct Icons {
     arrow_up: TextureHandle,
     clock: TextureHandle,
     close: TextureHandle,
+    sun: TextureHandle,
+    cloud: TextureHandle,
+    cloud_sun: TextureHandle,
+    cloud_moon: TextureHandle,
+    cloud_rain: TextureHandle,
+    cloud_snow: TextureHandle,
+    cloud_lightning: TextureHandle,
+    cloud_fog: TextureHandle,
+    cloud_drizzle: TextureHandle,
+    wind: TextureHandle,
+    droplet: TextureHandle,
+    thermometer: TextureHandle,
+    sunrise: TextureHandle,
+    sunset: TextureHandle,
+    gauge: TextureHandle,
+    eye: TextureHandle,
+    alert_triangle: TextureHandle,
+    map_pin: TextureHandle,
+    search: TextureHandle,
+    locate: TextureHandle,
+    cloud_off: TextureHandle,
 }
 
 impl Icons {
@@ -128,6 +149,27 @@ impl Icons {
             Icon::ArrowUp => &self.arrow_up,
             Icon::Clock => &self.clock,
             Icon::Close => &self.close,
+            Icon::Sun => &self.sun,
+            Icon::Cloud => &self.cloud,
+            Icon::CloudSun => &self.cloud_sun,
+            Icon::CloudMoon => &self.cloud_moon,
+            Icon::CloudRain => &self.cloud_rain,
+            Icon::CloudSnow => &self.cloud_snow,
+            Icon::CloudLightning => &self.cloud_lightning,
+            Icon::CloudFog => &self.cloud_fog,
+            Icon::CloudDrizzle => &self.cloud_drizzle,
+            Icon::Wind => &self.wind,
+            Icon::Droplet => &self.droplet,
+            Icon::Thermometer => &self.thermometer,
+            Icon::Sunrise => &self.sunrise,
+            Icon::Sunset => &self.sunset,
+            Icon::Gauge => &self.gauge,
+            Icon::Eye => &self.eye,
+            Icon::AlertTriangle => &self.alert_triangle,
+            Icon::MapPin => &self.map_pin,
+            Icon::Search => &self.search,
+            Icon::Locate => &self.locate,
+            Icon::CloudOff => &self.cloud_off,
         };
         painter.image(
             texture.id(),
@@ -213,7 +255,7 @@ fn load(context: &egui::Context, name: &str, svg: &[u8]) -> TextureHandle {
 
 #[cfg(test)]
 mod tests {
-    use super::Icons;
+    use super::{Icon, Icons};
 
     #[test]
     fn bundled_lucide_icons_load_and_are_attributed_under_the_open_license() {
@@ -221,7 +263,38 @@ mod tests {
         let icons = Icons::load(&context);
         assert!(icons.pin.size()[0] > 0);
         assert!(icons.battery_charging.size()[0] > 0);
+        assert!(icons.cloud_sun.size()[0] > 0);
         let license = include_str!("../../assets/icons/lucide/LICENSE");
         assert!(license.contains("ISC License"));
+    }
+
+    #[test]
+    fn weather_icon_names_resolve_for_views_and_compact_items() {
+        for name in [
+            "sun",
+            "cloud",
+            "cloud-sun",
+            "cloud-moon",
+            "cloud-rain",
+            "cloud-snow",
+            "cloud-lightning",
+            "cloud-fog",
+            "cloud-drizzle",
+            "wind",
+            "droplet",
+            "thermometer",
+            "sunrise",
+            "sunset",
+            "gauge",
+            "eye",
+            "triangle-alert",
+            "map-pin",
+            "search",
+            "locate-fixed",
+            "cloud-off",
+        ] {
+            assert!(Icon::from_name(name).is_some(), "missing icon {name}");
+        }
+        assert!(Icon::from_name("not-an-icon").is_none());
     }
 }

@@ -155,6 +155,11 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
         None
     }
     fn on_notifications_committed(&mut self, _notifications: &[super::Notification]) {}
+    /// Optional typed access used by the built-in host to push preferences
+    /// into a feature without making the extension contract feature-specific.
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        None
+    }
 }
 
 pub trait HostScheduler {
