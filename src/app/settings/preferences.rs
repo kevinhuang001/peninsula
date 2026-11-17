@@ -4,7 +4,10 @@ use std::{
     path::PathBuf,
 };
 
-use crate::extension::{builtins, ExtensionId, ExtensionKind};
+use crate::{
+    builtins::registry,
+    extension::{ExtensionId, ExtensionKind},
+};
 
 use super::quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS};
 
@@ -23,7 +26,7 @@ pub struct CompactPreferences {
 
 impl Default for CompactPreferences {
     fn default() -> Self {
-        let compact_items = builtins()
+        let compact_items = registry()
             .by_kind(ExtensionKind::Compact)
             .into_iter()
             .map(|descriptor| CompactItemPreference {
@@ -149,10 +152,6 @@ impl CompactPreferences {
         let temporary = path.with_extension("tmp");
         fs::write(&temporary, self.encode())?;
         fs::rename(&temporary, path)
-    }
-
-    pub fn compact_width(&self, downloading: bool) -> f32 {
-        super::super::compact_layout::width(self, downloading)
     }
 
     pub fn is_enabled(&self, id: &ExtensionId) -> bool {

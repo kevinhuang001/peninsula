@@ -106,31 +106,6 @@ impl Icons {
             color.linear_multiply(opacity),
         );
     }
-
-    pub fn paint_battery(
-        &self,
-        painter: &Painter,
-        rect: Rect,
-        color: Color32,
-        charging: bool,
-        opacity: f32,
-    ) {
-        self.paint(
-            painter,
-            if charging {
-                Icon::BatteryCharging
-            } else {
-                Icon::Battery
-            },
-            rect,
-            if charging {
-                Color32::from_rgb(255, 214, 76)
-            } else {
-                color
-            },
-            opacity,
-        );
-    }
 }
 
 fn paint_cpu(painter: &Painter, rect: Rect, color: Color32) {

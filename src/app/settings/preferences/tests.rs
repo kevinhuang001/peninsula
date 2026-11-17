@@ -53,22 +53,6 @@ fn duplicate_and_invalid_ids_are_ignored_and_items_can_be_reordered() {
 }
 
 #[test]
-fn compact_width_tracks_enabled_items_and_active_download_content() {
-    let default = CompactPreferences::default();
-    let mut wide = default.clone();
-    wide.set_enabled(&id("builtin.system-monitor/cpu"), true);
-    wide.set_enabled(&id("builtin.system-monitor/network"), true);
-    assert_eq!(default.compact_width(false), 114.0);
-    assert!(wide.compact_width(false) > default.compact_width(false));
-    assert!(default.compact_width(true) == default.compact_width(false));
-
-    let mut downloads = default;
-    downloads.set_enabled(&id("builtin.downloads/status"), true);
-    assert_eq!(downloads.compact_width(false), 114.0);
-    assert!(downloads.compact_width(true) > downloads.compact_width(false));
-}
-
-#[test]
 fn saves_preferences_to_disk_and_replaces_existing_content() {
     let folder =
         std::env::temp_dir().join(format!("peninsula-settings-test-{}", std::process::id()));

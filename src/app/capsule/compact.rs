@@ -10,10 +10,7 @@ use crate::{
         mascot::Mascot,
         settings::CompactPreferences,
     },
-    builtins,
-    downloads::Download,
     extension::{ColorRole, CompactNode, CompactView},
-    metrics::Snapshot,
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
@@ -22,10 +19,9 @@ use super::draw_compact_chip;
 const DOWN: Color32 = Color32::from_rgb(80, 190, 255);
 
 pub(super) struct CompactContent<'a> {
-    pub(super) metrics: &'a Snapshot,
     pub(super) mascot: &'a mut Mascot,
     pub(super) prefs: &'a CompactPreferences,
-    pub(super) download: Option<&'a Download>,
+    pub(super) views: &'a [CompactView],
     pub(super) icons: &'a Icons,
 }
 
@@ -37,10 +33,9 @@ pub(super) fn show(
     content: CompactContent<'_>,
 ) -> bool {
     let CompactContent {
-        metrics,
         mascot,
         prefs,
-        download,
+        views: available_views,
         icons,
     } = content;
     let opacity = 1.0 - progress.clamp(0.0, 1.0);
@@ -49,7 +44,10 @@ pub(super) fn show(
         .into_iter()
         .filter(|item| prefs.is_enabled(&item.id))
         .filter_map(|item| {
-            builtins::compact_view(&item.id, metrics, download).map(|view| (item.id.clone(), view))
+            available_views
+                .iter()
+                .find(|view| view.id == item.id)
+                .map(|view| (item.id.clone(), view.clone()))
         })
         .collect();
     let total = views
@@ -197,6 +195,10 @@ fn render_child(
     opacity: f32,
 ) {
     let view = CompactView {
+        id: crate::extension::ExtensionId::builtin("builtin.internal/compact-child"),
+        source_extension_id: crate::extension::ExtensionId::builtin(
+            "builtin.internal/compact-child",
+        ),
         content: node.clone(),
         min_width: rect.width(),
         preferred_width: rect.width(),

@@ -1,3 +1,8 @@
+use super::{
+    ExtensionId, Notification, NotificationAction, NotificationAlertView,
+    NotificationCenterItemView,
+};
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct WidgetView {
     pub root: ViewNode,
@@ -29,6 +34,19 @@ pub enum ViewNode {
         label: String,
         value: String,
         color: ColorRole,
+    },
+    MetricCard {
+        label: String,
+        value: String,
+        subtitle: Option<String>,
+        icon: Option<String>,
+        color: ColorRole,
+    },
+    NotificationItem {
+        stable_id: String,
+        title: String,
+        body: String,
+        icon: Option<String>,
     },
     Button {
         label: String,
@@ -68,6 +86,10 @@ pub enum ColorRole {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompactView {
+    /// Preference key for a compact component. One extension can provide
+    /// multiple components under its own extension ID.
+    pub id: ExtensionId,
+    pub source_extension_id: ExtensionId,
     pub content: CompactNode,
     pub min_width: f32,
     pub preferred_width: f32,
@@ -113,6 +135,19 @@ pub enum Action {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AlertInteraction {
+    Close,
+    Acknowledge,
+    RunAction(NotificationAction),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActionInvocation {
+    pub source_extension_id: ExtensionId,
+    pub action: Action,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Event {
     SnapshotUpdated,
     TimerElapsed,
@@ -121,9 +156,10 @@ pub enum Event {
     Custom(String),
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ActionResult {
-    pub invalidated: bool,
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ExtensionOutput {
+    pub invalidated: Vec<ExtensionId>,
+    pub notifications: Vec<Notification>,
     pub schedule: Vec<ScheduledTask>,
     pub cancel_tasks: Vec<String>,
 }
@@ -134,20 +170,46 @@ pub struct ScheduledTask {
     pub deadline: std::time::Instant,
 }
 
-pub trait WidgetExtension<C> {
-    fn descriptor(&self) -> super::ExtensionDescriptor;
-    fn view(&self, context: &C) -> WidgetView;
-    fn on_action(&mut self, action: Action, context: &mut C) -> ActionResult;
+/// Notification extensions supply data for both surfaces. The App owns the
+/// egui layout and never invokes extension business code while painting.
+pub trait NotificationPresentationProvider {
+    fn alert_view(&self, notification: &Notification) -> NotificationAlertView {
+        super::NotificationPresentation::from_notification(notification).alert
+    }
+    fn center_item_view(&self, notification: &Notification) -> NotificationCenterItemView {
+        super::NotificationPresentation::from_notification(notification).center_item
+    }
+    fn on_notification_action(
+        &mut self,
+        _notification: &Notification,
+        _action: &NotificationAction,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn handles_notification(&self, _source_id: &ExtensionId) -> bool {
+        false
+    }
 }
 
-pub trait CompactExtension<C> {
-    fn descriptor(&self) -> super::ExtensionDescriptor;
-    fn view(&self, context: &C) -> Option<CompactView>;
-    fn on_action(&mut self, action: Action, context: &mut C) -> ActionResult;
-}
-
-pub trait NotificationPublisher {
-    fn publish(&mut self, notification: super::Notification);
+/// In-process extension runtime used by the built-in extensions. Its surface
+/// is data-only so the App can render views without knowing feature IDs.
+pub trait RuntimeExtension: NotificationPresentationProvider {
+    fn descriptors(&self) -> Vec<super::ExtensionDescriptor>;
+    fn update(&mut self, _now: std::time::Instant) -> ExtensionOutput {
+        ExtensionOutput::default()
+    }
+    fn on_event(&mut self, _event: &Event, _now: std::time::Instant) -> ExtensionOutput {
+        ExtensionOutput::default()
+    }
+    fn widget_view(&self, _widget_id: &ExtensionId) -> Option<WidgetView> {
+        None
+    }
+    fn compact_views(&self) -> Vec<CompactView> {
+        Vec::new()
+    }
+    fn on_action(&mut self, _action: Action, _now: std::time::Instant) -> ExtensionOutput {
+        ExtensionOutput::default()
+    }
 }
 
 pub trait HostScheduler {
@@ -159,11 +221,13 @@ pub trait HostScheduler {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompactNode, CompactView, ViewNode};
+    use super::{CompactNode, CompactView, ExtensionId, ViewNode};
 
     #[test]
     fn compact_contract_carries_layout_preferences_without_ui_objects() {
         let view = CompactView {
+            id: ExtensionId::builtin("builtin.system-monitor/cpu"),
+            source_extension_id: ExtensionId::builtin("builtin.system-monitor/overview"),
             content: CompactNode::IconText {
                 icon: "cpu".into(),
                 text: "12%".into(),

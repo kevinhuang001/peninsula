@@ -1,8 +1,7 @@
 mod app;
 mod builtins;
-mod downloads;
+mod core;
 pub mod extension;
-mod metrics;
 
 fn main() -> eframe::Result<()> {
     app::run()

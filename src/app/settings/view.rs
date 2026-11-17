@@ -6,7 +6,7 @@ use super::{
     },
     CompactPreferences,
 };
-use crate::extension::{builtins, ExtensionId};
+use crate::{builtins::registry, extension::ExtensionId};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
 const COMPACT_ROW_TOP: f32 = 43.0;
@@ -147,7 +147,7 @@ fn paint_compact_options(
     preferences: &mut CompactPreferences,
 ) -> bool {
     let mut changed = false;
-    let registry = builtins();
+    let registry = registry();
     let items: Vec<_> = preferences
         .ordered_compact_items()
         .into_iter()

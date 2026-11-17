@@ -1,4 +1,4 @@
-use super::{Event, ExtensionId, HostScheduler};
+use crate::extension::{Event, ExtensionId, HostScheduler};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     time::Instant,

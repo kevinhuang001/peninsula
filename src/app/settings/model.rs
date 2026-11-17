@@ -45,7 +45,7 @@ impl Section {
 #[cfg(test)]
 mod tests {
     use super::Section;
-    use crate::extension::{builtins, ExtensionKind};
+    use crate::{builtins::registry, extension::ExtensionKind};
 
     #[test]
     fn all_compact_options_live_in_one_settings_tab() {
@@ -53,6 +53,6 @@ mod tests {
             Section::ALL,
             [Section::Compact, Section::QuietHours, Section::About]
         );
-        assert_eq!(builtins().by_kind(ExtensionKind::Compact).len(), 7);
+        assert_eq!(registry().by_kind(ExtensionKind::Compact).len(), 7);
     }
 }

@@ -1,11 +1,7 @@
 use super::{capsule_height, corner_radius, drag_handle_bounds, show, CapsuleWidgets};
-use crate::{
-    app::{
-        mascot::Mascot,
-        settings::{CompactPreferences, SettingsView},
-        widgets::pomodoro::Pomodoro,
-    },
-    metrics::Snapshot,
+use crate::app::{
+    mascot::Mascot,
+    settings::{CompactPreferences, SettingsView},
 };
 use eframe::egui::{self, Pos2, Rect, Vec2};
 
@@ -25,10 +21,10 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                     ui.vertical_centered(|ui| {
                         let mut mascot = Mascot::default();
                         let mut tab = crate::app::widgets::default_widget_id();
-                        let mut timer = Pomodoro::default();
                         let mut preferences = CompactPreferences::default();
                         let mut settings_view = SettingsView::default();
                         let icons = crate::app::icons::Icons::load(context);
+                        let (widget_ids, widget_view) = widget_fixture();
                         rect = show(
                             ui,
                             context,
@@ -36,18 +32,19 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                             0.5,
                             126.0,
                             CapsuleWidgets {
-                                metrics: &Snapshot::default(),
+                                compact_views: &[],
+                                widget_ids: &widget_ids,
+                                widget_title: "测试",
+                                widget_view: &widget_view,
+                                alert_view: None,
+                                max_alert_actions: 4,
                                 mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 settings_view: &mut settings_view,
                                 active_widget: &mut tab,
-                                notification_unread: false,
-                                unread_notifications: &[],
-                                timer: &mut timer,
                                 pinned: false,
                                 icons: &icons,
-                                download: None,
                                 notification: None,
                                 do_not_disturb: false,
                             },
@@ -86,10 +83,10 @@ fn in_capsule_settings_toggle_updates_compact_preferences() {
     let context = egui::Context::default();
     let mut mascot = Mascot::default();
     let mut tab = crate::app::widgets::default_widget_id();
-    let mut timer = Pomodoro::default();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&context);
+    let (widget_ids, widget_view) = widget_fixture();
     let point = Pos2::new(369.0, 101.0);
     let mut changed = false;
     let mut frame = |events: Vec<Event>| {
@@ -110,18 +107,19 @@ fn in_capsule_settings_toggle_updates_compact_preferences() {
                             1.0,
                             settings_view.extra_height(),
                             CapsuleWidgets {
-                                metrics: &Snapshot::default(),
+                                compact_views: &[],
+                                widget_ids: &widget_ids,
+                                widget_title: "测试",
+                                widget_view: &widget_view,
+                                alert_view: None,
+                                max_alert_actions: 4,
                                 mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: true,
                                 settings_view: &mut settings_view,
                                 active_widget: &mut tab,
-                                notification_unread: false,
-                                unread_notifications: &[],
-                                timer: &mut timer,
                                 pinned: false,
                                 icons: &icons,
-                                download: None,
                                 notification: None,
                                 do_not_disturb: false,
                             },
@@ -154,11 +152,11 @@ fn settings_close_button_returns_to_the_active_widget() {
 
     let context = egui::Context::default();
     let mut mascot = Mascot::default();
-    let mut tab = crate::extension::ExtensionId::builtin(crate::app::widgets::PERFORMANCE_ID);
-    let mut timer = Pomodoro::default();
+    let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&context);
+    let (widget_ids, widget_view) = widget_fixture();
     let point = Pos2::new(385.0, 26.0);
     let mut close_requested = false;
     let mut frame = |events: Vec<Event>| {
@@ -179,18 +177,19 @@ fn settings_close_button_returns_to_the_active_widget() {
                             1.0,
                             settings_view.extra_height(),
                             CapsuleWidgets {
-                                metrics: &Snapshot::default(),
+                                compact_views: &[],
+                                widget_ids: &widget_ids,
+                                widget_title: "测试",
+                                widget_view: &widget_view,
+                                alert_view: None,
+                                max_alert_actions: 4,
                                 mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: true,
                                 settings_view: &mut settings_view,
                                 active_widget: &mut tab,
-                                notification_unread: false,
-                                unread_notifications: &[],
-                                timer: &mut timer,
                                 pinned: false,
                                 icons: &icons,
-                                download: None,
                                 notification: None,
                                 do_not_disturb: false,
                             },
@@ -228,4 +227,24 @@ fn expanded_drag_handle_excludes_settings_and_widget_contents() {
     assert!(!handle.contains(Pos2::new(295.0, 26.0)));
     assert!(!handle.contains(Pos2::new(160.0, 90.0)));
     assert_eq!(drag_handle_bounds(rect, 0.0), rect);
+}
+
+fn widget_fixture() -> (
+    Vec<crate::extension::ExtensionId>,
+    crate::extension::WidgetView,
+) {
+    let widget_ids = crate::builtins::registry()
+        .widget_list()
+        .into_iter()
+        .map(|descriptor| descriptor.id.clone())
+        .collect();
+    let widget_view = crate::extension::WidgetView {
+        root: crate::extension::ViewNode::Text {
+            text: String::new(),
+            style: crate::extension::TextStyle::Muted,
+        },
+        preferred_size: [300.0, 76.0],
+        refresh_hint: crate::extension::RefreshHint::Static,
+    };
+    (widget_ids, widget_view)
 }

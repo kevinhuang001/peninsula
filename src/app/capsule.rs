@@ -1,8 +1,9 @@
 use crate::{
     app::settings::{CompactPreferences, SettingsView},
-    downloads::Download,
-    extension::{ExtensionId, Notification},
-    metrics::Snapshot,
+    extension::{
+        ActionInvocation, AlertInteraction, CompactView, ExtensionId, Notification,
+        NotificationAlertView, WidgetView,
+    },
 };
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
@@ -10,12 +11,7 @@ mod compact;
 mod expanded;
 mod renderer;
 
-use super::{
-    compact_layout::CAPSULE_HEIGHT,
-    icons::Icons,
-    mascot::Mascot,
-    widgets::{self, pomodoro},
-};
+use super::{compact_layout::CAPSULE_HEIGHT, icons::Icons, mascot::Mascot, widgets};
 
 const BLACK: Color32 = Color32::from_rgb(15, 16, 19);
 const EXPANDED_BASE_HEIGHT: f32 = 48.0;
@@ -39,18 +35,19 @@ pub(super) fn draw_compact_chip(ui: &egui::Ui, rect: Rect, opacity: f32) {
 }
 
 pub(super) struct CapsuleWidgets<'a> {
-    pub metrics: &'a Snapshot,
     pub mascot: &'a mut Mascot,
     pub preferences: &'a mut CompactPreferences,
+    pub compact_views: &'a [CompactView],
     pub settings_open: bool,
     pub settings_view: &'a mut SettingsView,
     pub active_widget: &'a mut ExtensionId,
-    pub notification_unread: bool,
-    pub unread_notifications: &'a [Notification],
-    pub timer: &'a mut pomodoro::Pomodoro,
+    pub widget_ids: &'a [ExtensionId],
+    pub widget_title: &'a str,
+    pub widget_view: &'a WidgetView,
+    pub alert_view: Option<&'a NotificationAlertView>,
+    pub max_alert_actions: usize,
     pub pinned: bool,
     pub icons: &'a Icons,
-    pub download: Option<&'a Download>,
     pub notification: Option<&'a Notification>,
     pub do_not_disturb: bool,
 }
@@ -59,11 +56,11 @@ pub(super) type CapsuleResult = (
     Rect,
     bool,
     bool,
+    Option<AlertInteraction>,
     bool,
     bool,
     bool,
-    bool,
-    Option<(ExtensionId, String)>,
+    Option<ActionInvocation>,
 );
 
 pub(super) fn show(
@@ -93,17 +90,13 @@ pub(super) fn show(
         && content.notification.is_none()
         && swipe_finished(context, &capsule)
     {
-        *content.active_widget = widgets::next_widget(
-            content.active_widget,
-            &widgets::widget_ids(content.notification_unread),
-            1,
-        );
+        *content.active_widget = widgets::next_widget(content.active_widget, content.widget_ids, 1);
         context.request_repaint();
     }
     paint_shell(ui, rect, progress);
-    let mut dismiss_notification = false;
+    let mut alert_interaction = None;
+    let mut widget_action = None;
     let mut settings_changed = false;
-    let mut notification_read = None;
     let mut quiet_toggled = false;
     let (settings, pin_toggled) = if progress < 0.9 {
         (
@@ -113,29 +106,35 @@ pub(super) fn show(
                 rect,
                 progress,
                 compact::CompactContent {
-                    metrics: content.metrics,
                     mascot: content.mascot,
                     prefs: content.preferences,
-                    download: content.download,
+                    views: content.compact_views,
                     icons: content.icons,
                 },
             ),
             false,
         )
-    } else if let Some(notification) = content.notification {
-        dismiss_notification = super::notification::show(ui, rect, notification, content.icons);
+    } else if content.notification.is_some() {
+        alert_interaction = content.alert_view.and_then(|view| {
+            super::notification::show_alert(
+                ui,
+                rect,
+                view,
+                content.icons,
+                content.max_alert_actions,
+            )
+        });
         (false, false)
     } else {
-        let (settings, pin_toggled, quiet, changed, read) = paint_expanded(
+        let (settings, pin_toggled, quiet, changed, action) = paint_expanded(
             ui,
             rect,
             progress,
             ExpandedContent {
-                metrics: content.metrics,
                 active_widget: content.active_widget,
-                notification_unread: content.notification_unread,
-                unread_notifications: content.unread_notifications,
-                timer: content.timer,
+                widget_ids: content.widget_ids,
+                widget_title: content.widget_title,
+                widget_view: content.widget_view,
                 pinned: content.pinned,
                 do_not_disturb: content.do_not_disturb,
                 icons: content.icons,
@@ -146,7 +145,7 @@ pub(super) fn show(
         );
         settings_changed = changed;
         quiet_toggled = quiet;
-        notification_read = read;
+        widget_action = action;
         (settings, pin_toggled)
     };
     capsule.context_menu(|ui| {
@@ -158,11 +157,11 @@ pub(super) fn show(
         rect,
         settings,
         drag_started,
-        dismiss_notification,
+        alert_interaction,
         pin_toggled,
         quiet_toggled,
         settings_changed,
-        notification_read,
+        widget_action,
     )
 }
 
@@ -220,11 +219,10 @@ fn corner_radius(progress: f32) -> f32 {
 }
 
 struct ExpandedContent<'a> {
-    metrics: &'a Snapshot,
     active_widget: &'a mut ExtensionId,
-    notification_unread: bool,
-    unread_notifications: &'a [Notification],
-    timer: &'a mut pomodoro::Pomodoro,
+    widget_ids: &'a [ExtensionId],
+    widget_title: &'a str,
+    widget_view: &'a WidgetView,
     pinned: bool,
     do_not_disturb: bool,
     icons: &'a Icons,
@@ -238,13 +236,12 @@ fn paint_expanded(
     rect: Rect,
     progress: f32,
     content: ExpandedContent<'_>,
-) -> (bool, bool, bool, bool, Option<(ExtensionId, String)>) {
+) -> (bool, bool, bool, bool, Option<ActionInvocation>) {
     let ExpandedContent {
-        metrics,
         active_widget,
-        notification_unread,
-        unread_notifications,
-        timer,
+        widget_ids,
+        widget_title,
+        widget_view,
         pinned,
         do_not_disturb,
         icons,
@@ -252,11 +249,12 @@ fn paint_expanded(
         settings_view,
         preferences,
     } = content;
+    let mut widget_action = None;
     let reveal = progress.clamp(0.0, 1.0);
     let title = if settings_open {
         "设置".to_owned()
     } else {
-        widgets::widget_title(active_widget)
+        widget_title.to_owned()
     };
     let (pin_toggled, quiet_toggled, settings) = expanded::paint_header(
         ui,
@@ -270,7 +268,6 @@ fn paint_expanded(
             opacity: reveal,
         },
     );
-    let mut notification_read = None;
     let settings_changed = if settings_open {
         settings_view.show(ui, rect, preferences)
     } else {
@@ -278,30 +275,18 @@ fn paint_expanded(
             Pos2::new(rect.left() + 10.0, rect.top() + 48.0),
             Pos2::new(rect.right() - 10.0, rect.bottom() - 15.0),
         );
-        notification_read = renderer::show_widget(
-            ui,
-            body,
-            renderer::WidgetRenderContext {
-                extension_id: active_widget,
-                metrics,
-                timer,
-                notifications: unread_notifications,
-                icons,
-                opacity: reveal,
-            },
-        );
+        widget_action = renderer::show_widget(ui, body, active_widget, widget_view, icons, reveal);
         false
     };
     if !settings_open {
-        let ids = widgets::widget_ids(notification_unread);
-        expanded::paint_tabs(ui, rect, active_widget, &ids, reveal);
+        expanded::paint_tabs(ui, rect, active_widget, widget_ids, reveal);
     }
     (
         settings,
         pin_toggled,
         quiet_toggled,
         settings_changed,
-        notification_read,
+        widget_action,
     )
 }
 
