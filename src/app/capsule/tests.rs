@@ -34,6 +34,7 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                             CapsuleWidgets {
                                 compact_views: &[],
                                 widget_ids: &widget_ids,
+                                widget_titles: &[],
                                 widget_title: "测试",
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
@@ -56,7 +57,7 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
         },
     );
     assert_eq!(rect.width(), 220.0);
-    assert_eq!(rect.height(), 109.0);
+    assert_eq!(rect.height(), 122.0);
     assert!((rect.center().x - 180.0).abs() < 1.0);
 }
 
@@ -99,6 +100,7 @@ fn in_capsule_settings_toggle_updates_compact_preferences() {
                             CapsuleWidgets {
                                 compact_views: &[],
                                 widget_ids: &widget_ids,
+                                widget_titles: &[],
                                 widget_title: "测试",
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
@@ -170,6 +172,7 @@ fn settings_close_button_returns_to_the_active_widget() {
                             CapsuleWidgets {
                                 compact_views: &[],
                                 widget_ids: &widget_ids,
+                                widget_titles: &[],
                                 widget_title: "测试",
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),

@@ -9,6 +9,7 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 mod compact;
 mod expanded;
 use crate::ui::renderer;
+pub(super) use expanded::{navigation_rect, navigation_width, NAVIGATION_HEIGHT};
 
 use super::{compact_layout::CAPSULE_HEIGHT, icons::Icons, mascot::Mascot, widgets};
 
@@ -59,6 +60,7 @@ pub(super) struct CapsuleWidgets<'a> {
     pub settings_view: &'a mut SettingsView,
     pub active_widget: &'a mut ExtensionId,
     pub widget_ids: &'a [ExtensionId],
+    pub widget_titles: &'a [String],
     pub widget_title: &'a str,
     pub widget_view: &'a WidgetView,
     pub widget_body_limit: Vec2,
@@ -90,7 +92,12 @@ pub(super) fn show(
     expanded_height: f32,
     content: CapsuleWidgets<'_>,
 ) -> CapsuleResult {
-    let height = capsule_height(progress, expanded_height);
+    let navigation_height = if !content.settings_open && content.notification.is_none() {
+        NAVIGATION_HEIGHT
+    } else {
+        0.0
+    };
+    let height = capsule_height(progress, expanded_height + navigation_height);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     let capsule = ui.interact(
         rect,
@@ -107,6 +114,9 @@ pub(super) fn show(
     let page_swipe = if progress > 0.9
         && !content.settings_open
         && content.notification.is_none()
+        && !context
+            .input(|input| input.pointer.press_origin())
+            .is_some_and(|point| navigation_rect(rect).contains(point))
         && !renderer::scrolls_horizontally(content.widget_view)
     {
         swipe_finished(context, &capsule)
@@ -146,6 +156,7 @@ pub(super) fn show(
             ExpandedContent {
                 active_widget: content.active_widget,
                 widget_ids: content.widget_ids,
+                widget_titles: content.widget_titles,
                 widget_title: content.widget_title,
                 widget_view: content.widget_view,
                 widget_body_limit: content.widget_body_limit,
@@ -201,7 +212,7 @@ fn capsule_height(progress: f32, expanded_height: f32) -> f32 {
 pub(super) fn resized_bounds(previous: Rect, width: f32, extra_height: f32) -> Rect {
     Rect::from_min_size(
         Pos2::new(previous.center().x - width * 0.5, previous.top()),
-        Vec2::new(width, capsule_height(1.0, extra_height)),
+        Vec2::new(width, capsule_height(1.0, extra_height + NAVIGATION_HEIGHT)),
     )
 }
 
@@ -271,6 +282,7 @@ fn corner_radius(progress: f32) -> f32 {
 struct ExpandedContent<'a> {
     active_widget: &'a mut ExtensionId,
     widget_ids: &'a [ExtensionId],
+    widget_titles: &'a [String],
     widget_title: &'a str,
     widget_view: &'a WidgetView,
     widget_body_limit: Vec2,
@@ -292,6 +304,7 @@ fn paint_expanded(
     let ExpandedContent {
         active_widget,
         widget_ids,
+        widget_titles,
         widget_title,
         widget_view,
         widget_body_limit,
@@ -325,7 +338,10 @@ fn paint_expanded(
     let settings_changed = if settings_open {
         settings_view.show(ui, rect, preferences, bilibili_status)
     } else {
-        let available = body_size(rect.width(), rect.height() - EXPANDED_BASE_HEIGHT);
+        let available = body_size(
+            rect.width(),
+            rect.height() - EXPANDED_BASE_HEIGHT - NAVIGATION_HEIGHT,
+        );
         let size = available.min(widget_body_limit);
         if size.x > 0.0 && size.y > 0.0 {
             let top_left = Pos2::new(
@@ -339,7 +355,7 @@ fn paint_expanded(
         false
     };
     if !settings_open {
-        expanded::paint_tabs(ui, rect, active_widget, widget_ids, reveal);
+        expanded::paint_tabs(ui, rect, active_widget, widget_ids, widget_titles, reveal);
     }
     (
         settings,
