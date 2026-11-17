@@ -95,6 +95,8 @@ fn named_icon(name: &str) -> Option<Icon> {
         "moon" => Icon::Moon,
         "music" => Icon::Music,
         "music-note" => Icon::MusicNote,
+        "speaker" => Icon::Speaker,
+        "speaker-playing" => Icon::SpeakerPlaying,
         "media-play" => Icon::MediaPlay,
         "media-pause" => Icon::MediaPause,
         "media-previous" => Icon::MediaPrevious,

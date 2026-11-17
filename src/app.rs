@@ -136,7 +136,7 @@ impl IslandApp {
         }
     }
 
-    fn update_viewport_size(&mut self, context: &egui::Context) {
+    fn update_viewport_size(&mut self, context: &egui::Context, compact_width: f32) {
         let (monitor, outer) = context.input(|input| {
             let viewport = input.viewport();
             (viewport.monitor_size, viewport.outer_rect)
@@ -146,7 +146,10 @@ impl IslandApp {
             return;
         };
         self.monitor_size = Some(monitor);
-        let size = (monitor * SCREEN_FRACTION).floor().max(Vec2::splat(1.0));
+        let mut size = (monitor * SCREEN_FRACTION).floor().max(Vec2::splat(1.0));
+        // A lyric may exceed the normal widget canvas. Keep room for the
+        // spring overshoot as well, so the native window cannot crop it.
+        size.x = size.x.max((compact_width * 1.08).ceil());
         if self.window_size == size {
             return;
         }
@@ -346,8 +349,7 @@ impl eframe::App for IslandApp {
 
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
         let now = Instant::now();
-        self.update_viewport_size(context);
-        let widget_limit = widget_limit(self.window_size);
+        let mut widget_limit = widget_limit((self.screen_size() * SCREEN_FRACTION).floor());
         if self
             .last_platform_check
             .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(1))
@@ -430,15 +432,30 @@ impl eframe::App for IslandApp {
         } else {
             self.extensions.widget_view(&self.active_widget, now)
         };
+        // A content-fitted view can explicitly opt into a wider canvas.
+        // Music uses this for single-line lyrics in both presentation modes.
+        if let Some(maximum) = widget_view
+            .as_deref()
+            .filter(|view| view.bounds.fit_width)
+            .and_then(|view| view.bounds.max[0])
+            .filter(|maximum| maximum.is_finite() && *maximum > 0.0)
+        {
+            widget_limit[0] = widget_limit[0].max(maximum);
+        }
         let minimum = minimum_widget_size(self.screen_size());
         let fitted_width = widget_view
             .as_deref()
             .filter(|view| view.bounds.fit_width)
             .map(|view| {
                 let limit = capsule::body_size(widget_limit[0], 0.0).x;
-                let width =
-                    crate::ui::renderer::content_width(context, &view.root, limit, &self.icons)
-                        + 2.0 * capsule::BODY_SIDE;
+                let width = (crate::ui::renderer::natural_content_width(
+                    context,
+                    &view.root,
+                    limit,
+                    &self.icons,
+                ) + 2.0 * capsule::BODY_SIDE
+                    + 1.0)
+                    .ceil();
                 width
             });
         let [widget_width, preferred_height] = self.extensions.widget_size(
@@ -499,9 +516,18 @@ impl eframe::App for IslandApp {
         }
         let widget_title = self.extensions.widget_title(&self.active_widget);
         let bilibili_status = self.extensions.bilibili_status();
-        let compact_views = self.extensions.compact_views(now);
-        self.state
-            .set_compact_width(compact_layout::width(&self.preferences, &compact_views));
+        let measured_views = compact_layout::measure_views(
+            context,
+            &self.extensions.compact_views(now),
+            &self.icons,
+        );
+        let compact_views: Vec<_> = measured_views.iter().collect();
+        let compact_width = compact_layout::width(&self.preferences, &compact_views);
+        self.update_viewport_size(
+            context,
+            compact_width.max(widget_width).max(self.state.width.value),
+        );
+        self.state.set_compact_width(compact_width);
         let dt = context.input(|input| input.stable_dt).clamp(0.0, 0.05);
         let (pill_width, progress) = self.state.advance(dt);
         self.widget_height
@@ -552,7 +578,7 @@ impl eframe::App for IslandApp {
                     ) = capsule::show(
                         ui,
                         context,
-                        pill_width.min(widget_limit[0]),
+                        pill_width.min(self.window_size.x),
                         progress,
                         self.widget_height.value.clamp(0.0, widget_limit[1]),
                         capsule::CapsuleWidgets {

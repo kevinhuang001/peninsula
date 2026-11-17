@@ -220,6 +220,7 @@ impl RuntimeExtension for PomodoroExtension {
             },
             min_width: 88.0,
             preferred_width: 88.0,
+            fit_width: false,
             priority: 7,
             tooltip: Some(
                 if self.timer.running {

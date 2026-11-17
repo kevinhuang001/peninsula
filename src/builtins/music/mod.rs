@@ -8,7 +8,7 @@ use crate::{
         ExtensionId, ExtensionKind, ExtensionOutput, NotificationPresentationProvider,
         RuntimeExtension, WidgetVisibility,
     },
-    ui::declarative::{Overflow, ScrollAxes, WidgetBounds, WidgetView},
+    ui::declarative::{Overflow, ScrollAxes, WidgetBounds, WidgetView, MAX_CONTENT_WIDTH},
 };
 use lyrics::Lyrics;
 use platform::{Backend, Command, Playback, Track};
@@ -31,15 +31,22 @@ pub(super) fn descriptors() -> Vec<ExtensionDescriptor> {
     vec![
         ExtensionDescriptor::builtin(WIDGET_ID, ExtensionKind::Widget, "音乐", "music", true, 5)
             .with_size_hint(WIDGET_SIZE[0], WIDGET_SIZE[1])
-            .with_widget_bounds(WidgetBounds {
-                fit_height: true,
-                overflow: Overflow::Scroll(ScrollAxes::Vertical),
-                ..Default::default()
-            })
+            .with_widget_bounds(widget_bounds())
             .with_capabilities(vec![Capability::View, Capability::Action]),
         ExtensionDescriptor::builtin(COMPACT_ID, ExtensionKind::Compact, "歌词", "music", true, 9)
             .with_size_hint(COMPACT_WIDTH, 28.0),
     ]
+}
+
+fn widget_bounds() -> WidgetBounds {
+    WidgetBounds {
+        min: [WIDGET_SIZE[0], 0.0],
+        max: [Some(MAX_CONTENT_WIDTH), None],
+        fit_width: true,
+        fit_height: true,
+        overflow: Overflow::Scroll(ScrollAxes::Vertical),
+        ..Default::default()
+    }
 }
 
 enum MediaUpdate {
@@ -144,10 +151,11 @@ impl RuntimeExtension for MusicExtension {
         vec![CompactView {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(WIDGET_ID),
-            content: view::compact(lyric.unwrap_or(title), lyric.is_some()),
+            content: view::compact(lyric.unwrap_or(title), lyric.is_some(), playback.playing),
             visibility: CompactVisibility::Visible,
             min_width: 84.0,
             preferred_width: COMPACT_WIDTH,
+            fit_width: true,
             priority: 0,
             tooltip: Some(tooltip),
         }]
