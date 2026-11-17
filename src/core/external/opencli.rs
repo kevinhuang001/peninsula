@@ -279,14 +279,23 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn windows_npm_cmd_is_found_and_runs_without_a_console() {
+    fn windows_npm_cmd_and_its_console_child_have_no_visible_console() {
         let root = tempfile::Builder::new()
             .prefix("npm shim ")
             .tempdir()
             .unwrap();
         let shim = root.path().join("opencli.cmd");
-        std::fs::write(&shim,
-            "@echo off\r\necho console-probe>CON 2>NUL\r\nif not errorlevel 1 exit /b 9\r\necho hidden\r\nexit /b 0\r\n").unwrap();
+        use base64::Engine as _;
+        // Passively check window visibility in a real console child. Opening
+        // the CON device can itself allocate a console and is not a popup test.
+        let script: Vec<_> = super::super::process::CONSOLE_VISIBILITY_PROBE
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(script);
+        std::fs::write(&shim, format!(
+            "@echo off\r\npowershell.exe -NoProfile -NonInteractive -EncodedCommand {encoded}\r\nexit /b %errorlevel%\r\n"
+        )).unwrap();
         let paths = std::env::join_paths([root.path()]).unwrap();
         let executable = super::path_candidates(&paths)
             .into_iter()

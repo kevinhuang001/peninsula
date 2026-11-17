@@ -20,6 +20,9 @@ fn hide_console(command: &mut Command) {
 fn hide_console(_command: &mut Command) {}
 
 #[cfg(all(test, target_os = "windows"))]
+pub(super) const CONSOLE_VISIBILITY_PROBE: &str = r#"Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class ConsoleVisibilityProbe { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window); }'; $window = [ConsoleVisibilityProbe]::GetConsoleWindow(); if ($window -ne [IntPtr]::Zero -and [ConsoleVisibilityProbe]::IsWindowVisible($window)) { [Console]::Error.Write('visible console'); exit 9 }; [Console]::Out.Write('hidden')"#;
+
+#[cfg(all(test, target_os = "windows"))]
 mod tests {
     #[test]
     fn background_console_program_has_no_console_window_and_keeps_output() {
