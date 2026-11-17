@@ -317,6 +317,7 @@ fn compact_view(id: &'static str, content: ViewNode, width: f32) -> CompactView 
         id: ExtensionId::builtin(id),
         source_extension_id: ExtensionId::builtin(ID),
         content,
+        visibility: Default::default(),
         min_width: width,
         preferred_width: width,
         priority: 0,

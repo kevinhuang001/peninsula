@@ -2,16 +2,17 @@ use super::{
     theme::{ROW, SECONDARY_TEXT, SWITCH_OFF, SWITCH_ON, TEXT},
     CompactPreferences,
 };
-use crate::builtins::weather::{search_cities, CityResult, WeatherLocation};
+use crate::builtins::weather::{search_cities, CityResult, WeatherLocation, MAX_REFRESH_MINUTES};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, RichText, Sense, Vec2};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 const AUTO_ROW_TOP: f32 = 0.0;
 const ALERTS_ROW_TOP: f32 = 34.0;
-const LOCATION_TOP: f32 = 70.0;
-const SEARCH_LABEL_TOP: f32 = 96.0;
-const SEARCH_FIELD_TOP: f32 = 112.0;
-const RESULTS_TOP: f32 = 146.0;
+const INTERVAL_ROW_TOP: f32 = 68.0;
+const LOCATION_TOP: f32 = 104.0;
+const SEARCH_LABEL_TOP: f32 = 130.0;
+const SEARCH_FIELD_TOP: f32 = 146.0;
+const RESULTS_TOP: f32 = 180.0;
 const RESULT_STEP: f32 = 27.0;
 const MAX_RESULTS: usize = 3;
 pub(super) const CONTENT_HEIGHT: f32 = RESULTS_TOP + RESULT_STEP * MAX_RESULTS as f32;
@@ -121,6 +122,27 @@ pub(super) fn show(
         preferences.weather.alerts_enabled = !preferences.weather.alerts_enabled;
         changed = true;
     }
+
+    let interval = row_rect(panel, INTERVAL_ROW_TOP);
+    draw_row(ui, interval);
+    ui.painter().text(
+        interval.left_center() + Vec2::new(11.0, 0.0),
+        Align2::LEFT_CENTER,
+        "更新间隔",
+        FontId::proportional(11.0),
+        TEXT,
+    );
+    changed |= ui
+        .put(
+            Rect::from_center_size(
+                interval.right_center() - Vec2::new(49.0, 0.0),
+                Vec2::new(82.0, 22.0),
+            ),
+            egui::DragValue::new(&mut preferences.weather.refresh_minutes)
+                .range(1..=MAX_REFRESH_MINUTES)
+                .suffix(" 分钟"),
+        )
+        .changed();
 
     let location = if preferences.weather.auto_locate {
         "自动（网络位置）".to_owned()

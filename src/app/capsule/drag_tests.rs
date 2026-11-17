@@ -134,7 +134,7 @@ fn bottom_pagination_dots_are_always_passive() {
 }
 
 #[test]
-fn expanded_pin_button_emits_toggle_without_starting_a_drag() {
+fn dashboard_button_to_the_left_of_pin_acts_independently() {
     let ctx = egui::Context::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut mascot = Mascot::default();
@@ -142,9 +142,9 @@ fn expanded_pin_button_emits_toggle_without_starting_a_drag() {
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
     let (widget_ids, widget_view) = widget_fixture();
-    let point = pos2(294.0, 30.0);
-    let mut toggled = false;
+
     let mut frame = |events: Vec<Event>| {
+        let mut actions = (false, false, false);
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(420.0, 214.0))),
             events,
@@ -180,21 +180,26 @@ fn expanded_pin_button_emits_toggle_without_starting_a_drag() {
                                 bilibili_status: "",
                             },
                         );
-                        toggled = result.4;
+                        actions = (result.4, result.8, result.2);
                     });
                 });
         });
+        actions
     };
-    let button = |pressed| Event::PointerButton {
-        pos: point,
-        button: PointerButton::Primary,
-        pressed,
-        modifiers: Modifiers::default(),
+    let mut click = |x| {
+        let point = pos2(x, 30.0);
+        let button = |pressed| Event::PointerButton {
+            pos: point,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::default(),
+        };
+        frame(vec![Event::PointerMoved(point)]);
+        frame(vec![button(true)]);
+        frame(vec![button(false)])
     };
-    frame(vec![Event::PointerMoved(point)]);
-    frame(vec![button(true)]);
-    frame(vec![button(false)]);
-    assert!(toggled);
+    assert_eq!(click(265.0), (false, true, false));
+    assert_eq!(click(294.0), (true, false, false));
 }
 
 #[test]

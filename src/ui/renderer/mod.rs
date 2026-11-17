@@ -25,11 +25,23 @@ pub fn show_widget(
     icons: &Icons,
     opacity: f32,
 ) -> Option<ActionInvocation> {
+    show_widget_with_overflow(ui, rect, source, view, icons, opacity, view.bounds.overflow)
+}
+
+pub fn show_widget_with_overflow(
+    ui: &mut Ui,
+    rect: Rect,
+    source: &ExtensionId,
+    view: &WidgetView,
+    icons: &Icons,
+    opacity: f32,
+    overflow: Overflow,
+) -> Option<ActionInvocation> {
     let mut renderer = Renderer::new(ui, icons);
     let id = ui.id().with(("widget", source));
     let mut surface = ui.new_child(UiBuilder::new().id_salt(id).max_rect(rect));
     surface.set_clip_rect(ui.clip_rect().intersect(rect));
-    match view.bounds.overflow {
+    match overflow {
         Overflow::Clip => renderer.paint_root(&mut surface, rect, &view.root, opacity),
         Overflow::Scroll(axes) => renderer.scroll(
             &mut surface,

@@ -79,6 +79,7 @@ pub(super) type CapsuleResult = (
     bool,
     bool,
     Option<ActionInvocation>,
+    bool,
 );
 
 pub(super) fn show(
@@ -117,6 +118,7 @@ pub(super) fn show(
     let mut widget_action = None;
     let mut settings_changed = false;
     let mut quiet_toggled = false;
+    let mut dashboard_requested = false;
     let (settings, pin_toggled) = if progress < 0.9 {
         widget_action = compact::show(
             ui,
@@ -137,7 +139,7 @@ pub(super) fn show(
             .and_then(|view| view.show(ui, rect, content.icons));
         (false, false)
     } else {
-        let (settings, pin_toggled, quiet, changed, action) = paint_expanded(
+        let (settings, pin_toggled, quiet, changed, action, dashboard) = paint_expanded(
             ui,
             rect,
             progress,
@@ -159,6 +161,7 @@ pub(super) fn show(
         settings_changed = changed;
         quiet_toggled = quiet;
         widget_action = action;
+        dashboard_requested = dashboard;
         (settings, pin_toggled)
     };
     capsule.context_menu(|ui| {
@@ -186,6 +189,7 @@ pub(super) fn show(
         quiet_toggled,
         settings_changed,
         widget_action,
+        dashboard_requested,
     )
 }
 
@@ -230,7 +234,7 @@ fn drag_handle_bounds(rect: Rect, progress: f32) -> Rect {
     if progress >= 0.9 {
         Rect::from_min_max(
             Pos2::new(rect.left() + 48.0, rect.top()),
-            Pos2::new(rect.right() - 82.0, rect.top() + 43.0),
+            Pos2::new(rect.right() - 118.0, rect.top() + 43.0),
         )
     } else {
         rect
@@ -284,7 +288,7 @@ fn paint_expanded(
     rect: Rect,
     progress: f32,
     content: ExpandedContent<'_>,
-) -> (bool, bool, bool, bool, Option<ActionInvocation>) {
+) -> (bool, bool, bool, bool, Option<ActionInvocation>, bool) {
     let ExpandedContent {
         active_widget,
         widget_ids,
@@ -306,7 +310,7 @@ fn paint_expanded(
     } else {
         widget_title.to_owned()
     };
-    let (pin_toggled, quiet_toggled, settings) = expanded::paint_header(
+    let (pin_toggled, quiet_toggled, settings, dashboard_requested) = expanded::paint_header(
         ui,
         rect,
         expanded::HeaderContent {
@@ -326,7 +330,7 @@ fn paint_expanded(
         if size.x > 0.0 && size.y > 0.0 {
             let top_left = Pos2::new(
                 rect.center().x - size.x * 0.5,
-                rect.top() + EXPANDED_BASE_HEIGHT,
+                rect.top() + EXPANDED_BASE_HEIGHT + (available.y - size.y) * 0.5,
             );
             let body = Rect::from_min_size(top_left, size);
             widget_action =
@@ -343,6 +347,7 @@ fn paint_expanded(
         quiet_toggled,
         settings_changed,
         widget_action,
+        dashboard_requested,
     )
 }
 

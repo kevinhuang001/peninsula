@@ -152,6 +152,7 @@ impl RuntimeExtension for DownloadExtension {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(NOTIFICATION_ID),
             content,
+            visibility: Default::default(),
             min_width: 88.0,
             preferred_width: 88.0,
             priority: 1,

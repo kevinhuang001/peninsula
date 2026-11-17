@@ -1,9 +1,10 @@
 use super::timer::{Phase, Pomodoro};
 use crate::extension::{
-    Action, CompactView, Event, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput,
-    Notification, NotificationAction, NotificationAlertView, NotificationCenterItemView,
-    NotificationPresentationProvider, NotificationPriority, ReloadPolicy, RuntimeExtension,
-    ScheduledTask, SettingSchema, SettingValue, Settings, ViewNode, WidgetView,
+    Action, CompactView, CompactVisibility, Event, ExtensionDescriptor, ExtensionId, ExtensionKind,
+    ExtensionOutput, Notification, NotificationAction, NotificationAlertView,
+    NotificationCenterItemView, NotificationPresentationProvider, NotificationPriority,
+    ReloadPolicy, RuntimeExtension, ScheduledTask, SettingSchema, SettingValue, Settings, ViewNode,
+    WidgetView,
 };
 use crate::ui::declarative::*;
 use std::time::{Instant, SystemTime};
@@ -141,6 +142,7 @@ impl RuntimeExtension for PomodoroExtension {
                             TextStyle {
                                 font_size: FontSize::Title,
                                 font_weight: FontWeight::Bold,
+                                align: Align::Center,
                                 ..Default::default()
                             },
                         )
@@ -172,7 +174,7 @@ impl RuntimeExtension for PomodoroExtension {
                         ..Default::default()
                     },
                 )
-                .sized(Size::Fill(1.0), Size::Auto),
+                .sized(Size::Fixed(152.0), Size::Auto),
             ],
             Flow {
                 gap: Some(22.0),
@@ -211,6 +213,11 @@ impl RuntimeExtension for PomodoroExtension {
                 },
             )
             .color(self.phase_color()),
+            visibility: if self.timer.has_started() {
+                CompactVisibility::Visible
+            } else {
+                CompactVisibility::Hidden
+            },
             min_width: 88.0,
             preferred_width: 88.0,
             priority: 7,
@@ -307,4 +314,37 @@ impl NotificationPresentationProvider for PomodoroExtension {
 fn format_time(seconds: f32) -> String {
     let total = seconds.max(0.0).ceil() as u32;
     format!("{:02}:{:02}", total / 60, total % 60)
+}
+
+#[cfg(test)]
+mod compact_tests {
+    use super::*;
+
+    #[test]
+    fn compact_is_hidden_until_start_and_after_reset() {
+        let mut extension = PomodoroExtension::default();
+        let now = Instant::now();
+        assert_eq!(
+            extension.compact_views()[0].visibility,
+            CompactVisibility::Hidden
+        );
+        let output = extension.on_action(Action::Toggle, now);
+        assert!(output
+            .invalidated
+            .contains(&ExtensionId::builtin(WIDGET_ID)));
+        assert_eq!(
+            extension.compact_views()[0].visibility,
+            CompactVisibility::Visible
+        );
+        extension.on_action(Action::Toggle, now);
+        assert_eq!(
+            extension.compact_views()[0].visibility,
+            CompactVisibility::Visible
+        );
+        extension.on_action(Action::Reset, now);
+        assert_eq!(
+            extension.compact_views()[0].visibility,
+            CompactVisibility::Hidden
+        );
+    }
 }

@@ -20,6 +20,7 @@ use std::{
 mod animation;
 mod capsule;
 mod compact_layout;
+mod dashboard;
 mod fonts;
 pub(crate) mod icons;
 mod mascot;
@@ -37,6 +38,14 @@ use settings::{CompactPreferences, SettingsView};
 const INITIAL_WINDOW_SIZE: [f32; 2] = [720.0, 372.0];
 const WINDOW_TOP_PADDING: f32 = 4.0;
 const SCREEN_FRACTION: f32 = 0.75;
+
+fn minimum_widget_size(screen: Vec2) -> Vec2 {
+    // 360 × 160 at the reference display size of 1440 × 900.
+    egui::vec2(
+        (screen.x * 0.25).round(),
+        (screen.y * (160.0 / 900.0)).round(),
+    )
+}
 
 fn widget_limit(window_size: Vec2) -> [f32; 2] {
     [
@@ -59,6 +68,7 @@ struct IslandApp {
     preferences: CompactPreferences,
     settings_view: SettingsView,
     settings_open: bool,
+    dashboard_open: bool,
     notification_center_page: usize,
     center_view: Option<((u64, usize), Arc<WidgetView>)>,
     alert_surface: Option<(NotificationKey, notification::AlertSurface)>,
@@ -74,6 +84,7 @@ struct IslandApp {
     quiet_bypassed: bool,
     last_platform_check: Option<Instant>,
     window_size: Vec2,
+    monitor_size: Option<Vec2>,
 }
 
 impl IslandApp {
@@ -105,6 +116,7 @@ impl IslandApp {
             preferences,
             settings_view: SettingsView::default(),
             settings_open: false,
+            dashboard_open: false,
             notification_center_page: 0,
             center_view: None,
             alert_surface: None,
@@ -120,6 +132,7 @@ impl IslandApp {
             quiet_bypassed: false,
             last_platform_check: None,
             window_size,
+            monitor_size: None,
         }
     }
 
@@ -132,6 +145,7 @@ impl IslandApp {
         else {
             return;
         };
+        self.monitor_size = Some(monitor);
         let size = (monitor * SCREEN_FRACTION).floor().max(Vec2::splat(1.0));
         if self.window_size == size {
             return;
@@ -143,6 +157,67 @@ impl IslandApp {
             context.send_viewport_cmd(egui::ViewportCommand::OuterPosition(position));
         }
         self.window_size = size;
+    }
+
+    fn screen_size(&self) -> Vec2 {
+        self.monitor_size
+            .unwrap_or(self.window_size / SCREEN_FRACTION)
+    }
+
+    fn notification_center_view(&mut self) -> Arc<WidgetView> {
+        let key = (self.notifications.revision(), self.notification_center_page);
+        if self
+            .center_view
+            .as_ref()
+            .is_none_or(|(previous, _)| *previous != key)
+        {
+            let entries: Vec<_> = self
+                .notifications
+                .pending()
+                .map(|notification| NotificationCenterEntry {
+                    key: notification.key(),
+                    view: self
+                        .extensions
+                        .notification_presentation(notification)
+                        .center_item,
+                })
+                .collect();
+            let view = notifications::widget_view(&entries, self.notification_center_page);
+            self.center_view = Some((key, Arc::new(view)));
+        }
+        self.center_view.as_ref().unwrap().1.clone()
+    }
+
+    fn show_dashboard(
+        &mut self,
+        context: &egui::Context,
+        widget_ids: &[ExtensionId],
+        now: Instant,
+    ) {
+        let cards = widget_ids
+            .iter()
+            .map(|id| {
+                let view = if id.as_str() == NOTIFICATION_CENTER_ID {
+                    self.notification_center_view()
+                } else {
+                    self.extensions
+                        .widget_view(id, now)
+                        .unwrap_or_else(|| Arc::new(empty_widget_view()))
+                };
+                dashboard::Card {
+                    id: id.clone(),
+                    title: self.extensions.widget_title(id),
+                    view,
+                }
+            })
+            .collect::<Vec<_>>();
+        let outcome = dashboard::show(context, &self.icons, &cards, self.screen_size());
+        if outcome.close {
+            self.dashboard_open = false;
+        }
+        for action in outcome.actions {
+            self.dispatch_widget_action(action, now, context);
+        }
     }
 
     fn apply_extension_output(&mut self, output: ExtensionOutput, context: &egui::Context) {
@@ -351,31 +426,11 @@ impl eframe::App for IslandApp {
             self.extensions.invalidate_views(&id);
         }
         let widget_view = if self.active_widget.as_str() == NOTIFICATION_CENTER_ID {
-            let key = (self.notifications.revision(), self.notification_center_page);
-            if self
-                .center_view
-                .as_ref()
-                .is_none_or(|(previous, _)| *previous != key)
-            {
-                let center_entries: Vec<_> = self
-                    .notifications
-                    .pending()
-                    .map(|notification| NotificationCenterEntry {
-                        key: notification.key(),
-                        view: self
-                            .extensions
-                            .notification_presentation(notification)
-                            .center_item,
-                    })
-                    .collect();
-                let view =
-                    notifications::widget_view(&center_entries, self.notification_center_page);
-                self.center_view = Some((key, Arc::new(view)));
-            }
-            Some(self.center_view.as_ref().unwrap().1.clone())
+            Some(self.notification_center_view())
         } else {
             self.extensions.widget_view(&self.active_widget, now)
         };
+        let minimum = minimum_widget_size(self.screen_size());
         let fitted_width = widget_view
             .as_deref()
             .filter(|view| view.bounds.fit_width)
@@ -384,7 +439,7 @@ impl eframe::App for IslandApp {
                 let width =
                     crate::ui::renderer::content_width(context, &view.root, limit, &self.icons)
                         + 2.0 * capsule::BODY_SIDE;
-                width.max(state::MIN_EXPANDED_WIDTH)
+                width
             });
         let [widget_width, preferred_height] = self.extensions.widget_size(
             &self.active_widget,
@@ -392,7 +447,8 @@ impl eframe::App for IslandApp {
             widget_limit,
             [fitted_width, None],
         );
-        let widget_height = if let Some(view) =
+        let widget_width = widget_width.max(minimum.x.min(widget_limit[0]));
+        let content_height = if let Some(view) =
             widget_view.as_deref().filter(|view| view.bounds.fit_height)
         {
             let body_width = capsule::body_size(widget_width, 0.0).x;
@@ -407,6 +463,8 @@ impl eframe::App for IslandApp {
         } else {
             preferred_height
         };
+        let minimum_body_height = (minimum.y - capsule::EXPANDED_BASE_HEIGHT).max(0.0);
+        let widget_height = content_height.max(minimum_body_height.min(widget_limit[1]));
         let pointer = context.input(|input| input.pointer.hover_pos());
         if let Some(previous) = self.page_switch_from.take() {
             let next = capsule::resized_bounds(previous, widget_width, widget_height);
@@ -490,6 +548,7 @@ impl eframe::App for IslandApp {
                         quiet_toggled,
                         preferences_changed,
                         widget_action,
+                        dashboard_requested,
                     ) = capsule::show(
                         ui,
                         context,
@@ -506,7 +565,7 @@ impl eframe::App for IslandApp {
                             widget_ids: &widget_ids,
                             widget_title: &widget_title,
                             widget_view,
-                            widget_body_limit: capsule::body_size(widget_width, widget_height),
+                            widget_body_limit: capsule::body_size(widget_width, content_height),
                             alert_view: self.alert_surface.as_ref().map(|(_, surface)| surface),
                             pinned: self.state.is_pinned(),
                             icons: &self.icons,
@@ -522,7 +581,7 @@ impl eframe::App for IslandApp {
                         quiet_toggled,
                         preferences_changed,
                         toggle_settings,
-                        start_drag,
+                        dashboard_requested,
                     ));
                     drag_started = start_drag;
                     interactive_rect = Some(rect);
@@ -536,11 +595,16 @@ impl eframe::App for IslandApp {
             quiet_toggled,
             preferences_changed,
             toggle_settings,
-            _,
+            dashboard_requested,
         )) = action_result
         {
             if let (Some(interaction), Some(notification)) = (alert_interaction, notice.as_ref()) {
                 self.handle_alert_interaction(interaction, notification);
+            }
+            if dashboard_requested {
+                self.dashboard_open = true;
+                context
+                    .send_viewport_cmd_to(dashboard::viewport_id(), egui::ViewportCommand::Focus);
             }
             if pin_toggled {
                 self.state.toggle_pin();
@@ -681,6 +745,9 @@ impl eframe::App for IslandApp {
             }
             context.request_repaint();
         }
+        if self.dashboard_open {
+            self.show_dashboard(context, &widget_ids, now);
+        }
         context.request_repaint_after(Duration::from_millis(16));
     }
 }
@@ -715,4 +782,21 @@ pub fn run() -> eframe::Result<()> {
             Ok(Box::new(IslandApp::new(&cc.egui_ctx)))
         }),
     )
+}
+
+#[cfg(test)]
+mod sizing_tests {
+    use super::*;
+
+    #[test]
+    fn minimum_widget_dimensions_follow_the_screen() {
+        assert_eq!(
+            minimum_widget_size(egui::vec2(1440.0, 900.0)),
+            egui::vec2(360.0, 160.0)
+        );
+        assert_eq!(
+            minimum_widget_size(egui::vec2(2160.0, 1350.0)),
+            egui::vec2(540.0, 240.0)
+        );
+    }
 }

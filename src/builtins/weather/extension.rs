@@ -24,7 +24,6 @@ pub const WIDGET_ID: &str = "builtin.weather/forecast";
 pub const COMPACT_ID: &str = "builtin.weather/current";
 pub const ALERTS_ID: &str = "builtin.weather/alerts";
 
-const REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 const RETRY_INTERVAL: Duration = Duration::from_secs(60);
 const WIDGET_SIZE: [f32; 2] = [506.0, 334.0];
 const COMPACT_WIDTH: f32 = 68.0;
@@ -84,6 +83,7 @@ pub struct WeatherExtension {
     published_alerts: HashMap<String, alerts::Severity>,
     alert_history_path: Option<PathBuf>,
     next_refresh: Instant,
+    last_success: Option<Instant>,
 }
 
 impl WeatherExtension {
@@ -98,6 +98,7 @@ impl WeatherExtension {
             published_alerts: HashMap::new(),
             alert_history_path: None,
             next_refresh: Instant::now(),
+            last_success: None,
         }
     }
 
@@ -108,6 +109,7 @@ impl WeatherExtension {
         let location_changed = self.preferences.auto_locate != preferences.auto_locate
             || self.preferences.location != preferences.location;
         let alerts_enabled = !self.preferences.alerts_enabled && preferences.alerts_enabled;
+        let interval_changed = self.preferences.refresh_minutes != preferences.refresh_minutes;
         self.preferences = preferences.clone();
         if location_changed {
             self.snapshot = None;
@@ -115,14 +117,19 @@ impl WeatherExtension {
             self.error = None;
             self.auto_location = None;
             self.pending = None;
+            self.last_success = None;
             self.next_refresh = Instant::now();
         } else if alerts_enabled && self.snapshot.is_some() {
             self.next_refresh = Instant::now();
+        } else if interval_changed && self.error.is_none() {
+            if let Some(last_success) = self.last_success {
+                self.next_refresh = last_success + self.preferences.refresh_interval();
+            }
         }
         true
     }
 
-    fn start_fetch(&mut self, now: Instant) {
+    fn start_fetch(&mut self) {
         if self.pending.is_some() {
             return;
         }
@@ -130,7 +137,6 @@ impl WeatherExtension {
         let preferences = self.preferences.clone();
         let cached_auto_location = self.auto_location.clone();
         self.pending = Some(receiver);
-        self.next_refresh = now + REFRESH_INTERVAL;
         std::thread::spawn(move || {
             let result = client::fetch(&preferences, cached_auto_location.as_ref());
             let _ = sender.send(result);
@@ -179,7 +185,8 @@ impl WeatherExtension {
         self.alerts = derived;
         self.snapshot = Some(snapshot);
         self.error = None;
-        self.next_refresh = now + REFRESH_INTERVAL;
+        self.last_success = Some(now);
+        self.next_refresh = now + self.preferences.refresh_interval();
     }
 
     fn poll_fetch(&mut self, now: Instant, output: &mut ExtensionOutput) -> bool {
@@ -234,6 +241,7 @@ impl WeatherExtension {
             published_alerts: HashMap::new(),
             alert_history_path: None,
             next_refresh: Instant::now() + Duration::from_secs(3600),
+            last_success: None,
         }
     }
 }
@@ -282,7 +290,7 @@ impl RuntimeExtension for WeatherExtension {
         let mut output = ExtensionOutput::default();
         let changed = self.poll_fetch(now, &mut output);
         if self.pending.is_none() && now >= self.next_refresh {
-            self.start_fetch(now);
+            self.start_fetch();
         }
         if changed {
             output.invalidated = vec![
@@ -299,7 +307,7 @@ impl RuntimeExtension for WeatherExtension {
         }
         self.error = None;
         self.next_refresh = now;
-        self.start_fetch(now);
+        self.start_fetch();
         ExtensionOutput {
             invalidated: vec![ExtensionId::builtin(WIDGET_ID)],
             ..ExtensionOutput::default()
@@ -373,6 +381,7 @@ impl RuntimeExtension for WeatherExtension {
                 },
             )
             .color(color),
+            visibility: Default::default(),
             min_width: COMPACT_WIDTH,
             preferred_width: COMPACT_WIDTH,
             priority: 0,
@@ -866,6 +875,20 @@ mod tests {
             extension.compact_views()[0].content.style.normal.foreground,
             Some(ColorSpec::Warning)
         );
+    }
+
+    #[test]
+    fn editing_refresh_minutes_reschedules_the_next_forecast() {
+        let mut extension = WeatherExtension::new(WeatherPreferences::default());
+        let fetched = Instant::now();
+        extension.apply_snapshot(snapshot(), fetched, &mut ExtensionOutput::default());
+        assert_eq!(extension.next_refresh, fetched + Duration::from_secs(600));
+        let preferences = WeatherPreferences {
+            refresh_minutes: 45,
+            ..extension.preferences.clone()
+        };
+        extension.set_preferences(&preferences);
+        assert_eq!(extension.next_refresh, fetched + Duration::from_secs(2700));
     }
 
     #[test]

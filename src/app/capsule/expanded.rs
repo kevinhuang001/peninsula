@@ -1,6 +1,6 @@
 use crate::app::icons::{Icon, Icons};
 use crate::extension::ExtensionId;
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Vec2};
+use eframe::egui::{self, Color32, FontId, Pos2, Rect, Vec2};
 
 pub(super) struct HeaderContent<'a> {
     pub title: &'a str,
@@ -15,7 +15,7 @@ pub(super) fn paint_header(
     ui: &mut egui::Ui,
     rect: Rect,
     content: HeaderContent<'_>,
-) -> (bool, bool, bool) {
+) -> (bool, bool, bool, bool) {
     let HeaderContent {
         title,
         pinned,
@@ -29,14 +29,39 @@ pub(super) fn paint_header(
     } else {
         ui.visuals().text_color()
     };
-    ui.painter().text(
-        Pos2::new(rect.center().x, rect.top() + 27.0),
-        Align2::CENTER_CENTER,
-        title,
-        FontId::proportional(15.0),
-        text.linear_multiply(opacity),
-    );
     let button_size = Vec2::splat(24.0);
+    let dashboard_rect = header_button(rect, 105.0, button_size);
+    let title_bounds = Rect::from_min_max(
+        Pos2::new(rect.left() + 15.0, rect.top()),
+        Pos2::new(dashboard_rect.left() - 8.0, rect.top() + 46.0),
+    );
+    if title_bounds.is_positive() {
+        let painter = ui.painter().with_clip_rect(title_bounds);
+        let galley = painter.layout_no_wrap(title.to_owned(), FontId::proportional(15.0), text);
+        let center = rect
+            .center()
+            .x
+            .min(title_bounds.right() - galley.size().x * 0.5);
+        painter.galley(
+            Pos2::new(
+                center - galley.size().x * 0.5,
+                rect.top() + 27.0 - galley.size().y * 0.5,
+            ),
+            galley,
+            text.linear_multiply(opacity),
+        );
+    }
+    let dashboard_requested = header_control(
+        ui,
+        dashboard_rect,
+        icons,
+        Icon::Dashboard,
+        false,
+        text,
+        opacity,
+    )
+    .on_hover_text("打开仪表盘")
+    .clicked();
     let pin_toggled = header_control(
         ui,
         header_button(rect, 76.0, button_size),
@@ -86,7 +111,7 @@ pub(super) fn paint_header(
         "设置"
     })
     .clicked();
-    (pin_toggled, quiet_toggled, settings)
+    (pin_toggled, quiet_toggled, settings, dashboard_requested)
 }
 
 fn header_control(

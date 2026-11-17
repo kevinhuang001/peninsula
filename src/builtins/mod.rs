@@ -373,6 +373,7 @@ impl BuiltinExtensions {
             .iter()
             .enumerate()
             .flat_map(|(index, _)| self.compact_cache.get(&index).into_iter().flatten())
+            .filter(|view| view.visibility == crate::extension::CompactVisibility::Visible)
             .filter(|view| {
                 self.registry
                     .get(&view.id)

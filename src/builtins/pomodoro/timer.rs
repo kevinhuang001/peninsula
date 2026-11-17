@@ -11,6 +11,7 @@ pub enum Phase {
 pub struct Pomodoro {
     pub phase: Phase,
     pub running: bool,
+    started: bool,
     remaining_seconds: f32,
     deadline: Option<Instant>,
     focus_minutes: u16,
@@ -23,6 +24,7 @@ impl Default for Pomodoro {
             phase: Phase::Focus,
             remaining_seconds: 25.0 * 60.0,
             running: false,
+            started: false,
             deadline: None,
             focus_minutes: 25,
             break_minutes: 5,
@@ -78,6 +80,10 @@ impl Pomodoro {
         self.deadline
     }
 
+    pub fn has_started(&self) -> bool {
+        self.started
+    }
+
     pub fn toggle_at(&mut self, now: Instant) {
         if self.running {
             self.remaining_seconds = self.remaining_at(now);
@@ -86,10 +92,12 @@ impl Pomodoro {
         } else {
             self.deadline = Some(now + Duration::from_secs_f32(self.remaining_seconds.max(0.0)));
             self.running = true;
+            self.started = true;
         }
     }
 
     pub fn reset(&mut self) {
+        self.started = false;
         self.remaining_seconds = self.phase_seconds();
         self.running = false;
         self.deadline = None;

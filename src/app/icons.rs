@@ -3,6 +3,7 @@ use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, TextureHandle, Ve
 #[derive(Clone, Copy)]
 pub(crate) enum Icon {
     Pin,
+    Dashboard,
     Moon,
     Settings,
     Battery,
@@ -146,6 +147,23 @@ impl Icons {
     }
 
     pub fn paint(&self, painter: &Painter, icon: Icon, rect: Rect, color: Color32, opacity: f32) {
+        if matches!(icon, Icon::Dashboard) {
+            let center = rect.center();
+            let cell = rect.width().min(rect.height()) * 0.36;
+            let offset = cell * 0.68;
+            let stroke = Stroke::new(1.25, color.linear_multiply(opacity));
+            for y in [-offset, offset] {
+                for x in [-offset, offset] {
+                    painter.rect_stroke(
+                        Rect::from_center_size(center + Vec2::new(x, y), Vec2::splat(cell)),
+                        1.0,
+                        stroke,
+                        egui::StrokeKind::Inside,
+                    );
+                }
+            }
+            return;
+        }
         if matches!(icon, Icon::Cpu) {
             paint_cpu(painter, rect, color.linear_multiply(opacity));
             return;
@@ -180,7 +198,7 @@ impl Icons {
             Icon::Settings => &self.settings,
             Icon::Battery => &self.battery,
             Icon::BatteryCharging => &self.battery_charging,
-            Icon::Cpu | Icon::Gpu | Icon::Bell => unreachable!(),
+            Icon::Cpu | Icon::Gpu | Icon::Bell | Icon::Dashboard => unreachable!(),
             Icon::ArrowDown => &self.arrow_down,
             Icon::ArrowUp => &self.arrow_up,
             Icon::Clock => &self.clock,

@@ -3,6 +3,14 @@ use super::{
     NotificationCenterItemView, ReloadPolicy, Settings, WidgetView,
 };
 
+/// Runtime visibility is evaluated separately from the user's Compact preference.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum CompactVisibility {
+    #[default]
+    Visible,
+    Hidden,
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CompactView {
     /// Preference key for a compact component. One extension can provide
@@ -10,6 +18,8 @@ pub struct CompactView {
     pub id: ExtensionId,
     pub source_extension_id: ExtensionId,
     pub content: super::ViewNode,
+    #[serde(default)]
+    pub visibility: CompactVisibility,
     pub min_width: f32,
     pub preferred_width: f32,
     pub priority: i32,

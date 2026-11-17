@@ -1,6 +1,5 @@
 use super::animation::Spring;
 
-pub(super) const MIN_EXPANDED_WIDTH: f32 = 244.0;
 const HOVER_LEAVE_DELAY: f32 = 0.28;
 const PAGE_SHRINK_GRACE: f32 = 1.2;
 
@@ -26,7 +25,7 @@ impl Default for IslandState {
             pinned: false,
             width: Spring::new(114.0),
             height: Spring::new(0.0),
-            expanded_width: MIN_EXPANDED_WIDTH,
+            expanded_width: 244.0,
             compact_width: 114.0,
             hover_elapsed: 0.0,
             leave_elapsed: 0.0,
@@ -89,12 +88,12 @@ impl IslandState {
         // frame. Freeze the target for the whole transition to avoid retargeting
         // the spring while the native window is also resizing.
         if !self.expanded && !self.animating() {
-            self.expanded_width = width.max(MIN_EXPANDED_WIDTH);
+            self.expanded_width = width.max(0.0);
         }
     }
 
     pub fn retarget_expanded_width(&mut self, width: f32) {
-        self.expanded_width = width.max(MIN_EXPANDED_WIDTH);
+        self.expanded_width = width.max(0.0);
         if self.expanded {
             self.width.target(self.expanded_width);
         }

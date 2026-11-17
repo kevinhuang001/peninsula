@@ -1,3 +1,8 @@
+use std::time::Duration;
+
+pub const MAX_REFRESH_MINUTES: u16 = 180;
+const DEFAULT_REFRESH_MINUTES: u16 = 10;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct WeatherLocation {
     pub name: String,
@@ -19,6 +24,7 @@ impl WeatherLocation {
 pub struct WeatherPreferences {
     pub auto_locate: bool,
     pub alerts_enabled: bool,
+    pub refresh_minutes: u16,
     pub location: Option<WeatherLocation>,
 }
 
@@ -27,12 +33,17 @@ impl Default for WeatherPreferences {
         Self {
             auto_locate: true,
             alerts_enabled: true,
+            refresh_minutes: DEFAULT_REFRESH_MINUTES,
             location: None,
         }
     }
 }
 
 impl WeatherPreferences {
+    pub fn refresh_interval(&self) -> Duration {
+        Duration::from_secs(u64::from(self.refresh_minutes) * 60)
+    }
+
     pub fn apply_line(&mut self, key: &str, value: &str) -> bool {
         match key.trim() {
             "weather_auto" => {
@@ -44,6 +55,12 @@ impl WeatherPreferences {
             "weather_alerts" => {
                 if let Some(value) = parse_bool(value) {
                     self.alerts_enabled = value;
+                }
+                true
+            }
+            "weather_refresh_minutes" => {
+                if let Ok(minutes) = value.trim().parse::<u16>() {
+                    self.refresh_minutes = minutes.clamp(1, MAX_REFRESH_MINUTES);
                 }
                 true
             }
@@ -61,6 +78,7 @@ impl WeatherPreferences {
         let mut lines = vec![
             format!("weather_auto={}", self.auto_locate),
             format!("weather_alerts={}", self.alerts_enabled),
+            format!("weather_refresh_minutes={}", self.refresh_minutes),
         ];
         if let Some(location) = &self.location {
             let name = location.name.replace(['|', '\n', '\r'], " ");
@@ -113,14 +131,13 @@ mod tests {
     fn weather_preferences_round_trip_and_reject_invalid_locations() {
         let mut preferences = WeatherPreferences::default();
         assert!(preferences.apply_line("weather_auto", "false"));
-        assert!(preferences.apply_line(
-            "weather_location",
-            "上海|31.22222|121.45806"
-        ));
+        assert!(preferences.apply_line("weather_location", "上海|31.22222|121.45806"));
         assert_eq!(
             preferences.location,
             Some(WeatherLocation::new("上海", 31.22222, 121.45806))
         );
+        assert!(preferences.apply_line("weather_refresh_minutes", "24"));
+        assert_eq!(preferences.refresh_interval().as_secs(), 24 * 60);
         let encoded = preferences.encode_lines();
         let mut parsed = WeatherPreferences::default();
         for line in &encoded {
