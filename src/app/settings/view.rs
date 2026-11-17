@@ -3,16 +3,34 @@ use super::{
     quiet_view::{self, QuietDialog},
     theme::{
         ACCENT, ACCENT_SELECTED, BACKGROUND, BORDER, CHECKBOX_ON, PANEL, ROW, SECONDARY_TEXT,
-        SETTINGS_BUTTON, SWITCH_OFF, SWITCH_ON, TEXT,
+        SWITCH_OFF, SWITCH_ON, TEXT,
     },
     CompactPreferences,
 };
-use crate::{builtins::registry, extension::ExtensionId};
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
+use crate::{
+    builtins::{kuaidi, registry},
+    extension::ExtensionId,
+};
+use eframe::egui::{self, Align2, Color32, FontId, Galley, Pos2, Rect, Sense, Stroke, Vec2};
+use std::sync::Arc;
 
-const COMPACT_ROW_TOP: f32 = 43.0;
+const BODY_TOP: f32 = 41.0;
+const BODY_BOTTOM: f32 = 8.0;
+const BODY_SIDE: f32 = 12.0;
+const SIDEBAR_WIDTH: f32 = 108.0;
+const COLUMN_GAP: f32 = 9.0;
+const PANEL_PADDING: f32 = 8.0;
 const COMPACT_ROW_STEP: f32 = 32.0;
 const COMPACT_ROW_HEIGHT: f32 = 26.0;
+const POMODORO_ROW_STEP: f32 = 44.0;
+const POMODORO_ROW_HEIGHT: f32 = 36.0;
+const POMODORO_ROWS: usize = 2;
+const KUAIDI_CHECKBOX_STEP: f32 = 34.0;
+const CHECKBOX_ROW_HEIGHT: f32 = 26.0;
+const BILIBILI_INTERVAL_TOP: f32 = 36.0;
+const BILIBILI_INTERVAL_HEIGHT: f32 = 28.0;
+const STATUS_GAP: f32 = 8.0;
+const ABOUT_GAP: f32 = 6.0;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SettingsView {
@@ -20,11 +38,105 @@ pub struct SettingsView {
     quiet_dialog: Option<QuietDialog>,
 }
 
+struct SettingsLayout {
+    title: Arc<Galley>,
+    description: Option<Arc<Galley>>,
+    description_top: f32,
+    controls_top: f32,
+    details: Vec<Arc<Galley>>,
+    height: f32,
+}
+
+impl SettingsLayout {
+    fn measure(
+        ctx: &egui::Context,
+        section: Section,
+        width: f32,
+        prefs: &CompactPreferences,
+        bilibili_status: &str,
+    ) -> Self {
+        let wrap_width = (width - 28.0).max(1.0);
+        let text = |label: &str, size, color| {
+            ctx.fonts(|fonts| {
+                fonts.layout(
+                    label.to_owned(),
+                    FontId::proportional(size),
+                    color,
+                    wrap_width,
+                )
+            })
+        };
+        let title = text(section.title(), 15.0, TEXT);
+        let description = (!section.description().is_empty())
+            .then(|| text(section.description(), 11.0, SECONDARY_TEXT));
+        let description_top = 9.0 + title.size().y + 3.0;
+        let controls_top = description
+            .as_ref()
+            .map_or(9.0 + title.size().y, |description| {
+                description_top + description.size().y
+            })
+            + 9.0;
+        let mut details = Vec::new();
+        let controls_height = match section {
+            Section::Compact => {
+                let registry = registry();
+                let count = prefs
+                    .compact_items
+                    .iter()
+                    .filter(|item| registry.get(&item.id).is_some())
+                    .count();
+                stacked_height(count, COMPACT_ROW_STEP, COMPACT_ROW_HEIGHT)
+            }
+            Section::QuietHours => quiet_view::body_height(prefs.quiet_hours.periods().len()),
+            Section::Pomodoro => {
+                stacked_height(POMODORO_ROWS, POMODORO_ROW_STEP, POMODORO_ROW_HEIGHT)
+            }
+            Section::Bilibili => {
+                let mut height = BILIBILI_INTERVAL_TOP + BILIBILI_INTERVAL_HEIGHT;
+                if !bilibili_status.is_empty() {
+                    let status = text(bilibili_status, 9.5, SECONDARY_TEXT);
+                    height += STATUS_GAP + status.size().y;
+                    details.push(status);
+                }
+                height
+            }
+            Section::Kuaidi => 2.0 * KUAIDI_CHECKBOX_STEP + POMODORO_ROW_HEIGHT,
+            Section::About => {
+                details.push(text("性能监控 · 番茄钟 · 下载提醒", 11.5, TEXT));
+                details.push(text(
+                    concat!("灵动岛  ", env!("CARGO_PKG_VERSION")),
+                    10.5,
+                    SECONDARY_TEXT,
+                ));
+                details.iter().map(|line| line.size().y).sum::<f32>() + ABOUT_GAP
+            }
+        };
+        Self {
+            title,
+            description,
+            description_top,
+            controls_top,
+            details,
+            height: controls_top + controls_height + PANEL_PADDING,
+        }
+    }
+}
+
 impl SettingsView {
     pub const WIDTH: f32 = 400.0;
 
-    pub fn extra_height(&self) -> f32 {
-        self.section.extra_height()
+    pub fn extra_height(
+        &self,
+        ctx: &egui::Context,
+        prefs: &CompactPreferences,
+        bilibili_status: &str,
+    ) -> f32 {
+        let panel_width = Self::WIDTH - 2.0 * BODY_SIDE - SIDEBAR_WIDTH - COLUMN_GAP;
+        let content =
+            SettingsLayout::measure(ctx, self.section, panel_width, prefs, bilibili_status);
+        let sidebar = section_row(Rect::ZERO, Section::ALL.len() - 1).bottom() + PANEL_PADDING;
+        BODY_TOP + content.height.max(sidebar).ceil() + BODY_BOTTOM
+            - crate::app::capsule::EXPANDED_BASE_HEIGHT
     }
 
     pub(in crate::app) fn show(
@@ -35,26 +147,83 @@ impl SettingsView {
         bilibili_status: &str,
     ) -> bool {
         let body = Rect::from_min_max(
-            Pos2::new(capsule.left() + 12.0, capsule.top() + 41.0),
-            Pos2::new(capsule.right() - 12.0, capsule.bottom() - 8.0),
+            Pos2::new(capsule.left() + BODY_SIDE, capsule.top() + BODY_TOP),
+            Pos2::new(capsule.right() - BODY_SIDE, capsule.bottom() - BODY_BOTTOM),
         );
-        let sidebar = Rect::from_min_size(body.min, Vec2::new(108.0, body.height()));
-        let content = Rect::from_min_max(Pos2::new(sidebar.right() + 9.0, body.top()), body.max);
+        if body.height() <= 0.0 || body.width() < SIDEBAR_WIDTH + COLUMN_GAP + 100.0 {
+            return false;
+        }
+        let sidebar = Rect::from_min_size(body.min, Vec2::new(SIDEBAR_WIDTH, body.height()));
+        let panel = Rect::from_min_max(
+            Pos2::new(sidebar.right() + COLUMN_GAP, body.top()),
+            body.max,
+        );
+
+        // A click changes the section for the next frame, when the capsule has the new target size.
+        let section = self.section;
         paint_panel(ui, sidebar, BACKGROUND);
-        paint_panel(ui, content, PANEL);
-        self.paint_sections(ui, sidebar);
-        self.paint_content(ui, content, preferences, bilibili_status)
+        paint_panel(ui, panel, PANEL);
+        self.paint_sections(&panel_ui(ui, sidebar, "settings-sidebar"), sidebar);
+        let mut content_ui = panel_ui(ui, panel, "settings-content");
+        let layout = SettingsLayout::measure(
+            ui.ctx(),
+            section,
+            panel.width(),
+            preferences,
+            bilibili_status,
+        );
+        // Only scroll when the shell is still growing or the content exceeds the window.
+        let changed = if layout.height > panel.height() {
+            egui::ScrollArea::vertical()
+                .id_salt(section)
+                .auto_shrink([false; 2])
+                .max_height(panel.height())
+                .min_scrolled_height(0.0)
+                .show(&mut content_ui, |ui| {
+                    let width = ui.available_width();
+                    let layout = SettingsLayout::measure(
+                        ui.ctx(),
+                        section,
+                        width,
+                        preferences,
+                        bilibili_status,
+                    );
+                    let (rect, _) =
+                        ui.allocate_exact_size(Vec2::new(width, layout.height), Sense::hover());
+                    paint_content(
+                        ui,
+                        rect,
+                        section,
+                        &layout,
+                        preferences,
+                        &mut self.quiet_dialog,
+                    )
+                })
+                .inner
+        } else {
+            paint_content(
+                &mut content_ui,
+                panel,
+                section,
+                &layout,
+                preferences,
+                &mut self.quiet_dialog,
+            )
+        };
+        if section == Section::QuietHours && panel.height() >= quiet_view::DIALOG_MIN_HEIGHT {
+            return quiet_view::show_editor(
+                &mut content_ui,
+                panel,
+                &mut preferences.quiet_hours,
+                &mut self.quiet_dialog,
+            ) | changed;
+        }
+        changed
     }
 
     fn paint_sections(&mut self, ui: &egui::Ui, sidebar: Rect) {
         for (index, section) in Section::ALL.into_iter().enumerate() {
-            let row = Rect::from_min_size(
-                Pos2::new(
-                    sidebar.left() + 5.0,
-                    sidebar.top() + 8.0 + index as f32 * 36.0,
-                ),
-                Vec2::new(sidebar.width() - 10.0, 30.0),
-            );
+            let row = section_row(sidebar, index);
             let response = ui.interact(
                 row,
                 egui::Id::new(("settings-section", section)),
@@ -89,71 +258,113 @@ impl SettingsView {
             );
         }
     }
+}
 
-    fn paint_content(
-        &mut self,
-        ui: &mut egui::Ui,
-        panel: Rect,
-        preferences: &mut CompactPreferences,
-        bilibili_status: &str,
-    ) -> bool {
-        let painter = ui.painter().clone();
-        painter.text(
-            Pos2::new(panel.left() + 14.0, panel.top() + 9.0),
-            Align2::LEFT_TOP,
-            self.section.title(),
-            FontId::proportional(15.0),
-            TEXT,
+fn stacked_height(count: usize, step: f32, row_height: f32) -> f32 {
+    if count == 0 {
+        0.0
+    } else {
+        (count - 1) as f32 * step + row_height
+    }
+}
+
+fn section_row(sidebar: Rect, index: usize) -> Rect {
+    Rect::from_min_size(
+        sidebar.left_top() + Vec2::new(5.0, PANEL_PADDING + index as f32 * 36.0),
+        Vec2::new(SIDEBAR_WIDTH - 10.0, 30.0),
+    )
+}
+
+fn panel_ui(ui: &mut egui::Ui, rect: Rect, id: &str) -> egui::Ui {
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt(id)
+            .max_rect(rect)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    child.set_clip_rect(ui.clip_rect().intersect(rect));
+    child
+}
+
+fn paint_content(
+    ui: &mut egui::Ui,
+    panel: Rect,
+    section: Section,
+    layout: &SettingsLayout,
+    preferences: &mut CompactPreferences,
+    dialog: &mut Option<QuietDialog>,
+) -> bool {
+    let painter = ui.painter().clone();
+    let left = panel.left() + 14.0;
+    painter.galley(
+        Pos2::new(left, panel.top() + 9.0),
+        layout.title.clone(),
+        TEXT,
+    );
+    if let Some(description) = &layout.description {
+        painter.galley(
+            Pos2::new(left, panel.top() + layout.description_top),
+            description.clone(),
+            SECONDARY_TEXT,
         );
-        let description = self.section.description();
-        if !description.is_empty() {
-            painter.text(
-                Pos2::new(panel.left() + 14.0, panel.top() + 30.0),
-                Align2::LEFT_TOP,
-                description,
-                FontId::proportional(11.0),
-                SECONDARY_TEXT,
-            );
+    }
+    let controls = Rect::from_min_max(
+        Pos2::new(panel.left(), panel.top() + layout.controls_top),
+        Pos2::new(panel.right(), panel.top() + layout.height - PANEL_PADDING),
+    );
+    match section {
+        Section::Compact => paint_compact_options(ui, controls, preferences),
+        Section::QuietHours => quiet_view::show(ui, controls, &mut preferences.quiet_hours, dialog),
+        Section::Pomodoro => paint_pomodoro_options(ui, controls, preferences),
+        Section::Kuaidi => paint_kuaidi_options(ui, controls, preferences),
+        Section::Bilibili => {
+            let changed = paint_bilibili_options(ui, controls, preferences);
+            if let Some(status) = layout.details.first() {
+                let top =
+                    controls.top() + BILIBILI_INTERVAL_TOP + BILIBILI_INTERVAL_HEIGHT + STATUS_GAP;
+                painter.galley(Pos2::new(left, top), status.clone(), SECONDARY_TEXT);
+            }
+            changed
         }
-        match self.section {
-            Section::Compact => paint_compact_options(ui, panel, preferences),
-            Section::QuietHours => quiet_view::show(
-                ui,
-                panel,
-                &mut preferences.quiet_hours,
-                &mut self.quiet_dialog,
-            ),
-            Section::Pomodoro => paint_pomodoro_options(ui, panel, preferences),
-            Section::Bilibili => {
-                let changed = paint_bilibili_options(ui, panel, preferences);
-                painter.text(
-                    Pos2::new(panel.left() + 14.0, panel.top() + 198.0),
-                    Align2::LEFT_TOP,
-                    bilibili_status,
-                    FontId::proportional(9.5),
-                    SECONDARY_TEXT,
-                );
-                changed
+        Section::About => {
+            let mut y = controls.top();
+            for line in &layout.details {
+                painter.galley(Pos2::new(left, y), line.clone(), TEXT);
+                y += line.size().y + ABOUT_GAP;
             }
-            Section::About => {
-                painter.text(
-                    Pos2::new(panel.left() + 14.0, panel.top() + 76.0),
-                    Align2::LEFT_TOP,
-                    "性能监控 · 番茄钟 · 下载提醒",
-                    FontId::proportional(11.5),
-                    TEXT,
-                );
-                painter.text(
-                    Pos2::new(panel.left() + 14.0, panel.top() + 100.0),
-                    Align2::LEFT_TOP,
-                    "灵动岛  0.1.0",
-                    FontId::proportional(10.5),
-                    SECONDARY_TEXT,
-                );
-                false
-            }
+            false
         }
     }
+}
+
+fn paint_kuaidi_options(ui: &mut egui::Ui, panel: Rect, prefs: &mut CompactPreferences) -> bool {
+    let mut changed = false;
+    for (index, (label, enabled)) in [
+        ("快递变更通知", &mut prefs.kuaidi_change_notifications),
+        ("取件通知", &mut prefs.kuaidi_pickup_notifications),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let row = Rect::from_min_size(
+            panel.left_top() + Vec2::new(10.0, index as f32 * KUAIDI_CHECKBOX_STEP),
+            Vec2::new(panel.width() - 20.0, CHECKBOX_ROW_HEIGHT),
+        );
+        changed |= paint_checkbox_row(ui, row, label, enabled);
+    }
+    let interval = Rect::from_min_max(
+        panel.min + Vec2::new(0.0, 2.0 * KUAIDI_CHECKBOX_STEP),
+        panel.max,
+    );
+    changed
+        | paint_minutes_row(
+            ui,
+            interval,
+            0,
+            "刷新间隔",
+            &mut prefs.kuaidi_refresh_minutes,
+            kuaidi::MAX_REFRESH_MINUTES,
+        )
 }
 
 fn paint_bilibili_options(
@@ -161,23 +372,19 @@ fn paint_bilibili_options(
     panel: Rect,
     preferences: &mut CompactPreferences,
 ) -> bool {
-    let mut changed = false;
-    for (index, (label, enabled)) in [("启用 Bilibili 通知", &mut preferences.bilibili_enabled)]
-        .into_iter()
-        .enumerate()
-    {
-        let row = Rect::from_min_size(
-            Pos2::new(
-                panel.left() + 12.0,
-                panel.top() + 60.0 + index as f32 * 30.0,
-            ),
-            Vec2::new(panel.width() - 24.0, 26.0),
-        );
-        changed |= paint_checkbox_row(ui, row, index, label, enabled);
-    }
+    let row = Rect::from_min_size(
+        panel.left_top() + Vec2::new(12.0, 0.0),
+        Vec2::new(panel.width() - 24.0, 26.0),
+    );
+    let enabled_changed = paint_checkbox_row(
+        ui,
+        row,
+        "启用 Bilibili 通知",
+        &mut preferences.bilibili_enabled,
+    );
     let interval = Rect::from_min_size(
-        Pos2::new(panel.left() + 12.0, panel.top() + 96.0),
-        Vec2::new(panel.width() - 24.0, 28.0),
+        Pos2::new(panel.left() + 12.0, panel.top() + BILIBILI_INTERVAL_TOP),
+        Vec2::new(panel.width() - 24.0, BILIBILI_INTERVAL_HEIGHT),
     );
     ui.painter().text(
         interval.left_center() + Vec2::new(3.0, 0.0),
@@ -186,7 +393,7 @@ fn paint_bilibili_options(
         FontId::proportional(11.0),
         TEXT,
     );
-    changed |= ui
+    let interval_changed = ui
         .put(
             Rect::from_min_size(
                 Pos2::new(interval.right() - 92.0, interval.top()),
@@ -197,58 +404,11 @@ fn paint_bilibili_options(
                 .suffix(" 秒"),
         )
         .changed();
-    let path = Rect::from_min_size(
-        Pos2::new(panel.left() + 12.0, panel.top() + 130.0),
-        Vec2::new(panel.width() - 24.0, 28.0),
-    );
-    changed |= ui
-        .put(
-            path,
-            egui::TextEdit::singleline(&mut preferences.opencli_path)
-                .hint_text("OpenCLI 路径（自动检测）"),
-        )
-        .changed();
-    let buttons = Rect::from_min_size(
-        Pos2::new(panel.left() + 12.0, panel.top() + 164.0),
-        Vec2::new(panel.width() - 24.0, 26.0),
-    );
-    let each_width = (buttons.width() - 8.0) * 0.5;
-    let check_clicked = ui
-        .put(
-            Rect::from_min_size(buttons.min, Vec2::new(each_width, buttons.height())),
-            egui::Button::new(egui::RichText::new("检查连接").color(Color32::WHITE))
-                .fill(SETTINGS_BUTTON),
-        )
-        .clicked();
-    let immediate_clicked = ui
-        .put(
-            Rect::from_min_size(
-                Pos2::new(buttons.left() + each_width + 8.0, buttons.top()),
-                Vec2::new(each_width, buttons.height()),
-            ),
-            egui::Button::new(egui::RichText::new("立即检查").color(Color32::WHITE))
-                .fill(SETTINGS_BUTTON),
-        )
-        .clicked();
-    if check_clicked || immediate_clicked {
-        preferences.bilibili_check_requested = true;
-        changed = true;
-    }
-    changed
+    enabled_changed | interval_changed
 }
 
-fn paint_checkbox_row(
-    ui: &mut egui::Ui,
-    row: Rect,
-    index: usize,
-    label: &str,
-    enabled: &mut bool,
-) -> bool {
-    let response = ui.interact(
-        row,
-        egui::Id::new(("bilibili-option", index)),
-        Sense::click(),
-    );
+fn paint_checkbox_row(ui: &mut egui::Ui, row: Rect, label: &str, enabled: &mut bool) -> bool {
+    let response = ui.interact(row, ui.make_persistent_id(label), Sense::click());
     ui.painter().rect_filled(row, 6.0, ROW);
     let checkbox = Rect::from_center_size(
         Pos2::new(row.left() + 19.0, row.center().y),
@@ -304,31 +464,42 @@ fn paint_pomodoro_options(
     .into_iter()
     .enumerate()
     {
-        let row = Rect::from_min_size(
-            Pos2::new(
-                panel.left() + 10.0,
-                panel.top() + 62.0 + index as f32 * 44.0,
-            ),
-            Vec2::new(panel.width() - 20.0, 36.0),
-        );
-        ui.painter().rect_filled(row, 7.0, ROW);
-        ui.painter().text(
-            Pos2::new(row.left() + 10.0, row.center().y),
-            Align2::LEFT_CENTER,
-            label,
-            FontId::proportional(11.0),
-            TEXT,
-        );
-        let response = ui.put(
-            Rect::from_min_size(
-                Pos2::new(row.right() - 95.0, row.top() + 4.0),
-                Vec2::new(86.0, 28.0),
-            ),
-            egui::DragValue::new(value).range(1..=180).suffix(" 分钟"),
-        );
-        changed |= response.changed();
+        changed |= paint_minutes_row(ui, panel, index, label, value, 180);
     }
     changed
+}
+
+fn paint_minutes_row(
+    ui: &mut egui::Ui,
+    panel: Rect,
+    index: usize,
+    label: &str,
+    value: &mut u16,
+    max: u16,
+) -> bool {
+    let row = Rect::from_min_size(
+        Pos2::new(
+            panel.left() + 10.0,
+            panel.top() + index as f32 * POMODORO_ROW_STEP,
+        ),
+        Vec2::new(panel.width() - 20.0, POMODORO_ROW_HEIGHT),
+    );
+    ui.painter().rect_filled(row, 7.0, ROW);
+    ui.painter().text(
+        Pos2::new(row.left() + 10.0, row.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(11.0),
+        TEXT,
+    );
+    ui.put(
+        Rect::from_min_size(
+            Pos2::new(row.right() - 95.0, row.top() + 4.0),
+            Vec2::new(86.0, 28.0),
+        ),
+        egui::DragValue::new(value).range(1..=max).suffix(" 分钟"),
+    )
+    .changed()
 }
 
 fn paint_compact_options(
@@ -362,7 +533,7 @@ fn compact_row(panel: Rect, index: usize) -> Rect {
     Rect::from_min_size(
         Pos2::new(
             panel.left() + 8.0,
-            panel.top() + COMPACT_ROW_TOP + index as f32 * COMPACT_ROW_STEP,
+            panel.top() + index as f32 * COMPACT_ROW_STEP,
         ),
         Vec2::new(panel.width() - 16.0, COMPACT_ROW_HEIGHT),
     )
@@ -450,7 +621,8 @@ fn paint_option(
 
 fn text_button(ui: &egui::Ui, rect: Rect, id: impl std::hash::Hash, label: &str) -> bool {
     let response = ui.interact(rect, egui::Id::new(id), Sense::click());
-    ui.painter().rect_filled(rect, 5.0, SETTINGS_BUTTON);
+    ui.painter()
+        .rect_filled(rect, 5.0, ui.visuals().selection.bg_fill);
     ui.painter().text(
         rect.center(),
         Align2::CENTER_CENTER,
@@ -463,25 +635,70 @@ fn text_button(ui: &egui::Ui, rect: Rect, id: impl std::hash::Hash, label: &str)
 
 #[cfg(test)]
 mod tests {
-    use super::{compact_row, Section, SettingsView, COMPACT_ROW_STEP};
-    use eframe::egui::{pos2, vec2, Rect};
+    use super::*;
 
     #[test]
-    fn compact_options_use_one_column_and_fit_inside_the_taller_panel() {
-        let panel = Rect::from_min_size(pos2(0.0, 0.0), vec2(260.0, 269.0));
-        let rows: Vec<_> = (0..7).map(|index| compact_row(panel, index)).collect();
-        assert!(rows.iter().all(|row| row.left() == rows[0].left()));
-        assert!(rows
-            .windows(2)
-            .all(|pair| (pair[1].top() - pair[0].top() - COMPACT_ROW_STEP).abs() < 0.01));
-        assert!(rows.last().unwrap().bottom() < panel.bottom());
+    fn settings_fit_all_capsule_items_and_sidebar_tabs() {
+        let ctx = egui::Context::default();
+        let prefs = CompactPreferences::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let view = SettingsView::default();
+            let layout = SettingsLayout::measure(ctx, Section::Compact, 259.0, &prefs, "");
+            let controls = Rect::from_min_size(
+                Pos2::new(0.0, layout.controls_top),
+                Vec2::new(259.0, layout.height - layout.controls_top),
+            );
+            let count = prefs.compact_items.len();
+            assert!(count >= 8);
+            assert_eq!(
+                compact_row(controls, count - 1).bottom() + PANEL_PADDING,
+                layout.height
+            );
+            let height = view.extra_height(ctx, &prefs, "");
+            assert!(
+                height + crate::app::capsule::EXPANDED_BASE_HEIGHT + 4.0
+                    <= crate::app::INITIAL_WINDOW_SIZE[1]
+            );
+
+            let about = SettingsView {
+                section: Section::About,
+                ..view
+            };
+            let about_height = about.extra_height(ctx, &prefs, "");
+            let panel_height =
+                about_height + crate::app::capsule::EXPANDED_BASE_HEIGHT - BODY_TOP - BODY_BOTTOM;
+            assert!(
+                section_row(Rect::ZERO, Section::ALL.len() - 1).bottom() + PANEL_PADDING
+                    <= panel_height
+            );
+            assert!(about_height < height);
+        });
     }
 
     #[test]
-    fn settings_height_tracks_the_selected_section() {
-        let mut view = SettingsView::default();
-        assert_eq!(view.extra_height(), Section::Compact.extra_height());
-        view.section = Section::QuietHours;
-        assert_eq!(view.extra_height(), Section::QuietHours.extra_height());
+    fn settings_grow_with_quiet_hours_and_wrapped_status() {
+        let ctx = egui::Context::default();
+        let mut prefs = CompactPreferences::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let quiet = SettingsView {
+                section: Section::QuietHours,
+                ..Default::default()
+            };
+            let empty_height = quiet.extra_height(ctx, &prefs, "");
+            for _ in 0..8 {
+                prefs
+                    .quiet_hours
+                    .add_period(super::super::quiet_hours::QuietPeriod::default());
+            }
+            assert!(quiet.extra_height(ctx, &prefs, "") > empty_height);
+            let bilibili = SettingsView {
+                section: Section::Bilibili,
+                ..Default::default()
+            };
+            assert!(
+                bilibili.extra_height(ctx, &prefs, &"connection unavailable ".repeat(24))
+                    > bilibili.extra_height(ctx, &prefs, "ready")
+            );
+        });
     }
 }

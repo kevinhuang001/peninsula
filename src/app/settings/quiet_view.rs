@@ -1,59 +1,74 @@
 mod dialog;
 
 use super::quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS};
-use super::theme::{ACCENT, ROW, ROW_DISABLED, SECONDARY_TEXT, SETTINGS_BUTTON, TEXT};
+use super::theme::{ACCENT, ROW, ROW_DISABLED, SECONDARY_TEXT, TEXT};
 pub(super) use dialog::QuietDialog;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Vec2};
 const DAYS: [&str; 7] = ["一", "二", "三", "四", "五", "六", "日"];
 
+const ROW_HEIGHT: f32 = 24.0;
+const ROW_STEP: f32 = 28.0;
+const ADD_HEIGHT: f32 = 22.0;
+const ADD_GAP: f32 = 6.0;
+pub(super) const DIALOG_MIN_HEIGHT: f32 = 160.0;
+
+pub(super) fn body_height(count: usize) -> f32 {
+    list_height(count) + ADD_GAP + ADD_HEIGHT
+}
+
+fn list_height(count: usize) -> f32 {
+    ROW_HEIGHT + ROW_STEP * count.saturating_sub(1) as f32
+}
+
 pub(super) fn show(
+    ui: &mut egui::Ui,
+    body: Rect,
+    quiet: &mut QuietHours,
+    dialog: &mut Option<QuietDialog>,
+) -> bool {
+    let count = quiet.periods().len();
+    let list = Rect::from_min_size(
+        body.left_top() + Vec2::new(8.0, 0.0),
+        Vec2::new(body.width() - 16.0, list_height(count)),
+    );
+    if count == 0 {
+        ui.painter().text(
+            list.center(),
+            Align2::CENTER_CENTER,
+            "还没有免打扰时段",
+            FontId::proportional(10.5),
+            SECONDARY_TEXT,
+        );
+    }
+    let mut changed = false;
+    for index in 0..count {
+        let Some(period) = quiet.period(index) else {
+            break;
+        };
+        let row = Rect::from_min_size(
+            list.left_top() + Vec2::new(0.0, index as f32 * ROW_STEP),
+            Vec2::new(list.width(), ROW_HEIGHT),
+        );
+        let before = quiet.periods().len();
+        changed |= period_row(ui, row, index, period, quiet, dialog);
+        if quiet.periods().len() != before {
+            break;
+        }
+    }
+    let add = Rect::from_min_size(
+        list.left_bottom() + Vec2::new(0.0, ADD_GAP),
+        Vec2::new(list.width(), ADD_HEIGHT),
+    );
+    draw_add_button(ui, add, quiet, dialog) | changed
+}
+
+pub(super) fn show_editor(
     ui: &mut egui::Ui,
     panel: Rect,
     quiet: &mut QuietHours,
     dialog: &mut Option<QuietDialog>,
 ) -> bool {
-    let list = Rect::from_min_max(
-        Pos2::new(panel.left() + 8.0, panel.top() + 39.0),
-        Pos2::new(panel.right() - 8.0, panel.bottom() - 35.0),
-    );
-    let mut changed = draw_period_list(ui, list, quiet, dialog);
-    changed |= draw_add_button(ui, panel, quiet, dialog);
-    changed |= dialog::show(ui, panel, quiet, dialog);
-    changed
-}
-
-fn draw_period_list(
-    ui: &mut egui::Ui,
-    list: Rect,
-    quiet: &mut QuietHours,
-    dialog: &mut Option<QuietDialog>,
-) -> bool {
-    let mut changed = false;
-    ui.scope_builder(egui::UiBuilder::new().max_rect(list), |ui| {
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                let count = quiet.periods().len();
-                if count == 0 {
-                    ui.painter().text(
-                        list.center(),
-                        Align2::CENTER_CENTER,
-                        "还没有免打扰时段",
-                        FontId::proportional(10.5),
-                        SECONDARY_TEXT,
-                    );
-                }
-                for index in 0..count {
-                    let period = quiet.period(index).unwrap();
-                    let row = Rect::from_min_size(
-                        Pos2::new(list.left(), list.top() + index as f32 * 28.0),
-                        Vec2::new(list.width(), 24.0),
-                    );
-                    changed |= period_row(ui, row, index, period, quiet, dialog);
-                }
-            });
-    });
-    changed
+    dialog::show(ui, panel, quiet, dialog)
 }
 
 fn period_row(
@@ -124,20 +139,17 @@ fn period_row(
 
 fn draw_add_button(
     ui: &mut egui::Ui,
-    panel: Rect,
+    rect: Rect,
     quiet: &QuietHours,
     dialog: &mut Option<QuietDialog>,
 ) -> bool {
-    let rect = Rect::from_min_size(
-        Pos2::new(panel.left() + 8.0, panel.bottom() - 29.0),
-        Vec2::new(panel.width() - 16.0, 22.0),
-    );
     let can_add = quiet.periods().len() < MAX_QUIET_PERIODS;
-    ui.painter().rect_filled(rect, 8.0, SETTINGS_BUTTON);
+    ui.painter()
+        .rect_filled(rect, 8.0, ui.visuals().selection.bg_fill);
     ui.painter().rect_stroke(
         rect,
         8.0,
-        egui::Stroke::new(1.0_f32, SETTINGS_BUTTON),
+        egui::Stroke::new(1.0_f32, ui.visuals().selection.bg_fill),
         egui::StrokeKind::Inside,
     );
     let response = ui.interact(rect, egui::Id::new("quiet-add-period"), Sense::click());
@@ -172,7 +184,8 @@ fn draw_add_button(
 
 fn action_button(ui: &egui::Ui, rect: Rect, id: impl std::hash::Hash, label: &str) -> bool {
     let response = ui.interact(rect, egui::Id::new(id), Sense::click());
-    ui.painter().rect_filled(rect, 5.0, SETTINGS_BUTTON);
+    ui.painter()
+        .rect_filled(rect, 5.0, ui.visuals().selection.bg_fill);
     ui.painter().text(
         rect.center(),
         Align2::CENTER_CENTER,

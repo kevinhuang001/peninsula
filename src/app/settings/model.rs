@@ -5,27 +5,19 @@ pub(super) enum Section {
     QuietHours,
     Pomodoro,
     Bilibili,
+    Kuaidi,
     About,
 }
 
 impl Section {
-    pub(super) const ALL: [Self; 5] = [
+    pub(super) const ALL: [Self; 6] = [
         Self::Compact,
         Self::QuietHours,
         Self::Pomodoro,
         Self::Bilibili,
+        Self::Kuaidi,
         Self::About,
     ];
-
-    pub(super) fn extra_height(self) -> f32 {
-        match self {
-            Self::Compact => 270.0,
-            Self::QuietHours => 220.0,
-            Self::Pomodoro => 190.0,
-            Self::Bilibili => 306.0,
-            Self::About => 156.0,
-        }
-    }
 
     pub(super) fn label(self) -> &'static str {
         match self {
@@ -33,6 +25,7 @@ impl Section {
             Self::QuietHours => "免打扰",
             Self::Pomodoro => "番茄钟",
             Self::Bilibili => "Bilibili",
+            Self::Kuaidi => "快递",
             Self::About => "关于",
         }
     }
@@ -43,6 +36,7 @@ impl Section {
             Self::QuietHours => "免打扰计划",
             Self::Pomodoro => "番茄钟时长",
             Self::Bilibili => "Bilibili 通知",
+            Self::Kuaidi => "快递",
             Self::About => "灵动岛",
         }
     }
@@ -53,6 +47,7 @@ impl Section {
             Self::QuietHours => "",
             Self::Pomodoro => "设置每轮的专注与休息时间（1–180 分钟）",
             Self::Bilibili => "使用系统 OpenCLI 与浏览器中已有的登录状态",
+            Self::Kuaidi => "",
             Self::About => "轻量的桌面灵动岛",
         }
     }
@@ -72,6 +67,7 @@ mod tests {
                 Section::QuietHours,
                 Section::Pomodoro,
                 Section::Bilibili,
+                Section::Kuaidi,
                 Section::About
             ]
         );

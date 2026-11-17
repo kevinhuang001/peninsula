@@ -8,18 +8,20 @@ use crate::{
     },
     extension::{
         Action, ActionInvocation, AlertInteraction, Event, ExtensionId, ExtensionOutput,
-        HostScheduler, Notification, NotificationAlertView, NotificationKey, WidgetView,
-        NOTIFICATION_CENTER_ID,
+        HostScheduler, Notification, NotificationKey, WidgetView, NOTIFICATION_CENTER_ID,
     },
 };
 use eframe::egui::{self, Vec2};
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 mod animation;
 mod capsule;
 mod compact_layout;
 mod fonts;
-mod icons;
+pub(crate) mod icons;
 mod mascot;
 mod notification;
 mod platform;
@@ -32,7 +34,16 @@ use icons::Icons;
 use mascot::Mascot;
 use settings::{CompactPreferences, SettingsView};
 
-const WINDOW_SIZE: [f32; 2] = [420.0, 340.0];
+const INITIAL_WINDOW_SIZE: [f32; 2] = [720.0, 372.0];
+const WINDOW_TOP_PADDING: f32 = 4.0;
+const SCREEN_FRACTION: f32 = 0.75;
+
+fn widget_limit(window_size: Vec2) -> [f32; 2] {
+    [
+        window_size.x,
+        (window_size.y - WINDOW_TOP_PADDING - capsule::EXPANDED_BASE_HEIGHT).max(0.0),
+    ]
+}
 const CLEAR_ALL_ACTION: &str = "core.notifications.clear_all";
 const ACKNOWLEDGE_ACTION_PREFIX: &str = "core.notifications.acknowledge:";
 const CENTER_PAGE_ACTION_PREFIX: &str = "core.notifications.page:";
@@ -49,38 +60,39 @@ struct IslandApp {
     settings_view: SettingsView,
     settings_open: bool,
     notification_center_page: usize,
+    center_view: Option<((u64, usize), Arc<WidgetView>)>,
+    alert_surface: Option<(NotificationKey, notification::AlertSurface)>,
+    last_expanded_width: Option<f32>,
+    page_switch_from: Option<egui::Rect>,
     window_drag: platform::WindowDrag,
     active_widget: ExtensionId,
     widget_height: animation::Spring,
     trackpad_swipe: trackpad::TrackpadSwipe,
+    #[cfg(target_os = "macos")]
+    scroll_monitor: Option<platform::ScrollMonitor>,
+    page_edge_grace: Option<(egui::Rect, Instant)>,
     quiet_bypassed: bool,
     last_platform_check: Option<Instant>,
+    window_size: Vec2,
 }
 
 impl IslandApp {
     fn new(context: &egui::Context) -> Self {
-        let preferences = CompactPreferences::load();
-        let mut extensions = BuiltinExtensions::new();
-        extensions.set_pomodoro_durations(
-            preferences.pomodoro_focus_minutes,
-            preferences.pomodoro_break_minutes,
-        );
-        if let Err(error) = extensions.configure_bilibili(
-            &preferences.opencli_path,
-            preferences.bilibili_dm_enabled,
-            preferences.bilibili_likes_enabled,
-            preferences.bilibili_show_dm_summary,
-            preferences.bilibili_poll_seconds,
-        ) {
-            eprintln!("Unable to configure Bilibili extension: {error}");
-        }
+        let (mut preferences, legacy) = CompactPreferences::load();
+        preferences
+            .widget_theme
+            .install(context, preferences.widget_accent);
+        let mut extensions = BuiltinExtensions::new(legacy);
+        preferences.read_extension_settings(&extensions);
         if preferences.bilibili_enabled {
             if let Err(error) = extensions.set_bilibili_enabled(true) {
                 eprintln!("Unable to start Bilibili extension: {error}");
             }
         }
         let active_widget = extensions.widget_ids()[0].clone();
-        let initial_widget_height = extensions.widget_height(&active_widget);
+        let window_size = Vec2::from(INITIAL_WINDOW_SIZE);
+        let initial_widget_height =
+            extensions.widget_size(&active_widget, None, widget_limit(window_size), [None; 2])[1];
         Self {
             notifications: NotificationManager::default(),
             scheduler: Scheduler::default(),
@@ -93,13 +105,43 @@ impl IslandApp {
             settings_view: SettingsView::default(),
             settings_open: false,
             notification_center_page: 0,
+            center_view: None,
+            alert_surface: None,
+            last_expanded_width: None,
+            page_switch_from: None,
             window_drag: platform::WindowDrag::default(),
             active_widget: active_widget.clone(),
             widget_height: animation::Spring::new(initial_widget_height),
             trackpad_swipe: trackpad::TrackpadSwipe::default(),
+            #[cfg(target_os = "macos")]
+            scroll_monitor: None,
+            page_edge_grace: None,
             quiet_bypassed: false,
             last_platform_check: None,
+            window_size,
         }
+    }
+
+    fn update_viewport_size(&mut self, context: &egui::Context) {
+        let (monitor, outer) = context.input(|input| {
+            let viewport = input.viewport();
+            (viewport.monitor_size, viewport.outer_rect)
+        });
+        let Some(monitor) = monitor.filter(|size| size.is_finite() && size.x > 0.0 && size.y > 0.0)
+        else {
+            return;
+        };
+        let size = (monitor * SCREEN_FRACTION).floor().max(Vec2::splat(1.0));
+        if self.window_size == size {
+            return;
+        }
+        context.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+        if let Some(rect) = outer {
+            // Preserve the center of the pill and its top edge when changing displays.
+            let position = egui::pos2(rect.center().x - size.x * 0.5, rect.top());
+            context.send_viewport_cmd(egui::ViewportCommand::OuterPosition(position));
+        }
+        self.window_size = size;
     }
 
     fn apply_extension_output(&mut self, output: ExtensionOutput, context: &egui::Context) {
@@ -228,6 +270,8 @@ impl eframe::App for IslandApp {
 
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
         let now = Instant::now();
+        self.update_viewport_size(context);
+        let widget_limit = widget_limit(self.window_size);
         if self
             .last_platform_check
             .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(1))
@@ -265,54 +309,35 @@ impl eframe::App for IslandApp {
         if notice.is_none() {
             self.state.close_notification();
         }
-        let alert_view: Option<NotificationAlertView> = notice.as_ref().map(|notification| {
-            self.extensions
-                .notification_presentation(notification)
-                .alert
-        });
+        if let Some(notification) = &notice {
+            let key = notification.key();
+            if self
+                .alert_surface
+                .as_ref()
+                .is_none_or(|(previous, _)| *previous != key)
+            {
+                let data = self
+                    .extensions
+                    .notification_presentation(notification)
+                    .alert;
+                self.alert_surface = Some((
+                    key.clone(),
+                    notification::AlertSurface::new(
+                        &key,
+                        data,
+                        self.notifications.policy().max_alert_actions,
+                    ),
+                ));
+            }
+        } else {
+            self.alert_surface = None;
+        }
 
         let widget_ids = self.extensions.widget_ids();
         if !widget_ids.contains(&self.active_widget) {
             self.active_widget = widget_ids[0].clone();
         }
-        let compact_views = self.extensions.compact_views();
-        let width = if self.settings_open {
-            SettingsView::WIDTH
-        } else {
-            self.extensions.widget_width(&self.active_widget)
-        };
-        self.state.set_expanded_width(width);
-        self.state
-            .set_compact_width(compact_layout::width(&self.preferences, &compact_views));
-
-        let dt = context.input(|input| input.stable_dt).clamp(0.0, 0.05);
-        let (pill_width, progress) = self.state.advance(dt);
-        self.widget_height.target(if notice.is_some() {
-            76.0
-        } else if self.state.hides_widget() {
-            0.0
-        } else if self.settings_open {
-            self.settings_view.extra_height()
-        } else {
-            self.extensions.widget_height(&self.active_widget)
-        });
-        self.widget_height.step(dt);
-        if progress < 0.99 {
-            self.mascot.advance(dt, false);
-        }
-
-        let center_entries: Vec<_> = self
-            .notifications
-            .pending()
-            .map(|notification| NotificationCenterEntry {
-                key: notification.key(),
-                view: self
-                    .extensions
-                    .notification_presentation(notification)
-                    .center_item,
-            })
-            .collect();
-        let page_size = self.notifications.policy().max_center_items.max(1);
+        let page_size = notifications::CENTER_PAGE_SIZE;
         let page_count = self
             .notifications
             .pending_count()
@@ -321,29 +346,140 @@ impl eframe::App for IslandApp {
         self.notification_center_page = self
             .notification_center_page
             .min(page_count.saturating_sub(1));
+        for id in self.scheduler.take_invalidated() {
+            self.extensions.invalidate_views(&id);
+        }
         let widget_view = if self.active_widget.as_str() == NOTIFICATION_CENTER_ID {
-            notifications::widget_view(
-                &center_entries,
-                self.notification_center_page,
-                self.notifications.policy().max_center_items,
-            )
+            let key = (self.notifications.revision(), self.notification_center_page);
+            if self
+                .center_view
+                .as_ref()
+                .is_none_or(|(previous, _)| *previous != key)
+            {
+                let center_entries: Vec<_> = self
+                    .notifications
+                    .pending()
+                    .map(|notification| NotificationCenterEntry {
+                        key: notification.key(),
+                        view: self
+                            .extensions
+                            .notification_presentation(notification)
+                            .center_item,
+                    })
+                    .collect();
+                let view =
+                    notifications::widget_view(&center_entries, self.notification_center_page);
+                self.center_view = Some((key, Arc::new(view)));
+            }
+            Some(self.center_view.as_ref().unwrap().1.clone())
         } else {
-            self.extensions
-                .widget_view(&self.active_widget)
-                .unwrap_or_else(empty_widget_view)
+            self.extensions.widget_view(&self.active_widget, now)
         };
+        let fitted_width = widget_view
+            .as_deref()
+            .filter(|view| view.bounds.fit_width)
+            .map(|view| {
+                let limit = capsule::body_size(widget_limit[0], 0.0).x;
+                let width =
+                    crate::ui::renderer::content_width(context, &view.root, limit, &self.icons)
+                        + 2.0 * capsule::BODY_SIDE;
+                width.max(state::MIN_EXPANDED_WIDTH)
+            });
+        let [widget_width, preferred_height] = self.extensions.widget_size(
+            &self.active_widget,
+            widget_view.as_deref(),
+            widget_limit,
+            [fitted_width, None],
+        );
+        let widget_height = if let Some(view) =
+            widget_view.as_deref().filter(|view| view.bounds.fit_height)
+        {
+            let body_width = capsule::body_size(widget_width, 0.0).x;
+            let measured =
+                crate::ui::renderer::content_height(context, &view.root, body_width, &self.icons);
+            self.extensions.widget_size(
+                &self.active_widget,
+                Some(view),
+                widget_limit,
+                [fitted_width, Some(measured + capsule::BODY_BOTTOM)],
+            )[1]
+        } else {
+            preferred_height
+        };
+        let pointer = context.input(|input| input.pointer.hover_pos());
+        if let Some(previous) = self.page_switch_from.take() {
+            let next = capsule::resized_bounds(previous, widget_width, widget_height);
+            if self.state.expanded
+                && !self.settings_open
+                && notice.is_none()
+                && (next.height() + 1.0 < previous.height()
+                    || next.width() + 1.0 < previous.width())
+                && platform::pointer_inside(frame, Some(previous), pointer)
+                && !platform::pointer_inside(frame, Some(next), pointer)
+            {
+                self.state.defer_collapse_after_shrink();
+                self.page_edge_grace = Some((previous, now + Duration::from_millis(1000)));
+            }
+        }
+        let width = if self.settings_open {
+            SettingsView::WIDTH.min(widget_limit[0])
+        } else {
+            widget_width
+        };
+        if notice.is_none() {
+            if self.state.expanded
+                && self
+                    .last_expanded_width
+                    .is_some_and(|previous| previous != width)
+            {
+                self.state.retarget_expanded_width(width);
+            } else {
+                self.state.set_expanded_width(width);
+            }
+            self.last_expanded_width = Some(width);
+        }
         let widget_title = self.extensions.widget_title(&self.active_widget);
         let bilibili_status = self.extensions.bilibili_status();
+        let compact_views = self.extensions.compact_views(now);
+        self.state
+            .set_compact_width(compact_layout::width(&self.preferences, &compact_views));
+        let dt = context.input(|input| input.stable_dt).clamp(0.0, 0.05);
+        let (pill_width, progress) = self.state.advance(dt);
+        self.widget_height
+            .target(if let Some((_, surface)) = &self.alert_surface {
+                surface
+                    .extra_height(context, &self.icons)
+                    .min(widget_limit[1])
+            } else if self.state.hides_widget() {
+                0.0
+            } else if self.settings_open {
+                self.settings_view
+                    .extra_height(context, &self.preferences, &bilibili_status)
+                    .min(widget_limit[1])
+            } else {
+                widget_height
+            });
+        self.widget_height.step(dt);
+        if progress < 0.99 {
+            self.mascot.advance(dt, false);
+        }
+        let fallback = widget_view.is_none().then(empty_widget_view);
+        let widget_view = widget_view.as_deref().or(fallback.as_ref()).unwrap();
 
+        let old_extension_settings = self
+            .settings_open
+            .then(|| self.preferences.extension_settings());
+        let old_bilibili_enabled = self.preferences.bilibili_enabled;
+        let page_before_input = self.active_widget.clone();
         let mut interactive_rect = None;
         let mut drag_started = false;
         let mut action_result = None;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(context, |ui| {
-                ui.set_min_size(Vec2::from(WINDOW_SIZE));
+                ui.set_min_size(self.window_size);
                 ui.vertical_centered(|ui| {
-                    ui.add_space(4.0);
+                    ui.add_space(WINDOW_TOP_PADDING);
                     let (
                         rect,
                         toggle_settings,
@@ -356,9 +492,9 @@ impl eframe::App for IslandApp {
                     ) = capsule::show(
                         ui,
                         context,
-                        pill_width,
+                        pill_width.min(widget_limit[0]),
                         progress,
-                        self.widget_height.value,
+                        self.widget_height.value.clamp(0.0, widget_limit[1]),
                         capsule::CapsuleWidgets {
                             mascot: &mut self.mascot,
                             preferences: &mut self.preferences,
@@ -368,9 +504,9 @@ impl eframe::App for IslandApp {
                             active_widget: &mut self.active_widget,
                             widget_ids: &widget_ids,
                             widget_title: &widget_title,
-                            widget_view: &widget_view,
-                            alert_view: alert_view.as_ref(),
-                            max_alert_actions: self.notifications.policy().max_alert_actions,
+                            widget_view,
+                            widget_body_limit: capsule::body_size(widget_width, widget_height),
+                            alert_view: self.alert_surface.as_ref().map(|(_, surface)| surface),
                             pinned: self.state.is_pinned(),
                             icons: &self.icons,
                             notification: notice.as_ref(),
@@ -420,43 +556,43 @@ impl eframe::App for IslandApp {
             if toggle_settings {
                 self.settings_open = !self.settings_open;
                 let width = if self.settings_open {
-                    SettingsView::WIDTH
+                    SettingsView::WIDTH.min(widget_limit[0])
                 } else {
-                    self.extensions.widget_width(&self.active_widget)
+                    widget_width
                 };
                 self.state.retarget_expanded_width(width);
                 self.widget_height.target(if self.settings_open {
-                    self.settings_view.extra_height()
+                    self.settings_view
+                        .extra_height(context, &self.preferences, &bilibili_status)
+                        .min(widget_limit[1])
                 } else {
-                    self.extensions.widget_height(&self.active_widget)
+                    widget_height
                 });
             }
             if preferences_changed {
-                for output in self.extensions.set_pomodoro_durations(
-                    self.preferences.pomodoro_focus_minutes,
-                    self.preferences.pomodoro_break_minutes,
-                ) {
-                    self.apply_extension_output(output, context);
+                for (id, mut values) in self.preferences.extension_settings() {
+                    if let Some(previous) =
+                        old_extension_settings.as_ref().and_then(|all| all.get(&id))
+                    {
+                        values.retain(|key, value| previous.get(key) != Some(value));
+                    }
+                    if values.is_empty() {
+                        continue;
+                    }
+                    match self.extensions.update_settings(&id, values) {
+                        Ok(output) => self.apply_extension_output(output, context),
+                        Err(error) => {
+                            eprintln!("Unable to save extension settings for {id}: {error}")
+                        }
+                    }
                 }
-                if let Err(error) = self.extensions.configure_bilibili(
-                    &self.preferences.opencli_path,
-                    self.preferences.bilibili_dm_enabled,
-                    self.preferences.bilibili_likes_enabled,
-                    self.preferences.bilibili_show_dm_summary,
-                    self.preferences.bilibili_poll_seconds,
-                ) {
-                    eprintln!("Unable to configure Bilibili extension: {error}");
-                }
-                if let Err(error) = self
-                    .extensions
-                    .set_bilibili_enabled(self.preferences.bilibili_enabled)
-                {
-                    eprintln!("Unable to update Bilibili extension: {error}");
-                }
-                if self.preferences.bilibili_check_requested {
-                    self.preferences.bilibili_check_requested = false;
-                    if let Err(error) = self.extensions.request_bilibili_check() {
-                        eprintln!("Unable to check Bilibili connection: {error}");
+                self.preferences.read_extension_settings(&self.extensions);
+                if old_bilibili_enabled != self.preferences.bilibili_enabled {
+                    if let Err(error) = self
+                        .extensions
+                        .set_bilibili_enabled(self.preferences.bilibili_enabled)
+                    {
+                        eprintln!("Unable to update Bilibili extension: {error}");
                     }
                 }
                 if let Err(error) = self.preferences.save() {
@@ -469,50 +605,77 @@ impl eframe::App for IslandApp {
         }
 
         let dragging = self.window_drag.update(frame);
-        platform::update_hit_region(frame, interactive_rect, dragging);
+        let can_turn_page = self.state.expanded && notice.is_none() && !self.settings_open;
+        let grace_rect = self.page_edge_grace.take().filter(|(rect, deadline)| {
+            can_turn_page
+                && now < *deadline
+                && platform::pointer_inside(frame, Some(*rect), pointer)
+        });
+        self.page_edge_grace = grace_rect;
+        let swipe_region = match grace_rect {
+            Some((previous, _)) => {
+                Some(interactive_rect.map_or(previous, |rect| rect.union(previous)))
+            }
+            None => interactive_rect,
+        };
+        platform::update_hit_region(frame, swipe_region, dragging);
 
-        let pointer = context.input(|input| input.pointer.hover_pos());
         let hovering = platform::pointer_inside(frame, interactive_rect, pointer);
         if hovering && notice.is_some() {
             self.notifications.keep_alert_visible(now);
         }
         let (scroll, time, modifiers) =
             context.input(|input| (input.raw_scroll_delta, input.time, input.modifiers));
-        if self.trackpad_swipe.update(
-            scroll,
-            time,
-            hovering
-                && self.state.expanded
-                && notice.is_none()
-                && !self.settings_open
-                && modifiers == egui::Modifiers::NONE,
-        ) {
-            self.active_widget = widgets::next_widget(&self.active_widget, &widget_ids, 1);
-            context.request_repaint();
+        let swipe_hovering = platform::pointer_inside(frame, swipe_region, pointer);
+        let eligible = swipe_hovering
+            && can_turn_page
+            && !crate::ui::renderer::scrolls_horizontally(widget_view)
+            && modifiers == egui::Modifiers::NONE;
+        #[cfg(target_os = "macos")]
+        let native_samples = {
+            if self.scroll_monitor.is_none() {
+                self.scroll_monitor = platform::ScrollMonitor::new(frame);
+            }
+            self.scroll_monitor
+                .as_ref()
+                .map_or_else(Vec::new, platform::ScrollMonitor::drain)
+        };
+        let mut directions = Vec::new();
+        #[cfg(target_os = "macos")]
+        for &(phase, delta) in &native_samples {
+            directions.extend(self.trackpad_swipe.phased(phase, delta, eligible));
+        }
+        #[cfg(target_os = "macos")]
+        let use_raw_scroll = native_samples.is_empty();
+        #[cfg(not(target_os = "macos"))]
+        let use_raw_scroll = true;
+        if use_raw_scroll {
+            directions.extend(self.trackpad_swipe.update(scroll, time, eligible));
+        }
+        if can_turn_page && self.active_widget == page_before_input {
+            if let Some(direction) = context.input(widgets::key_direction) {
+                directions.clear();
+                directions.push(direction);
+            }
+            for direction in directions {
+                self.active_widget =
+                    widgets::next_widget(&self.active_widget, &widget_ids, direction);
+                context.request_repaint();
+            }
+        }
+        if self.active_widget != page_before_input && swipe_hovering {
+            self.page_switch_from = swipe_region;
         }
         if drag_started {
             self.window_drag.begin(frame, context);
-        }
-        if self.state.expanded
-            && notice.is_none()
-            && !self.settings_open
-            && !context.wants_keyboard_input()
-        {
-            let switch = context.input(|input| {
-                input.key_pressed(egui::Key::ArrowLeft) || input.key_pressed(egui::Key::ArrowRight)
-            });
-            if switch {
-                self.active_widget = widgets::next_widget(&self.active_widget, &widget_ids, 1);
-                context.request_repaint();
-            }
         }
         if self
             .state
             .observe_hover(hovering || dragging || notice.is_some(), dt)
         {
-            context.request_repaint();
-        }
-        if !self.scheduler.take_invalidated().is_empty() {
+            if self.state.expanded && notice.is_none() {
+                context.send_viewport_cmd(egui::ViewportCommand::Focus);
+            }
             context.request_repaint();
         }
         context.request_repaint_after(Duration::from_millis(16));
@@ -520,25 +683,24 @@ impl eframe::App for IslandApp {
 }
 
 fn empty_widget_view() -> WidgetView {
-    WidgetView {
-        root: crate::extension::ViewNode::Text {
-            text: "扩展当前没有内容".into(),
-            style: crate::extension::TextStyle::Muted,
-        },
-        preferred_size: [300.0, 76.0],
-        refresh_hint: crate::extension::RefreshHint::Static,
-    }
+    use crate::ui::declarative::*;
+    let mut view = WidgetView::new(
+        ViewNode::text("扩展当前没有内容", TextStyle::default()).color(ColorSpec::MutedText),
+        [300.0, 76.0],
+    );
+    view.refresh_hint = RefreshHint::Static;
+    view
 }
 
 pub fn run() -> eframe::Result<()> {
     let viewport = egui::ViewportBuilder::default()
         .with_title("灵动岛")
-        .with_inner_size(WINDOW_SIZE)
-        .with_min_inner_size(WINDOW_SIZE)
+        .with_inner_size(INITIAL_WINDOW_SIZE)
+        .with_resizable(false)
         .with_decorations(false)
         .with_transparent(true)
         .with_always_on_top()
-        .with_position([505.0, 64.0]);
+        .with_position([355.0, 64.0]);
     eframe::run_native(
         "灵动岛",
         eframe::NativeOptions {
@@ -546,7 +708,6 @@ pub fn run() -> eframe::Result<()> {
             ..Default::default()
         },
         Box::new(|cc| {
-            cc.egui_ctx.set_visuals(egui::Visuals::dark());
             fonts::install(&cc.egui_ctx);
             Ok(Box::new(IslandApp::new(&cc.egui_ctx)))
         }),

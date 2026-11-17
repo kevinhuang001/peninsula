@@ -1,10 +1,11 @@
 use super::timer::{Phase, Pomodoro};
 use crate::extension::{
-    Action, ColorRole, CompactNode, CompactView, Event, ExtensionDescriptor, ExtensionId,
-    ExtensionKind, ExtensionOutput, Notification, NotificationAction, NotificationAlertView,
-    NotificationCenterItemView, NotificationPresentationProvider, NotificationPriority,
-    RefreshHint, RuntimeExtension, ScheduledTask, ViewNode, WidgetView,
+    Action, CompactView, Event, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput,
+    Notification, NotificationAction, NotificationAlertView, NotificationCenterItemView,
+    NotificationPresentationProvider, NotificationPriority, ReloadPolicy, RuntimeExtension,
+    ScheduledTask, SettingSchema, SettingValue, Settings, ViewNode, WidgetView,
 };
+use crate::ui::declarative::*;
 use std::time::{Instant, SystemTime};
 
 pub const WIDGET_ID: &str = "builtin.pomodoro/timer";
@@ -25,6 +26,15 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
         .with_size_hint(88.0, 28.0),
         ExtensionDescriptor::builtin(WIDGET_ID, ExtensionKind::Widget, "番茄钟", "timer", true, 2)
             .with_size_hint(300.0, 126.0)
+            .with_settings(
+                1,
+                vec![
+                    SettingSchema::new("focus_minutes", SettingValue::Integer(25), "专注分钟数")
+                        .range(1.0, 180.0),
+                    SettingSchema::new("break_minutes", SettingValue::Integer(5), "休息分钟数")
+                        .range(1.0, 180.0),
+                ],
+            )
             .with_capabilities(vec![
                 crate::extension::Capability::View,
                 crate::extension::Capability::Action,
@@ -53,6 +63,14 @@ pub struct PomodoroExtension {
 }
 
 impl PomodoroExtension {
+    fn phase_color(&self) -> ColorSpec {
+        if self.timer.phase == Phase::Focus {
+            ColorSpec::Info
+        } else {
+            ColorSpec::Success
+        }
+    }
+
     fn action_output(&self, old_deadline: Option<Instant>) -> ExtensionOutput {
         let deadline = self.timer.deadline();
         let mut output = ExtensionOutput {
@@ -101,75 +119,98 @@ impl RuntimeExtension for PomodoroExtension {
         }
         let now = Instant::now();
         let phase = self.timer.phase;
-        Some(WidgetView {
-            root: ViewNode::Row(vec![
-                ViewNode::ProgressRing {
-                    fraction: self.timer.progress_at(now),
-                    label: Some(format_time(self.timer.remaining_at(now))),
-                    color: if phase == Phase::Focus {
-                        ColorRole::Warning
-                    } else {
-                        ColorRole::Success
-                    },
-                },
-                ViewNode::Column(vec![
-                    ViewNode::Text {
-                        text: if phase == Phase::Focus {
-                            "专注中"
-                        } else {
-                            "休息中"
-                        }
-                        .into(),
-                        style: crate::extension::TextStyle::Heading,
-                    },
-                    ViewNode::Spacer { size: [0.0, 1.0] },
-                    ViewNode::Row(vec![
-                        ViewNode::Button {
-                            label: if self.timer.running {
-                                "暂停"
+        let button_size = (Size::Fixed(72.0), Size::Fixed(26.0));
+        let mut root = ViewNode::row(
+            vec![
+                ViewNode::ring(
+                    self.timer.progress_at(now),
+                    format_time(self.timer.remaining_at(now)),
+                    66.0,
+                    3.0,
+                    18.0,
+                )
+                .color(self.phase_color()),
+                ViewNode::column(
+                    vec![
+                        ViewNode::text(
+                            if phase == Phase::Focus {
+                                "专注中"
                             } else {
-                                "开始"
-                            }
-                            .into(),
-                            action: Action::Toggle,
-                        },
-                        ViewNode::Button {
-                            label: "重置".into(),
-                            action: Action::Reset,
-                        },
-                    ]),
-                ]),
-            ]),
-            preferred_size: [300.0, 104.0],
-            refresh_hint: RefreshHint::EverySecond,
-        })
+                                "休息中"
+                            },
+                            TextStyle {
+                                font_size: FontSize::Title,
+                                font_weight: FontWeight::Bold,
+                                ..Default::default()
+                            },
+                        )
+                        .sized(Size::Fill(1.0), Size::Auto),
+                        ViewNode::row(
+                            vec![
+                                ViewNode::button(
+                                    if self.timer.running {
+                                        "暂停"
+                                    } else {
+                                        "开始"
+                                    },
+                                    Action::Toggle,
+                                )
+                                .sized(button_size.0, button_size.1),
+                                ViewNode::subtle_button("重置", Action::Reset)
+                                    .sized(button_size.0, button_size.1),
+                            ],
+                            Flow {
+                                gap: Some(8.0),
+                                justify: Justify::Center,
+                                ..Default::default()
+                            },
+                        )
+                        .sized(Size::Fill(1.0), Size::Auto),
+                    ],
+                    Flow {
+                        gap: Some(7.0),
+                        ..Default::default()
+                    },
+                )
+                .sized(Size::Fill(1.0), Size::Auto),
+            ],
+            Flow {
+                gap: Some(22.0),
+                justify: Justify::Center,
+                ..Default::default()
+            },
+        );
+        root.style.padding = [0.0, 5.0, 0.0, 5.0];
+        let mut view = WidgetView::new(root, [300.0, 126.0]);
+        view.bounds.fit_height = true;
+        if self.timer.running {
+            view.refresh_hint = RefreshHint::EverySecond;
+        }
+        Some(view)
+    }
+
+    fn compact_refresh_interval(&self) -> Option<std::time::Duration> {
+        self.timer
+            .running
+            .then_some(std::time::Duration::from_millis(100))
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
         let now = Instant::now();
-        let progress = self.timer.progress_at(now);
         vec![CompactView {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(WIDGET_ID),
-            content: CompactNode::Row(vec![
-                CompactNode::Progress {
-                    fraction: progress,
-                    label: String::new(),
-                    color: if self.timer.phase == Phase::Focus {
-                        ColorRole::Warning
-                    } else {
-                        ColorRole::Success
-                    },
+            content: ViewNode::row(
+                vec![
+                    ViewNode::ring(self.timer.progress_at(now), "", 24.0, 2.0, 6.0),
+                    super::super::compact_text(format_time(self.timer.remaining_at(now))),
+                ],
+                Flow {
+                    gap: Some(7.0),
+                    ..Default::default()
                 },
-                CompactNode::Text {
-                    text: format_time(self.timer.remaining_at(now)),
-                    color: if self.timer.phase == Phase::Focus {
-                        ColorRole::Warning
-                    } else {
-                        ColorRole::Success
-                    },
-                },
-            ]),
+            )
+            .color(self.phase_color()),
             min_width: 88.0,
             preferred_width: 88.0,
             priority: 7,
@@ -196,13 +237,20 @@ impl RuntimeExtension for PomodoroExtension {
         self.action_output(old_deadline)
     }
 
-    fn set_pomodoro_durations(
+    fn on_settings_changed(
         &mut self,
-        focus_minutes: u16,
-        break_minutes: u16,
+        _ctx: &crate::extension::ExtensionContext,
+        _id: &ExtensionId,
+        settings: &Settings,
+        _policy: ReloadPolicy,
     ) -> ExtensionOutput {
+        let (Some(SettingValue::Integer(focus)), Some(SettingValue::Integer(pause))) =
+            (settings.get("focus_minutes"), settings.get("break_minutes"))
+        else {
+            return ExtensionOutput::default();
+        };
         let old_deadline = self.timer.deadline();
-        if !self.timer.set_durations(focus_minutes, break_minutes) {
+        if !self.timer.set_durations(*focus as u16, *pause as u16) {
             return ExtensionOutput::default();
         }
         self.action_output(old_deadline)

@@ -1,138 +1,186 @@
 use crate::{
-    app::icons::{Icon, Icons},
-    extension::{AlertInteraction, NotificationAlertView},
+    app::icons::Icons,
+    extension::{
+        Action, AlertInteraction, ExtensionId, NotificationAction, NotificationAlertView,
+        NotificationKey,
+    },
+    ui::{declarative::*, renderer},
 };
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, RichText, Vec2};
+use eframe::egui::{self, vec2, Rect};
 
-use crate::app::settings::theme::WIDGET_BUTTON;
+const ALERT_PADDING: egui::Vec2 = vec2(18.0, 12.0);
+const MIN_ALERT_HEIGHT: f32 = 76.0;
 
-const MAX_EXTENSION_ACTIONS: usize = 4;
+pub struct AlertSurface {
+    source: ExtensionId,
+    view: WidgetView,
+    actions: Vec<NotificationAction>,
+}
 
-pub fn show_alert(
-    ui: &mut egui::Ui,
-    rect: Rect,
-    view: &NotificationAlertView,
-    icons: &Icons,
-    max_actions: usize,
-) -> Option<AlertInteraction> {
-    let painter = ui.painter().clone();
-    if let Some(icon) = view.icon.as_deref().and_then(icon_from_name) {
-        icons.paint(
-            &painter,
-            icon,
-            Rect::from_min_size(rect.left_top() + Vec2::new(14.0, 16.0), Vec2::splat(18.0)),
-            Color32::from_rgb(91, 190, 255),
-            1.0,
+impl AlertSurface {
+    pub fn new(key: &NotificationKey, data: NotificationAlertView, max_actions: usize) -> Self {
+        let actions: Vec<_> = data.actions.into_iter().take(max_actions.min(4)).collect();
+        let fill = |node: ViewNode| node.sized(Size::Fill(1.0), Size::Auto);
+        let title = fill(ViewNode::text(
+            data.title,
+            TextStyle {
+                align: Align::Start,
+                font_size: FontSize::Title,
+                ..Default::default()
+            },
+        ));
+        let close = ViewNode::subtle_button("×", Action::Dismiss)
+            .sized(Size::Fixed(24.0), Size::Fixed(23.0));
+        let mut header = Vec::new();
+        if let Some(icon) = data.icon {
+            header.push(ViewNode::icon(icon, 16.0).color(ColorSpec::Info));
+        }
+        header.extend([title, close]);
+        let body = fill(ViewNode::text(
+            data.body,
+            TextStyle {
+                align: Align::Start,
+                font_size: FontSize::Body,
+                wrap: true,
+                ..Default::default()
+            },
+        ))
+        .color(ColorSpec::SecondaryText);
+        let mut buttons: Vec<_> = actions
+            .iter()
+            .enumerate()
+            .map(|(i, action)| button(&action.label, Action::Custom(format!("run:{i}"))))
+            .collect();
+        let confirm = button("确定", Action::Custom("acknowledge".into()));
+        buttons.push(if actions.is_empty() {
+            confirm.sized(Size::Fixed(80.0), Size::Fixed(26.0))
+        } else {
+            confirm
+        });
+        let mut root = ViewNode::column(
+            vec![
+                fill(ViewNode::row(
+                    header,
+                    Flow {
+                        gap: Some(7.0),
+                        ..Default::default()
+                    },
+                )),
+                body,
+                fill(ViewNode::row(
+                    buttons,
+                    Flow {
+                        gap: Some(5.0),
+                        justify: Justify::End,
+                        ..Default::default()
+                    },
+                )),
+            ],
+            Flow {
+                gap: Some(6.0),
+                justify: Justify::SpaceBetween,
+                ..Default::default()
+            },
         );
-    }
-    let text_left = if view.icon.is_some() {
-        rect.left() + 40.0
-    } else {
-        rect.left() + 22.0
-    };
-    painter.text(
-        Pos2::new(text_left, rect.top() + 27.0),
-        Align2::LEFT_CENTER,
-        &view.title,
-        FontId::proportional(13.0),
-        Color32::WHITE,
-    );
-    painter.text(
-        Pos2::new(text_left, rect.top() + 52.0),
-        Align2::LEFT_CENTER,
-        truncate(&view.body, 48),
-        FontId::proportional(11.0),
-        Color32::from_rgb(247, 249, 252),
-    );
-
-    let close = Rect::from_min_size(
-        Pos2::new(rect.right() - 48.0, rect.top() + 14.0),
-        Vec2::splat(26.0),
-    );
-    if ui
-        .put(
-            close,
-            egui::Button::new("").fill(WIDGET_BUTTON).corner_radius(7.0),
-        )
-        .clicked()
-    {
-        return Some(AlertInteraction::Close);
-    }
-    icons.paint(
-        &painter,
-        Icon::Close,
-        close.shrink(8.0),
-        Color32::from_rgb(247, 249, 252),
-        1.0,
-    );
-
-    let actions = view
-        .actions
-        .iter()
-        .take(max_actions.min(MAX_EXTENSION_ACTIONS));
-    let actions: Vec<_> = actions.collect();
-    let count = actions.len() + 1;
-    let gap = 6.0;
-    let width = ((rect.width() - 36.0 - gap * (count - 1) as f32) / count as f32).max(48.0);
-    let row_width = width * count as f32 + gap * (count - 1) as f32;
-    let left = rect.center().x - row_width * 0.5;
-    let top = rect.bottom() - 38.0;
-    for (index, action) in actions.into_iter().enumerate() {
-        let button = Rect::from_min_size(
-            Pos2::new(left + index as f32 * (width + gap), top),
-            Vec2::new(width, 26.0),
-        );
-        if ui
-            .put(
-                button,
-                egui::Button::new(
-                    RichText::new(&action.label)
-                        .color(Color32::WHITE)
-                        .size(10.0),
-                )
-                .fill(WIDGET_BUTTON)
-                .corner_radius(8.0),
-            )
-            .clicked()
-        {
-            return Some(AlertInteraction::RunAction(action.clone()));
+        root.key = Some(key.stable_id());
+        Self {
+            source: key.source_extension_id.clone(),
+            view: WidgetView::new(root, [crate::app::capsule::ALERT_WIDTH, MIN_ALERT_HEIGHT]),
+            actions,
         }
     }
-    let confirm = Rect::from_min_size(
-        Pos2::new(left + (count - 1) as f32 * (width + gap), top),
-        Vec2::new(width, 26.0),
-    );
-    if ui
-        .put(
-            confirm,
-            egui::Button::new(RichText::new("确定").color(Color32::WHITE).size(10.0))
-                .fill(WIDGET_BUTTON)
-                .corner_radius(8.0),
-        )
-        .clicked()
-    {
-        return Some(AlertInteraction::Acknowledge);
+
+    pub fn extra_height(&self, context: &egui::Context, icons: &Icons) -> f32 {
+        let width = self.view.preferred_size[0] - 2.0 * ALERT_PADDING.x;
+        let content = renderer::content_height(context, &self.view.root, width, icons);
+        (content + 2.0 * ALERT_PADDING.y - crate::app::capsule::EXPANDED_BASE_HEIGHT)
+            .ceil()
+            .max(MIN_ALERT_HEIGHT)
     }
-    None
+
+    pub fn show(&self, ui: &mut egui::Ui, rect: Rect, icons: &Icons) -> Option<AlertInteraction> {
+        let rect = rect.shrink2(ALERT_PADDING);
+        let invocation = renderer::show_widget(ui, rect, &self.source, &self.view, icons, 1.0)?;
+        match invocation.action {
+            Action::Dismiss => Some(AlertInteraction::Close),
+            Action::Custom(id) if id == "acknowledge" => Some(AlertInteraction::Acknowledge),
+            Action::Custom(id) => {
+                let index = id.strip_prefix("run:")?.parse::<usize>().ok()?;
+                self.actions
+                    .get(index)
+                    .cloned()
+                    .map(AlertInteraction::RunAction)
+            }
+            _ => None,
+        }
+    }
 }
 
-fn icon_from_name(name: &str) -> Option<Icon> {
-    Some(match name {
-        "battery" => Icon::Battery,
-        "battery-charging" => Icon::BatteryCharging,
-        "arrow-down" => Icon::ArrowDown,
-        "arrow-up" => Icon::ArrowUp,
-        "clock" => Icon::Clock,
-        _ => return None,
-    })
+fn button(label: &str, action: Action) -> ViewNode {
+    ViewNode::button(label, action).sized(Size::Fill(1.0), Size::Fixed(26.0))
 }
 
-fn truncate(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        return text.to_owned();
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{pos2, Event, Modifiers, PointerButton, RawInput};
+    use std::cell::Cell;
+
+    #[test]
+    fn alert_buttons_preserve_close_acknowledge_and_extension_action_semantics() {
+        let ctx = egui::Context::default();
+        let icons = Icons::load(&ctx);
+        let key = NotificationKey {
+            source_extension_id: ExtensionId::builtin("builtin.downloads/notifications"),
+            notification_id: "download:12".into(),
+        };
+        let action = NotificationAction {
+            id: "reveal".into(),
+            label: "显示所在位置".into(),
+            data: Some("/path/to/download".into()),
+        };
+        let surface = AlertSurface::new(
+            &key,
+            NotificationAlertView {
+                title: "下载完成".into(),
+                body: "report.pdf".into(),
+                icon: Some("download".into()),
+                actions: vec![action.clone()],
+            },
+            4,
+        );
+        let rect = Rect::from_min_size(pos2(20.0, 20.0), vec2(300.0, 124.0));
+        let result = Cell::new(None);
+        let draw = |events| {
+            let _ = ctx.run(
+                RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| result.set(surface.show(ui, rect, &icons)));
+                },
+            );
+            result.take()
+        };
+        let click = |x, y| {
+            let pos = rect.min + vec2(x, y);
+            draw(vec![Event::PointerMoved(pos)]);
+            let button = |pressed| Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            };
+            draw(vec![button(true)]);
+            draw(vec![button(false)])
+        };
+        assert_eq!(click(270.0, 23.0), Some(AlertInteraction::Close));
+        assert_eq!(click(215.0, 100.0), Some(AlertInteraction::Acknowledge));
+        assert_eq!(
+            click(90.0, 100.0),
+            Some(AlertInteraction::RunAction(action))
+        );
     }
-    format!(
-        "{}…",
-        text.chars().take(max.saturating_sub(1)).collect::<String>()
-    )
 }

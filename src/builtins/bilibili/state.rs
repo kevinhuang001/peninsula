@@ -3,7 +3,6 @@ use std::{collections::BTreeMap, fs, io, path::Path};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnreadIncrease {
     pub category: String,
-    pub count: u64,
     pub increase: u64,
 }
 
@@ -41,7 +40,6 @@ impl SyncState {
                     let previous = self.counts.get(category).copied().unwrap_or(0);
                     (*count > previous).then(|| UnreadIncrease {
                         category: category.clone(),
-                        count: *count,
                         increase: *count - previous,
                     })
                 })
@@ -91,7 +89,7 @@ mod tests {
         let increases = state.observe(counts(&[("回复我的", 3), ("收到的赞", 1), ("@我的", 1)]));
         assert_eq!(increases.len(), 2);
         assert_eq!(increases[0].category, "@我的");
-        assert_eq!(increases[0].count, 1);
+        assert_eq!(increases[0].increase, 1);
         assert_eq!(increases[1].increase, 1);
     }
 

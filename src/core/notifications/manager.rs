@@ -31,6 +31,7 @@ pub struct NotificationManager {
     presentation: NotificationPresentationState,
     policy: NotificationPolicy,
     action_log: Vec<RecordedNotificationAction>,
+    revision: u64,
 }
 
 impl NotificationManager {
@@ -39,6 +40,7 @@ impl NotificationManager {
         if !self.store.insert(notification) {
             return false;
         }
+        self.revision = self.revision.wrapping_add(1);
         self.alert_queue.push_back(key);
         true
     }
@@ -86,6 +88,10 @@ impl NotificationManager {
         self.store.pending()
     }
 
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
     pub fn pending_count(&self) -> usize {
         self.store.pending_count()
     }
@@ -118,6 +124,7 @@ impl NotificationManager {
     pub fn acknowledge(&mut self, key: &NotificationKey) -> bool {
         let changed = self.store.acknowledge(key);
         if changed {
+            self.revision = self.revision.wrapping_add(1);
             self.alert_queue.retain(|queued| queued != key);
             if self.presentation.current_key() == Some(key) {
                 self.presentation.current = None;
@@ -129,7 +136,11 @@ impl NotificationManager {
     pub fn acknowledge_all(&mut self) -> usize {
         self.alert_queue.clear();
         self.presentation.current = None;
-        self.store.acknowledge_all()
+        let changed = self.store.acknowledge_all();
+        if changed > 0 {
+            self.revision = self.revision.wrapping_add(1);
+        }
+        changed
     }
 
     pub fn record_action(&mut self, key: NotificationKey, action: NotificationAction) {

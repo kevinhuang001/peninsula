@@ -1,3 +1,2 @@
 mod view;
-
-pub use view::show_alert;
+pub(super) use view::AlertSurface;

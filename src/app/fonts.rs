@@ -18,6 +18,6 @@ pub(super) fn install(context: &egui::Context) {
         .families
         .entry(FontFamily::Monospace)
         .or_default()
-        .insert(0, "noto-sans-sc".into());
+        .push("noto-sans-sc".into());
     context.set_fonts(fonts);
 }

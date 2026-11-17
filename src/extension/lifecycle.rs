@@ -31,7 +31,7 @@ impl ExtensionContext {
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }
-    pub fn config_dir(&self) -> &Path {
+    pub(crate) fn config_dir(&self) -> &Path {
         &self.config_dir
     }
 
@@ -43,54 +43,6 @@ impl ExtensionContext {
 
     pub fn log(&self, extension: &ExtensionId, message: &str) {
         eprintln!("[{extension}] {message}");
-    }
-
-    pub fn config_value(&self, extension: &ExtensionId, key: &str) -> Option<String> {
-        if key.is_empty() || key.contains(['=', '\n', '\r']) {
-            return None;
-        }
-        let contents = fs::read_to_string(self.extension_config_path(extension)).ok()?;
-        contents.lines().find_map(|line| {
-            let (candidate, value) = line.split_once('=')?;
-            (candidate == key).then(|| value.to_owned())
-        })
-    }
-
-    pub fn set_config_value(
-        &self,
-        extension: &ExtensionId,
-        key: &str,
-        value: &str,
-    ) -> io::Result<()> {
-        if key.is_empty() || key.contains(['=', '\n', '\r']) || value.contains(['\n', '\r']) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "invalid extension configuration value",
-            ));
-        }
-        let path = self.extension_config_path(extension);
-        let mut values = HashMap::new();
-        if let Ok(contents) = fs::read_to_string(&path) {
-            for line in contents.lines() {
-                if let Some((key, value)) = line.split_once('=') {
-                    values.insert(key.to_owned(), value.to_owned());
-                }
-            }
-        }
-        values.insert(key.to_owned(), value.to_owned());
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut lines: Vec<_> = values.into_iter().collect();
-        lines.sort_by(|left, right| left.0.cmp(&right.0));
-        fs::write(
-            path,
-            lines
-                .into_iter()
-                .map(|(key, value)| format!("{key}={value}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
     }
 
     pub fn schedule_at(&self, task_id: impl Into<String>, deadline: Instant) {
@@ -117,13 +69,6 @@ impl ExtensionContext {
             .map(|mut queue| std::mem::take(&mut *queue))
             .unwrap_or_default();
         (scheduled, canceled)
-    }
-
-    fn extension_config_path(&self, id: &ExtensionId) -> PathBuf {
-        self.config_dir
-            .join("extensions")
-            .join(id.as_str().replace('/', "_"))
-            .with_extension("conf")
     }
 }
 
@@ -252,8 +197,6 @@ mod tests {
         assert!(loaded.record(&id).unwrap().initialized);
 
         let context = ExtensionContext::new(root.clone(), root.join("config"));
-        context.set_config_value(&id, "mode", "ready").unwrap();
-        assert_eq!(context.config_value(&id, "mode").as_deref(), Some("ready"));
         context.schedule_at("test", Instant::now());
         context.cancel_task("old");
         let (scheduled, canceled) = context.drain_tasks();

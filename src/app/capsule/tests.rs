@@ -36,8 +36,8 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                                 widget_ids: &widget_ids,
                                 widget_title: "测试",
                                 widget_view: &widget_view,
+                                widget_body_limit: egui::vec2(300.0, 76.0),
                                 alert_view: None,
-                                max_alert_actions: 4,
                                 mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: false,
@@ -67,17 +67,6 @@ fn compact_capsule_is_shorter_without_changing_the_expanded_widget_height() {
 }
 
 #[test]
-fn in_capsule_settings_fit_the_taller_transparent_window() {
-    assert!(settings_width_fits(420.0));
-    let settings = SettingsView::default();
-    assert!(capsule_height(1.0, settings.extra_height()) + 4.0 <= crate::app::WINDOW_SIZE[1]);
-}
-
-fn settings_width_fits(window_width: f32) -> bool {
-    SettingsView::WIDTH <= window_width
-}
-
-#[test]
 fn in_capsule_settings_toggle_updates_compact_preferences() {
     use eframe::egui::{Event, Modifiers, PointerButton};
 
@@ -88,7 +77,7 @@ fn in_capsule_settings_toggle_updates_compact_preferences() {
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&context);
     let (widget_ids, widget_view) = widget_fixture();
-    let point = Pos2::new(369.0, 101.0);
+    let point = Pos2::new(369.0, 105.0);
     let mut changed = false;
     let mut frame = |events: Vec<Event>| {
         let input = egui::RawInput {
@@ -106,14 +95,14 @@ fn in_capsule_settings_toggle_updates_compact_preferences() {
                             context,
                             SettingsView::WIDTH,
                             1.0,
-                            settings_view.extra_height(),
+                            settings_view.extra_height(context, &preferences, ""),
                             CapsuleWidgets {
                                 compact_views: &[],
                                 widget_ids: &widget_ids,
                                 widget_title: "测试",
                                 widget_view: &widget_view,
+                                widget_body_limit: egui::vec2(300.0, 76.0),
                                 alert_view: None,
-                                max_alert_actions: 4,
                                 mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: true,
@@ -177,14 +166,14 @@ fn settings_close_button_returns_to_the_active_widget() {
                             context,
                             SettingsView::WIDTH,
                             1.0,
-                            settings_view.extra_height(),
+                            settings_view.extra_height(context, &preferences, ""),
                             CapsuleWidgets {
                                 compact_views: &[],
                                 widget_ids: &widget_ids,
                                 widget_title: "测试",
                                 widget_view: &widget_view,
+                                widget_body_limit: egui::vec2(300.0, 76.0),
                                 alert_view: None,
-                                max_alert_actions: 4,
                                 mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: true,
@@ -241,13 +230,10 @@ fn widget_fixture() -> (
         .into_iter()
         .map(|descriptor| descriptor.id.clone())
         .collect();
-    let widget_view = crate::extension::WidgetView {
-        root: crate::extension::ViewNode::Text {
-            text: String::new(),
-            style: crate::extension::TextStyle::Muted,
-        },
-        preferred_size: [300.0, 76.0],
-        refresh_hint: crate::extension::RefreshHint::Static,
-    };
+    let widget_view = crate::extension::WidgetView::new(
+        crate::extension::ViewNode::text("测试", Default::default()),
+        [300.0, 76.0],
+    );
+
     (widget_ids, widget_view)
 }

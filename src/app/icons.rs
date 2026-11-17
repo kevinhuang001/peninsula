@@ -1,7 +1,7 @@
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, TextureHandle, Vec2};
 
 #[derive(Clone, Copy)]
-pub(super) enum Icon {
+pub(crate) enum Icon {
     Pin,
     Moon,
     Settings,
@@ -13,9 +13,10 @@ pub(super) enum Icon {
     ArrowUp,
     Clock,
     Close,
+    Bell,
 }
 
-pub(super) struct Icons {
+pub(crate) struct Icons {
     pin: TextureHandle,
     moon: TextureHandle,
     settings: TextureHandle,
@@ -29,7 +30,7 @@ pub(super) struct Icons {
 
 impl Icons {
     pub fn load(context: &egui::Context) -> Self {
-        Self {
+        let icons = Self {
             pin: load(
                 context,
                 "lucide-pin",
@@ -75,7 +76,16 @@ impl Icons {
                 "lucide-close",
                 include_bytes!("../../assets/icons/lucide/x.svg"),
             ),
+        };
+        for (name, texture) in [
+            ("lucide/clock", &icons.clock),
+            ("lucide/moon", &icons.moon),
+            ("lucide/arrow-down", &icons.arrow_down),
+            ("lucide/arrow-up", &icons.arrow_up),
+        ] {
+            crate::ui::renderer::register_image(context, name, texture.clone());
         }
+        icons
     }
 
     pub fn paint(&self, painter: &Painter, icon: Icon, rect: Rect, color: Color32, opacity: f32) {
@@ -87,13 +97,33 @@ impl Icons {
             paint_gpu(painter, rect, color.linear_multiply(opacity));
             return;
         }
+        if matches!(icon, Icon::Bell) {
+            let c = rect.center();
+            let r = rect.width().min(rect.height()) * 0.30;
+            let stroke = Stroke::new(1.2, color.linear_multiply(opacity));
+            painter.add(eframe::egui::Shape::line(
+                vec![
+                    c + Vec2::new(-r * 1.25, r * 0.65),
+                    c + Vec2::new(-r, 0.0),
+                    c + Vec2::new(-r * 0.8, -r * 0.75),
+                    c + Vec2::new(0.0, -r),
+                    c + Vec2::new(r * 0.8, -r * 0.75),
+                    c + Vec2::new(r, 0.0),
+                    c + Vec2::new(r * 1.25, r * 0.65),
+                    c + Vec2::new(-r * 1.25, r * 0.65),
+                ],
+                stroke,
+            ));
+            painter.circle_filled(c + Vec2::new(0.0, r), 0.9, stroke.color);
+            return;
+        }
         let texture = match icon {
             Icon::Pin => &self.pin,
             Icon::Moon => &self.moon,
             Icon::Settings => &self.settings,
             Icon::Battery => &self.battery,
             Icon::BatteryCharging => &self.battery_charging,
-            Icon::Cpu | Icon::Gpu => unreachable!(),
+            Icon::Cpu | Icon::Gpu | Icon::Bell => unreachable!(),
             Icon::ArrowDown => &self.arrow_down,
             Icon::ArrowUp => &self.arrow_up,
             Icon::Clock => &self.clock,

@@ -1,6 +1,10 @@
+use super::SettingSchema;
+use crate::ui::declarative::{RefreshHint, WidgetBounds};
+use serde::{Deserialize, Serialize};
 use std::{fmt, hash::Hash};
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct ExtensionId(String);
 
 impl ExtensionId {
@@ -27,6 +31,19 @@ impl ExtensionId {
     }
 }
 
+impl TryFrom<String> for ExtensionId {
+    type Error = IdError;
+    fn try_from(value: String) -> Result<Self, IdError> {
+        Self::new(value)
+    }
+}
+
+impl From<ExtensionId> for String {
+    fn from(value: ExtensionId) -> Self {
+        value.0
+    }
+}
+
 impl fmt::Display for ExtensionId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.0)
@@ -45,14 +62,14 @@ impl fmt::Display for IdError {
 
 impl std::error::Error for IdError {}
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ExtensionKind {
     Widget,
     Compact,
     Notification,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Capability {
     View,
     Action,
@@ -60,7 +77,7 @@ pub enum Capability {
     Schedule,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExtensionDescriptor {
     pub id: ExtensionId,
     pub kind: ExtensionKind,
@@ -69,6 +86,12 @@ pub struct ExtensionDescriptor {
     pub default_enabled: bool,
     pub default_order: u32,
     pub size_hint: [f32; 2],
+    #[serde(default)]
+    pub widget_bounds: WidgetBounds,
+    #[serde(default)]
+    pub refresh_hint: RefreshHint,
+    pub settings_version: u32,
+    pub settings: Vec<SettingSchema>,
     pub capabilities: Vec<Capability>,
     pub schema_version: u32,
     pub version: String,
@@ -92,6 +115,10 @@ impl ExtensionDescriptor {
             default_enabled,
             default_order,
             size_hint: [0.0, 0.0],
+            widget_bounds: WidgetBounds::default(),
+            refresh_hint: RefreshHint::OnInvalidation,
+            settings_version: 1,
+            settings: vec![],
             capabilities: match kind {
                 ExtensionKind::Notification => vec![Capability::Event],
                 ExtensionKind::Widget | ExtensionKind::Compact => {
@@ -106,6 +133,17 @@ impl ExtensionDescriptor {
 
     pub fn with_size_hint(mut self, width: f32, height: f32) -> Self {
         self.size_hint = [width, height];
+        self
+    }
+
+    pub fn with_widget_bounds(mut self, bounds: WidgetBounds) -> Self {
+        self.widget_bounds = bounds;
+        self
+    }
+
+    pub fn with_settings(mut self, version: u32, settings: Vec<SettingSchema>) -> Self {
+        self.settings_version = version;
+        self.settings = settings;
         self
     }
 

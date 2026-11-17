@@ -1,8 +1,9 @@
 use super::sampler::{MetricsSampler, Snapshot};
 use crate::extension::{
-    ColorRole, CompactNode, CompactView, ExtensionDescriptor, ExtensionId, ExtensionKind,
-    ExtensionOutput, RefreshHint, RuntimeExtension, ViewNode, WidgetView,
+    CompactView, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput, ReloadPolicy,
+    RuntimeExtension, SettingSchema, SettingValue, Settings, ViewNode, WidgetView,
 };
+use crate::ui::declarative::*;
 use std::sync::mpsc::Receiver;
 
 pub const ID: &str = "builtin.system-monitor/overview";
@@ -11,6 +12,25 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
     vec![
         ExtensionDescriptor::builtin(ID, ExtensionKind::Widget, "性能监控", "activity", true, 1)
             .with_size_hint(320.0, 76.0)
+            .with_widget_bounds(WidgetBounds {
+                min: [244.0, 76.0],
+                max: [Some(380.0), Some(150.0)],
+                resizable: true,
+                fit_width: false,
+                fit_height: true,
+                overflow: Overflow::Scroll(ScrollAxes::Vertical),
+            })
+            .with_settings(
+                1,
+                vec![
+                    SettingSchema::new(
+                        "show_download",
+                        SettingValue::Boolean(true),
+                        "显示下载速率",
+                    ),
+                    SettingSchema::new("show_upload", SettingValue::Boolean(true), "显示上传速率"),
+                ],
+            )
             .with_capabilities(vec![
                 crate::extension::Capability::View,
                 crate::extension::Capability::Action,
@@ -52,6 +72,8 @@ fn compact_descriptor(
 pub struct PerformanceExtension {
     snapshots: Receiver<Snapshot>,
     snapshot: Snapshot,
+    show_download: bool,
+    show_upload: bool,
 }
 
 impl crate::extension::NotificationPresentationProvider for PerformanceExtension {}
@@ -61,6 +83,8 @@ impl PerformanceExtension {
         Self {
             snapshots: MetricsSampler::start(),
             snapshot: Snapshot::default(),
+            show_download: true,
+            show_upload: true,
         }
     }
 }
@@ -96,142 +120,202 @@ impl RuntimeExtension for PerformanceExtension {
             return None;
         }
         let metrics = &self.snapshot;
-        Some(WidgetView {
-            root: ViewNode::Row(vec![
-                ViewNode::MetricCard {
-                    label: "CPU".into(),
-                    value: format!("{:.0}%", metrics.cpu_percent),
-                    subtitle: None,
-                    icon: None,
-                    color: ColorRole::Success,
-                },
-                ViewNode::MetricCard {
-                    label: "GPU".into(),
-                    value: metrics
-                        .gpu_percent
-                        .map_or_else(|| "不可用".into(), |value| format!("{value:.0}%")),
-                    subtitle: None,
-                    icon: None,
-                    color: ColorRole::Accent,
-                },
-                ViewNode::MetricCard {
-                    label: "网络".into(),
-                    value: format_speed(metrics.download_bytes_per_second),
-                    subtitle: Some(format!(
-                        "↑ {}",
-                        format_speed(metrics.upload_bytes_per_second)
-                    )),
-                    icon: Some("arrow-down".into()),
-                    color: ColorRole::Accent,
-                },
-                ViewNode::MetricCard {
-                    label: "电池".into(),
-                    value: metrics
-                        .battery_percent
-                        .map_or_else(|| "--".into(), |value| format!("{value}%")),
-                    subtitle: metrics.charging.then(|| "充电中".into()),
-                    icon: Some(
-                        if metrics.charging {
-                            "battery-charging"
-                        } else {
-                            "battery"
-                        }
-                        .into(),
-                    ),
-                    color: if metrics.battery_percent.is_some_and(|value| value < 20) {
-                        ColorRole::Warning
-                    } else if metrics.charging {
-                        ColorRole::Success
-                    } else {
-                        ColorRole::Primary
-                    },
-                },
-            ]),
-            preferred_size: [320.0, 76.0],
-            refresh_hint: RefreshHint::EverySecond,
-        })
-    }
-
-    fn compact_views(&self) -> Vec<CompactView> {
-        let metrics = &self.snapshot;
-        let source = ExtensionId::builtin(ID);
-        let battery_color = if metrics.battery_percent.is_some_and(|value| value < 20) {
-            ColorRole::Warning
-        } else if metrics.charging {
-            ColorRole::Success
-        } else {
-            ColorRole::Primary
+        let network_color = ColorSpec::Info;
+        let mut network = vec![super::super::compact_text("网络").color(ColorSpec::SecondaryText)];
+        network.extend(self.network_rows(network_color));
+        let network = card(ViewNode::column(
+            network,
+            Flow {
+                gap: Some(2.0),
+                justify: Justify::Center,
+                ..Default::default()
+            },
+        ));
+        let metric = |label: &str, value: String, color| {
+            card(
+                ViewNode::new(Node::Metric {
+                    label: label.into(),
+                    value,
+                    unit: String::new(),
+                })
+                .color(color),
+            )
         };
-        vec![
-            compact_view(
-                "builtin.system-monitor/battery",
-                &source,
-                CompactNode::IconText {
-                    icon: if metrics.charging {
+        let battery = card(ViewNode::column(
+            vec![
+                super::super::compact_text("电池").color(ColorSpec::SecondaryText),
+                super::super::icon_text(
+                    if metrics.charging {
                         "battery-charging"
                     } else {
                         "battery"
-                    }
-                    .into(),
-                    text: metrics
-                        .battery_percent
-                        .map_or_else(|| "--".into(), |v| format!("{v}%")),
-                    color: battery_color,
-                },
+                    },
+                    battery_label(metrics),
+                    battery_color(metrics),
+                    14.0,
+                ),
+            ],
+            Flow {
+                gap: Some(4.0),
+                justify: Justify::Center,
+                ..Default::default()
+            },
+        ));
+        let mut grid = Grid::new(Columns::AutoFit {
+            min_item_width: 65.0,
+            max_columns: 4,
+        });
+        grid.column_gap = Some(6.0);
+        grid.row_gap = Some(6.0);
+        let view = WidgetView::new(
+            ViewNode::new(Node::Grid(
+                grid,
+                vec![
+                    metric(
+                        "CPU",
+                        format!("{:.0}%", metrics.cpu_percent),
+                        ColorSpec::Success,
+                    ),
+                    metric(
+                        "GPU",
+                        metrics
+                            .gpu_percent
+                            .map_or_else(|| "不可用".into(), |value| format!("{value:.0}%")),
+                        ColorSpec::Info,
+                    ),
+                    network,
+                    battery,
+                ],
+            )),
+            [320.0, 76.0],
+        );
+        Some(view)
+    }
+
+    fn compact_views(&self) -> Vec<CompactView> {
+        use super::super::icon_text;
+        let metrics = &self.snapshot;
+        vec![
+            compact_view(
+                "builtin.system-monitor/battery",
+                icon_text(
+                    if metrics.charging {
+                        "battery-charging"
+                    } else {
+                        "battery"
+                    },
+                    battery_label(metrics),
+                    battery_color(metrics),
+                    16.0,
+                ),
                 54.0,
             ),
             compact_view(
                 "builtin.system-monitor/cpu",
-                &source,
-                CompactNode::IconText {
-                    icon: "cpu".into(),
-                    text: format!("{:.0}%", metrics.cpu_percent),
-                    color: ColorRole::Success,
-                },
+                icon_text(
+                    "cpu",
+                    format!("{:.0}%", metrics.cpu_percent),
+                    ColorSpec::Success,
+                    16.0,
+                ),
                 56.0,
             ),
             compact_view(
                 "builtin.system-monitor/gpu",
-                &source,
-                CompactNode::IconText {
-                    icon: "gpu".into(),
-                    text: metrics
+                icon_text(
+                    "gpu",
+                    metrics
                         .gpu_percent
                         .map_or_else(|| "--".into(), |v| format!("{v:.0}%")),
-                    color: ColorRole::Accent,
-                },
+                    ColorSpec::Info,
+                    16.0,
+                ),
                 56.0,
             ),
+        ]
+        .into_iter()
+        .chain((self.show_download || self.show_upload).then(|| {
             compact_view(
                 "builtin.system-monitor/network",
-                &source,
-                CompactNode::Column(vec![
-                    CompactNode::IconText {
-                        icon: "arrow-down".into(),
-                        text: format_speed(metrics.download_bytes_per_second),
-                        color: ColorRole::Accent,
+                ViewNode::column(
+                    self.network_rows(ColorSpec::Info),
+                    Flow {
+                        gap: Some(0.0),
+                        ..Default::default()
                     },
-                    CompactNode::IconText {
-                        icon: "arrow-up".into(),
-                        text: format_speed(metrics.upload_bytes_per_second),
-                        color: ColorRole::Success,
-                    },
-                ]),
+                ),
                 80.0,
-            ),
-        ]
+            )
+        }))
+        .collect()
+    }
+
+    fn on_settings_changed(
+        &mut self,
+        _ctx: &crate::extension::ExtensionContext,
+        _id: &ExtensionId,
+        settings: &Settings,
+        _policy: ReloadPolicy,
+    ) -> ExtensionOutput {
+        self.show_download = settings.get("show_download") != Some(&SettingValue::Boolean(false));
+        self.show_upload = settings.get("show_upload") != Some(&SettingValue::Boolean(false));
+        ExtensionOutput::default()
     }
 }
 
-fn compact_view(
-    id: &'static str,
-    source: &ExtensionId,
-    content: CompactNode,
-    width: f32,
-) -> CompactView {
+impl PerformanceExtension {
+    fn network_rows(&self, color: ColorSpec) -> Vec<ViewNode> {
+        use super::super::icon_text;
+        [
+            (
+                self.show_download,
+                "arrow-down",
+                self.snapshot.download_bytes_per_second,
+            ),
+            (
+                self.show_upload,
+                "arrow-up",
+                self.snapshot.upload_bytes_per_second,
+            ),
+        ]
+        .into_iter()
+        .filter(|(enabled, _, _)| *enabled)
+        .map(|(_, icon, speed)| icon_text(icon, format_speed(speed), color, 12.0))
+        .collect()
+    }
+}
+
+fn battery_label(metrics: &Snapshot) -> String {
+    metrics
+        .battery_percent
+        .map_or_else(|| "--".into(), |v| format!("{v}%"))
+}
+
+fn battery_color(metrics: &Snapshot) -> ColorSpec {
+    if metrics.battery_percent.is_some_and(|v| v < 20) {
+        ColorSpec::Danger
+    } else if metrics.charging {
+        ColorSpec::Success
+    } else {
+        ColorSpec::PrimaryText
+    }
+}
+
+fn card(mut node: ViewNode) -> ViewNode {
+    node.style.normal.background = Some(ColorSpec::SurfaceVariant);
+    node.style.normal.corner_radius = Some(10.0);
+    node.style.normal.border_color = Some(ColorSpec::Border);
+    node.style.normal.border_width = Some(1.0);
+    node.style.padding = [4.0, 2.0, 4.0, 2.0];
+    node.size.min_height = Some(58.0);
+    node.clip = true;
+    node
+}
+
+fn compact_view(id: &'static str, content: ViewNode, width: f32) -> CompactView {
     CompactView {
         id: ExtensionId::builtin(id),
-        source_extension_id: source.clone(),
+        source_extension_id: ExtensionId::builtin(ID),
         content,
         min_width: width,
         preferred_width: width,

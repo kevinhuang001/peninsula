@@ -99,3 +99,8 @@ pub(super) fn configure_floating_window(_frame: &eframe::Frame) -> bool {
 }
 mod drag;
 pub use drag::WindowDrag;
+
+#[cfg(target_os = "macos")]
+mod scroll;
+#[cfg(target_os = "macos")]
+pub(super) use scroll::ScrollMonitor;

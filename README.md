@@ -7,11 +7,12 @@
 - 采用岛仔同类的透明眼睛、嘴巴表情序列，自动播放眨眼、张望、害羞等动作；点击可切换，胶囊可自由拖动。
 - 收起态默认显示表情和电池；鼠标停留约 0.18 秒后弹簧展开，移开后延迟收起。
 - 展开后默认进入固定在第一页的通知中心；通知为空时显示空状态，通知较多时可分页查看并逐条清除。
-- 性能监控和番茄钟作为普通 Widget 页面提供，按 Registry 顺序切换。
+- 性能监控、番茄钟和快递作为普通 Widget 页面提供，按 Registry 顺序切换。
 - 显示系统电量和充电状态。
 - 监听 Chromium 系浏览器、Firefox 和 macOS Safari 的下载；可在设置中启用收起态进度，完成后展开并提供打开文件和显示所在位置的操作。
 - 展开后查看 CPU、GPU、上下行网络速率。
 - 设置面板直接显示在胶囊内；可配置收缩状态内容、免打扰时段，以及番茄钟专注/休息时长（各 1–180 分钟）。
+- 快递 Widget 通过 OpenCLI 后台查询淘宝和京东，默认每 20 分钟刷新一次，可在「设置 → 快递」修改间隔。每个平台在本地保留上一次成功结果；首次查询建立基线，之后出现新快递、状态变化或新物流节点时进入通知中心。快递变更通知和取件通知可分别开启，待取件时优先发送取件提醒。
 - 可选启用 Bilibili 私信和收到的赞通知；通过系统 OpenCLI 和现有 Chrome 登录态读取，不要求输入 Cookie。
 - 顶部月亮按钮可手动常开免打扰；在计划时段中关闭时，只跳过当前时段，之后仍按计划启用。
 - 右键胶囊打开退出菜单。
@@ -20,6 +21,14 @@
 - macOS 窗口加入所有桌面空间，并作为全屏辅助窗口显示在全屏应用上方。
 
 下载信息从浏览器本地记录和临时文件读取，不会上传。浏览器锁定数据库时，程序会在系统临时目录创建短暂的只读快照，读取后删除。部分浏览器不会实时保存总大小或隐私浏览记录，此时显示已下载的数据量，完成通知取决于浏览器是否保存了下载记录。监听 Safari 的下载记录需要在 macOS「隐私与安全性 → 完全磁盘访问权限」中允许灵动岛访问。
+
+快递查询沿用 [OpenCLI 快递插件](https://github.com/kevinhuang001/opencli-kuaidi) 的订单范围。请在连接了 OpenCLI Browser Bridge 的 Chrome 中登录淘宝和京东，并安装插件：
+
+```sh
+opencli plugin install github:kevinhuang001/opencli-kuaidi
+```
+
+如果某个平台查询失败，Widget 会提示并保留该平台上次的结果。平台不再返回的订单会从列表移除；只有查询到明确的签收状态时才提示签收。
 
 ## 开发
 
@@ -44,6 +53,22 @@ CI 会在 macOS、Windows 和 Linux 上运行测试并构建 release。
 - `src/core/` 管理扩展调度、操作分发、通知待处理状态和提醒展示队列。提醒关闭或超时不会清除通知；确认、扩展操作和逐条/全部清理会将其标记为已处理。
 - `src/builtins/` 注册 Download、Performance、Pomodoro、Bilibili 通知及表情和时钟 Compact。性能 Widget 与 Compact 共用一个采样器快照；番茄钟使用 Core Deadline 调度，并保存专注/休息时长。
 - `src/core/external/opencli.rs` 负责检测并执行系统 OpenCLI；`integrations/opencli/peninsula-bilibili/` 提供私信与收到的赞只读命令。
-- `src/app/` 只负责 egui 绘制、胶囊交互、页面切换和窗口行为。
+- `src/app/` 管理胶囊外壳、设置面板、页面切换和窗口行为。
 
-通知使用 `(source_extension_id, notification_id)` 作为稳定标识。通知扩展分别提供提醒和通知中心条目的视图数据；App 绘制这些数据并回传用户操作。Rust 扩展仍在应用进程内运行；OpenCLI 插件只是由系统 OpenCLI 执行的集成资源，不是 Peninsula 的动态插件加载器或公开 SDK。
+通知使用 `(source_extension_id, notification_id)` 作为稳定标识。通知扩展分别提供提醒和通知中心条目的视图数据；Core 将这些数据交给统一的渲染器并回传用户操作。Rust 扩展仍在应用进程内运行；OpenCLI 插件只是由系统 OpenCLI 执行的集成资源，不是 Peninsula 的动态插件加载器或公开 SDK。
+
+### 声明式 Widget
+
+扩展在 `src/ui/declarative.rs` 提供的数据类型上组合视图；展开页、收起态扩展组件和通知界面都由 `src/ui/renderer/` 绘制。扩展可以返回不同的数据和操作 ID，窗口大小、位置、切页和操作路由由宿主决定。视图在数据失效或到达刷新期限时重建；计时器暂停时不做定时重建。
+
+例如，性能监控用 `Node::Grid(Grid::new(Columns::AutoFit { min_item_width: 65.0, max_columns: 4 }), cards)` 排列指标；横向空间不足会减少列数，较高内容可滚动。固定网格可为各列、各行选择不同的轨道类型，并通过 `ViewNode::placement` 声明行列及跨距。树中的尺寸用 egui points；`Percent(0.5)` 表示父容器可用尺寸的一半，`Fill(2.0)` 表示分配剩余空间时的权重。描述符给出默认尺寸，启用 `resizable` 的 Widget 可用运行时视图请求新尺寸。设置 `fit_width` 或 `fit_height` 时会按内容测量对应尺寸，宿主将展开宽高限制在当前屏幕的 75%。图片和精灵引用宿主注册的纹理名，如 `lucide/clock`。
+
+表格可使用 `Node::Table(Table { columns, rows })`。列定义包含标题和相对宽度，表头与各行共享列宽。单元格接受普通视图节点，行高随内容调整。
+
+前景色可继承或覆盖，背景默认透明。语义色随主题变化，RGBA 保持声明的颜色。可以在 Core 的 `preferences.conf` 里设置 `widget_theme=dark`、`light` 或 `system`，以及 `widget_accent=#25579c`。
+
+### 扩展设置
+
+在 `ExtensionDescriptor::with_settings` 声明配置版本、字段类型、默认值和约束。Core 验证配置并原子写入用户配置目录的 `extension-settings.json`；改动后通过 `on_settings_changed` 给扩展传递验证过的快照。需要改变旧值结构时，可在 `migrate_settings` 中按旧版本转换。标记为 `Restart` 的值保存后在下次启动生效。时长以毫秒表示，颜色是四个 sRGBA 通道。
+
+番茄钟时长和 Bilibili 的轮询间隔通过 Schema 保存。旧版 `preferences.conf` 中的 OpenCLI 路径会迁移至扩展配置，默认自动检测。性能监控的 `show_download`、`show_upload` 和下载胶囊的 `show_rate` 是额外的布尔配置，未新增设置页面。启用状态、顺序和免打扰仍由 Core 管理；登录信息沿用现有认证方式。

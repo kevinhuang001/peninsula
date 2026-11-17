@@ -1,4 +1,5 @@
 mod chromium;
+mod completion;
 mod database;
 mod firefox;
 mod model;
@@ -33,7 +34,7 @@ pub fn start() -> Receiver<Snapshot> {
             let mut active_by_source: HashMap<String, Vec<Download>> = HashMap::new();
             let mut last_read: HashMap<String, Instant> = HashMap::new();
             let mut stamps = HashMap::new();
-            let mut recent_completed = HashMap::new();
+            let mut completed_files = completion::CompletedFiles::default();
             let mut directories = HashSet::new();
             if let Some(path) = partial::default_directory() {
                 directories.insert(path);
@@ -94,16 +95,7 @@ pub fn start() -> Receiver<Snapshot> {
                 active.sort_by(|a, b| a.id.cmp(&b.id));
                 active.dedup_by(|a, b| a.path == b.path && a.browser == b.browser);
                 rates.sample(&mut active, Instant::now());
-                recent_completed
-                    .retain(|_, time: &mut Instant| time.elapsed() < Duration::from_secs(10));
-                completed.retain(|item| {
-                    let key = item.path.clone();
-                    if recent_completed.contains_key(&key) {
-                        return false;
-                    }
-                    recent_completed.insert(key, Instant::now());
-                    true
-                });
+                completed.retain(|item| completed_files.first_completion(&item.path));
                 if sender.send(Snapshot { active, completed }).is_err() {
                     break;
                 }

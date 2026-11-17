@@ -1,0 +1,770 @@
+use super::{anchor, layout, point, Renderer, MAX_DEPTH};
+use crate::{app::icons::Icon, ui::declarative::*};
+use eframe::egui::{
+    self, pos2, vec2, Color32, FontFamily, FontId, Id, Rect, Sense, Stroke, StrokeKind, Ui,
+    UiBuilder, Vec2,
+};
+use std::{sync::Arc, time::Duration};
+
+fn font_size(style: TextStyle) -> f32 {
+    match style.font_size {
+        FontSize::Small => 10.0,
+        FontSize::Body => 12.0,
+        FontSize::Title => 14.0,
+        FontSize::Heading => 18.0,
+        FontSize::Custom(size) => point(size).clamp(1.0, 256.0),
+    }
+}
+
+fn galley(ui: &Ui, text: &str, style: TextStyle, width: f32, elide: bool) -> Arc<egui::Galley> {
+    use egui::text::{LayoutJob, TextFormat};
+    let bold = style.font_weight == FontWeight::Bold;
+    let mut job = LayoutJob::single_section(
+        text.into(),
+        TextFormat {
+            font_id: FontId::new(
+                font_size(style),
+                if style.monospace {
+                    FontFamily::Monospace
+                } else {
+                    FontFamily::Proportional
+                },
+            ),
+            color: Color32::PLACEHOLDER,
+            extra_letter_spacing: if bold { 0.25 } else { 0.0 },
+            line_height: style.line_height.map(point).filter(|v| *v > 0.0),
+            ..Default::default()
+        },
+    );
+    if style.wrap || elide {
+        job.wrap.max_width = width.max(1.0);
+    }
+    if elide && !style.wrap {
+        job.wrap.max_rows = 1;
+        job.wrap.break_anywhere = true;
+    }
+    job.halign = match style.align {
+        Align::Start | Align::Stretch => egui::Align::LEFT,
+        Align::Center => egui::Align::Center,
+        Align::End => egui::Align::RIGHT,
+    };
+    ui.fonts(|fonts| fonts.layout_job(job))
+}
+
+fn table_header_style() -> TextStyle {
+    TextStyle {
+        font_size: FontSize::Small,
+        font_weight: FontWeight::Bold,
+        align: Align::Start,
+        ..TextStyle::default()
+    }
+}
+
+pub(super) fn table_header_width(ui: &Ui, title: &str) -> f32 {
+    galley(ui, title, table_header_style(), f32::INFINITY, false)
+        .size()
+        .x
+}
+
+fn text(ui: &Ui, rect: Rect, value: &str, style: TextStyle, color: Color32) {
+    if value.is_empty() || !rect.is_positive() {
+        return;
+    }
+    let galley = galley(ui, value, style, rect.width(), true);
+    let size = galley.size();
+    let at = anchor(rect, size, [style.align, Align::Center])
+        - vec2(galley.rect.left(), galley.rect.top());
+    let painter = ui.painter().with_clip_rect(rect);
+    if style.font_weight == FontWeight::Bold {
+        painter.galley(at + vec2(0.4, 0.0), galley.clone(), color);
+    }
+    painter.galley(at, galley, color);
+}
+
+fn named_icon(name: &str) -> Option<Icon> {
+    Some(match name {
+        "battery" => Icon::Battery,
+        "battery-charging" => Icon::BatteryCharging,
+        "cpu" => Icon::Cpu,
+        "gpu" => Icon::Gpu,
+        "clock" => Icon::Clock,
+        "moon" => Icon::Moon,
+        "arrow-down" | "download" => Icon::ArrowDown,
+        "arrow-up" => Icon::ArrowUp,
+        "close" => Icon::Close,
+        "timer" => Icon::Clock,
+        "bell" => Icon::Bell,
+        _ => return None,
+    })
+}
+
+impl Renderer<'_> {
+    pub(super) fn leaf_size(&self, ui: &Ui, node: &ViewNode, available: Vec2) -> Vec2 {
+        let measure_text = |value, style| galley(ui, value, style, available.x, false).size();
+        match &node.kind {
+            Node::Text { text, text_style } => {
+                measure_text(text.as_str(), *text_style).min(vec2(available.x, f32::INFINITY))
+            }
+            Node::Icon { icon_style, .. } => Vec2::splat(point(icon_style.size)),
+            Node::Metric { label, value, unit } => {
+                let caption = measure_text(
+                    label,
+                    TextStyle {
+                        font_size: FontSize::Small,
+                        ..Default::default()
+                    },
+                );
+                let data = measure_text(
+                    &format!("{value}{unit}"),
+                    TextStyle {
+                        font_size: FontSize::Title,
+                        ..Default::default()
+                    },
+                );
+                vec2(caption.x.max(data.x), caption.y + data.y)
+            }
+            Node::Badge(label) => measure_text(label, TextStyle::default()) + vec2(12.0, 4.0),
+            Node::Divider { vertical } => {
+                if *vertical {
+                    vec2(1.0, 16.0)
+                } else {
+                    vec2(32.0, 1.0)
+                }
+            }
+            Node::ProgressBar { .. } => vec2(100.0, 16.0),
+            Node::ProgressRing { .. } | Node::Gauge { .. } => Vec2::splat(60.0),
+            Node::Chart { .. } | Node::Sparkline(_) => vec2(100.0, 36.0),
+            Node::Image { asset } => image_size(ui, asset),
+            Node::Sprite { frames, .. } => frames
+                .first()
+                .map_or(Vec2::ZERO, |asset| image_size(ui, asset)),
+            Node::Control { label, kind, .. } => {
+                measure_text(label, TextStyle::default())
+                    + vec2(
+                        if matches!(kind, ControlKind::Toggle { .. }) {
+                            30.0
+                        } else {
+                            14.0
+                        },
+                        8.0,
+                    )
+            }
+            _ => Vec2::ZERO,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn paint(
+        &mut self,
+        ui: &mut Ui,
+        node: &ViewNode,
+        rect: Rect,
+        id: Id,
+        inherited: Color32,
+        opacity: f32,
+        depth: usize,
+    ) {
+        let visible = rect.is_positive() && ui.is_rect_visible(rect);
+        if depth >= MAX_DEPTH
+            || self.remaining == 0
+            || (!visible && (node.clip || layout::children(node).is_none()))
+        {
+            return;
+        }
+        self.remaining -= 1;
+        let (interactive, enabled) = match node.kind {
+            Node::Control { enabled, .. } => (true, enabled && ui.is_enabled()),
+            Node::ActionArea { .. } => (true, ui.is_enabled()),
+            _ => (false, true),
+        };
+        let response = if interactive && visible {
+            // Use the same hit rectangle and focus behavior as egui widgets.
+            let target = rect.intersect(ui.clip_rect());
+            if enabled {
+                Some(ui.interact(target, id, Sense::click()))
+            } else {
+                let disabled =
+                    ui.new_child(UiBuilder::new().id_salt(id).max_rect(target).disabled());
+                Some(disabled.interact(target, id, Sense::hover()))
+            }
+        } else {
+            None
+        };
+        let active = if !enabled {
+            node.style.disabled
+        } else if response
+            .as_ref()
+            .is_some_and(|r| r.is_pointer_button_down_on())
+        {
+            node.style.pressed
+        } else if response
+            .as_ref()
+            .is_some_and(|r| r.hovered() || r.has_focus())
+        {
+            node.style.hovered
+        } else {
+            Paint::default()
+        };
+        let normal = node.style.normal;
+        let foreground = active.foreground.or(normal.foreground).map_or_else(
+            || {
+                let default = match node.kind {
+                    Node::Control {
+                        kind: ControlKind::Button | ControlKind::Action,
+                        ..
+                    } => ColorSpec::OnAccent,
+                    Node::Control {
+                        kind: ControlKind::Link,
+                        ..
+                    } => ColorSpec::Info,
+                    _ if inherited != Color32::PLACEHOLDER => return inherited,
+                    _ => ColorSpec::PrimaryText,
+                };
+                self.theme.color(ui, default)
+            },
+            |color| self.theme.color(ui, color),
+        );
+        let opacity = opacity
+            * active
+                .opacity
+                .or(normal.opacity)
+                .filter(|v| v.is_finite())
+                .unwrap_or(if enabled { 1.0 } else { 0.55 })
+                .clamp(0.0, 1.0);
+        let color = |color| self.theme.color(ui, color).linear_multiply(opacity);
+        let background = active
+            .background
+            .or(normal.background)
+            .map(color)
+            .unwrap_or_else(|| match node.kind {
+                Node::Control {
+                    kind: ControlKind::Link,
+                    ..
+                }
+                | Node::ActionArea { .. } => Color32::TRANSPARENT,
+                Node::Control { .. } => response.as_ref().map_or(Color32::TRANSPARENT, |r| {
+                    ui.style().interact(r).bg_fill.linear_multiply(opacity)
+                }),
+                Node::Badge(_) => color(ColorSpec::SurfaceVariant),
+                _ => Color32::TRANSPARENT,
+            });
+        let radius = point(active.corner_radius.or(normal.corner_radius).unwrap_or(
+            if interactive || matches!(node.kind, Node::Badge(_)) {
+                self.theme.radius
+            } else {
+                0.0
+            },
+        ));
+        if let Some(shadow) = active.shadow.or(normal.shadow) {
+            ui.painter().add(
+                egui::Shadow {
+                    offset: shadow.offset,
+                    blur: shadow.blur,
+                    spread: shadow.spread,
+                    color: color(shadow.color),
+                }
+                .as_shape(rect, radius),
+            );
+        }
+        if background != Color32::TRANSPARENT {
+            ui.painter().rect_filled(rect, radius, background);
+        }
+        if let Some(width) = active
+            .border_width
+            .or(normal.border_width)
+            .filter(|w| *w > 0.0)
+        {
+            ui.painter().rect_stroke(
+                rect,
+                radius,
+                Stroke::new(
+                    point(width),
+                    color(
+                        active
+                            .border_color
+                            .or(normal.border_color)
+                            .unwrap_or(ColorSpec::Border),
+                    ),
+                ),
+                StrokeKind::Inside,
+            );
+        } else if response.as_ref().is_some_and(|r| r.has_focus()) {
+            ui.painter().rect_stroke(
+                rect,
+                radius,
+                Stroke::new(1.0, color(ColorSpec::Accent)),
+                StrokeKind::Inside,
+            );
+        }
+        if response.as_ref().is_some_and(|r| r.clicked()) {
+            if let Node::Control { action, .. } | Node::ActionArea { action, .. } = &node.kind {
+                self.action = Some(action.clone());
+            }
+        }
+        if let Node::Control { label, .. } | Node::ActionArea { label, .. } = &node.kind {
+            if let Some(r) = &response {
+                let info = match &node.kind {
+                    Node::Control {
+                        kind: ControlKind::Toggle { checked },
+                        ..
+                    } => egui::WidgetInfo::selected(
+                        egui::WidgetType::Checkbox,
+                        enabled,
+                        *checked,
+                        label,
+                    ),
+                    Node::Control {
+                        kind: ControlKind::Link,
+                        ..
+                    } => egui::WidgetInfo::labeled(egui::WidgetType::Link, enabled, label),
+                    _ => egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label),
+                };
+                r.widget_info(|| info.clone());
+            }
+        }
+        let inner = layout::inset(rect, node.style.padding);
+        let mut scope;
+        let ui = if node.clip {
+            scope = ui.new_child(UiBuilder::new().id_salt(id).max_rect(inner));
+            scope.set_clip_rect(ui.clip_rect().intersect(inner));
+            &mut scope
+        } else {
+            ui
+        };
+
+        if let Node::Scroll(axes, child) = &node.kind {
+            self.scroll(ui, inner, child, *axes, id, foreground, opacity, depth + 1);
+            return;
+        }
+        if let Node::Table(table) = &node.kind {
+            self.paint_table(ui, inner, table, id, foreground, opacity, depth + 1);
+            return;
+        }
+        if let Some(layout) = self.layout(ui, node, inner.size(), depth + 1) {
+            let Some(children) = layout::children(node) else {
+                return;
+            };
+            for (index, cell) in layout.cells {
+                let child = &children[index];
+                let child_id = child
+                    .key
+                    .as_ref()
+                    .map_or_else(|| id.with(index), |key| id.with(key));
+                self.paint(
+                    ui,
+                    child,
+                    cell.translate(inner.min.to_vec2()),
+                    child_id,
+                    foreground,
+                    opacity,
+                    depth + 1,
+                );
+            }
+            return;
+        }
+        self.paint_leaf(ui, inner, node, id, foreground, opacity);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn paint_table(
+        &mut self,
+        ui: &mut Ui,
+        rect: Rect,
+        table: &Table,
+        id: Id,
+        foreground: Color32,
+        opacity: f32,
+        depth: usize,
+    ) {
+        use layout::{TABLE_GAP, TABLE_HEADER_HEIGHT, TABLE_X_PADDING, TABLE_Y_PADDING};
+        let layout = self.table(ui, table, rect.width(), depth);
+        let painter = ui.painter().with_clip_rect(rect);
+        let color = |spec| self.theme.color(ui, spec).linear_multiply(opacity);
+        let surface = color(ColorSpec::SurfaceVariant);
+        let divider = Stroke::new(1.0, color(ColorSpec::Border).gamma_multiply(0.58));
+        let header = Rect::from_min_size(rect.min, vec2(rect.width(), TABLE_HEADER_HEIGHT));
+        painter.rect_filled(
+            header,
+            egui::CornerRadius {
+                nw: 7,
+                ne: 7,
+                ..Default::default()
+            },
+            surface,
+        );
+        painter.hline(header.x_range(), header.bottom(), divider);
+        let mut x = rect.left() + TABLE_X_PADDING;
+        for (column, &width) in table.columns.iter().zip(&layout.columns) {
+            text(
+                ui,
+                Rect::from_min_size(pos2(x, rect.top()), vec2(width, TABLE_HEADER_HEIGHT)),
+                &column.title,
+                table_header_style(),
+                color(ColorSpec::SecondaryText),
+            );
+            x += width + TABLE_GAP;
+        }
+        let mut y = header.bottom();
+        for (index, (row, height)) in table.rows.iter().zip(layout.rows).enumerate() {
+            let row_rect = Rect::from_min_size(pos2(rect.left(), y), vec2(rect.width(), height));
+            y += height;
+            if row_rect.top() >= rect.bottom() {
+                break;
+            }
+            if !ui.clip_rect().intersects(row_rect) {
+                continue;
+            }
+            if index % 2 == 0 {
+                painter.rect_filled(row_rect, 0.0, surface.gamma_multiply(0.36));
+            }
+            painter.hline(row_rect.x_range(), row_rect.bottom(), divider);
+            let mut x = rect.left() + TABLE_X_PADDING;
+            for (column, (cell, &width)) in row.iter().zip(&layout.columns).enumerate() {
+                let bounds = Rect::from_min_size(
+                    pos2(x, row_rect.top() + TABLE_Y_PADDING),
+                    vec2(width, height - 2.0 * TABLE_Y_PADDING),
+                );
+                let child_id = id.with((index, column, cell.key.as_deref()));
+                let mut child = ui.new_child(UiBuilder::new().id_salt(child_id).max_rect(bounds));
+                child.set_clip_rect(ui.clip_rect().intersect(rect).intersect(bounds));
+                let size = self.in_cell(
+                    &child,
+                    cell,
+                    vec2(width, 0.0),
+                    [Align::Stretch, Align::Start],
+                    depth,
+                );
+                self.paint(
+                    &mut child,
+                    cell,
+                    Rect::from_min_size(anchor(bounds, size, [Align::Start, Align::Center]), size),
+                    child_id,
+                    foreground,
+                    opacity,
+                    depth,
+                );
+                x += width + TABLE_GAP;
+            }
+        }
+    }
+
+    fn paint_leaf(
+        &self,
+        ui: &mut Ui,
+        rect: Rect,
+        node: &ViewNode,
+        id: Id,
+        foreground: Color32,
+        opacity: f32,
+    ) {
+        let painter = ui.painter().with_clip_rect(rect);
+        let fg = foreground.linear_multiply(opacity);
+        let color = |color| self.theme.color(ui, color).linear_multiply(opacity);
+        match &node.kind {
+            Node::Text {
+                text: value,
+                text_style,
+            } => text(ui, rect, value, *text_style, fg),
+            Node::Icon { name, icon_style } => {
+                if let Some(icon) = named_icon(name) {
+                    let size = Vec2::splat(point(icon_style.size)).min(rect.size());
+                    let icon_rect =
+                        Rect::from_min_size(anchor(rect, size, icon_style.alignment), size);
+                    self.icons.paint(
+                        &painter,
+                        icon,
+                        icon_rect,
+                        icon_style.color.map_or(fg, color),
+                        1.0,
+                    );
+                }
+            }
+            Node::Image { asset } => paint_image(ui, &painter, asset, rect, opacity),
+            Node::Sprite { frames, frame_ms } => {
+                if !frames.is_empty() {
+                    let period = (*frame_ms).max(16);
+                    let time = ui.input(|i| i.time.max(0.0) * 1000.0);
+                    let frame = (time / f64::from(period)) as usize % frames.len();
+                    paint_image(ui, &painter, &frames[frame], rect, opacity);
+                    if frames.len() > 1 {
+                        ui.ctx().request_repaint_after(Duration::from_millis(
+                            u64::from(period) - time as u64 % u64::from(period),
+                        ));
+                    }
+                }
+            }
+            Node::Metric { label, value, unit } => {
+                let mid = rect.top() + rect.height() * 0.42;
+                text(
+                    ui,
+                    Rect::from_min_max(rect.min, pos2(rect.right(), mid)),
+                    label,
+                    TextStyle {
+                        font_size: FontSize::Small,
+                        ..Default::default()
+                    },
+                    color(ColorSpec::SecondaryText),
+                );
+                let value = format!("{value}{unit}");
+                text(
+                    ui,
+                    Rect::from_min_max(pos2(rect.left(), mid), rect.max),
+                    &value,
+                    TextStyle {
+                        font_size: FontSize::Title,
+                        ..Default::default()
+                    },
+                    fg,
+                );
+            }
+            Node::Badge(label) => text(
+                ui,
+                rect.shrink2(vec2(5.0, 1.0)),
+                label,
+                TextStyle::default(),
+                fg,
+            ),
+            Node::Divider { vertical } => {
+                let c = rect.center();
+                let line = if *vertical {
+                    [pos2(c.x, rect.top()), pos2(c.x, rect.bottom())]
+                } else {
+                    [pos2(rect.left(), c.y), pos2(rect.right(), c.y)]
+                };
+                painter.line_segment(line, Stroke::new(1.0, fg));
+            }
+            Node::ProgressBar { fraction, label } => {
+                let fraction = ratio(*fraction);
+                let track = color(
+                    node.style
+                        .normal
+                        .background
+                        .unwrap_or(ColorSpec::SurfaceVariant),
+                );
+                let label_color = color(ColorSpec::PrimaryText);
+                let mut scope = ui.new_child(
+                    UiBuilder::new()
+                        .id_salt(id)
+                        .max_rect(rect)
+                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                );
+                scope.set_clip_rect(ui.clip_rect().intersect(rect));
+                scope.visuals_mut().extreme_bg_color = track;
+                scope.visuals_mut().override_text_color = Some(label_color);
+                let bar = egui::ProgressBar::new(fraction)
+                    .desired_width(rect.width())
+                    .desired_height(rect.height())
+                    .corner_radius(point(node.style.normal.corner_radius.unwrap_or(4.0)))
+                    .fill(if fraction > 0.0 {
+                        fg
+                    } else {
+                        Color32::TRANSPARENT
+                    });
+                scope.add(if label.is_empty() {
+                    bar
+                } else {
+                    bar.text(label.as_str())
+                });
+            }
+            Node::ProgressRing {
+                fraction,
+                label,
+                stroke,
+                text_style,
+            } => {
+                let radius = (rect.width().min(rect.height()) - point(*stroke)) * 0.5;
+                if radius > 0.0 {
+                    painter.circle_stroke(
+                        rect.center(),
+                        radius,
+                        Stroke::new(point(*stroke), color(ColorSpec::Border)),
+                    );
+                    arc(
+                        &painter,
+                        rect.center(),
+                        radius,
+                        -std::f32::consts::FRAC_PI_2,
+                        std::f32::consts::TAU * ratio(*fraction),
+                        Stroke::new(point(*stroke), fg),
+                    );
+                }
+                text(ui, rect, label, *text_style, color(ColorSpec::PrimaryText));
+            }
+            Node::Gauge { fraction, label } => {
+                let radius = (rect.width() * 0.5).min(rect.height()) - 3.0;
+                if radius > 0.0 {
+                    let center = pos2(rect.center().x, rect.bottom() - 2.0);
+                    let pi = std::f32::consts::PI;
+                    arc(
+                        &painter,
+                        center,
+                        radius,
+                        pi,
+                        pi,
+                        Stroke::new(3.0, color(ColorSpec::Border)),
+                    );
+                    arc(
+                        &painter,
+                        center,
+                        radius,
+                        pi,
+                        pi * ratio(*fraction),
+                        Stroke::new(3.0, fg),
+                    );
+                }
+                text(ui, rect, label, TextStyle::default(), fg);
+            }
+            Node::Sparkline(values) => chart(&painter, rect, ChartKind::Line, values, fg),
+            Node::Chart { kind, values } => chart(&painter, rect, *kind, values, fg),
+            Node::Control { kind, label, .. } => {
+                if let ControlKind::Toggle { checked } = kind {
+                    let track = Rect::from_center_size(
+                        pos2(rect.left() + 14.0, rect.center().y),
+                        vec2(22.0, 12.0),
+                    );
+                    painter.rect_filled(
+                        track,
+                        6.0,
+                        color(if *checked {
+                            ColorSpec::Accent
+                        } else {
+                            ColorSpec::Border
+                        }),
+                    );
+                    painter.circle_filled(
+                        pos2(
+                            if *checked {
+                                track.right() - 6.0
+                            } else {
+                                track.left() + 6.0
+                            },
+                            track.center().y,
+                        ),
+                        4.0,
+                        fg,
+                    );
+                    text(
+                        ui,
+                        Rect::from_min_max(rect.min + vec2(28.0, 0.0), rect.max),
+                        label,
+                        TextStyle {
+                            align: Align::Start,
+                            ..Default::default()
+                        },
+                        fg,
+                    );
+                } else {
+                    text(
+                        ui,
+                        rect.shrink2(vec2(4.0, 0.0)),
+                        label,
+                        TextStyle::default(),
+                        fg,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn ratio(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+fn arc(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    radius: f32,
+    start: f32,
+    sweep: f32,
+    stroke: Stroke,
+) {
+    if sweep <= 0.0 {
+        return;
+    }
+    let segments = (sweep * 8.0).ceil().max(2.0) as usize;
+    let points = (0..=segments)
+        .map(|i| {
+            let angle = start + sweep * i as f32 / segments as f32;
+            center + vec2(angle.cos(), angle.sin()) * radius
+        })
+        .collect();
+    painter.add(egui::Shape::line(points, stroke));
+}
+
+fn chart(painter: &egui::Painter, rect: Rect, kind: ChartKind, values: &[f32], color: Color32) {
+    let step = values.len().div_ceil(1024).max(1);
+    let data: Vec<_> = values
+        .iter()
+        .step_by(step)
+        .map(|v| v.is_finite().then_some(f64::from(*v)))
+        .collect();
+    let mut range = if kind == ChartKind::Bar {
+        [0.0, 0.0]
+    } else {
+        [f64::INFINITY, f64::NEG_INFINITY]
+    };
+    for &value in data.iter().flatten() {
+        range = [range[0].min(value), range[1].max(value)];
+    }
+    let y = |v| {
+        if range[0] == range[1] {
+            rect.center().y
+        } else {
+            rect.bottom() - ((v - range[0]) / (range[1] - range[0])) as f32 * rect.height()
+        }
+    };
+    if kind == ChartKind::Bar {
+        let width = rect.width() / data.len().max(1) as f32;
+        for (i, value) in data.iter().enumerate() {
+            if let Some(v) = value {
+                let x = rect.left() + i as f32 * width;
+                painter.rect_filled(
+                    Rect::from_two_pos(
+                        pos2(x + width * 0.12, y(0.0)),
+                        pos2(x + width * 0.88, y(*v)),
+                    ),
+                    1.0,
+                    color,
+                );
+            }
+        }
+    } else {
+        let spacing = rect.width() / data.len().saturating_sub(1).max(1) as f32;
+        let mut previous = None;
+        for (i, value) in data.iter().enumerate() {
+            let current = value.map(|v| pos2(rect.left() + i as f32 * spacing, y(v)));
+            if let (Some(a), Some(b)) = (previous, current) {
+                painter.line_segment([a, b], Stroke::new(1.5, color));
+            }
+            previous = current;
+        }
+    }
+}
+
+pub(super) fn image_id(asset: &str) -> Id {
+    Id::new(("widget-image", asset))
+}
+fn image(ui: &Ui, asset: &str) -> Option<egui::TextureHandle> {
+    ui.ctx().data(|data| data.get_temp(image_id(asset)))
+}
+fn image_size(ui: &Ui, asset: &str) -> Vec2 {
+    image(ui, asset).map_or(Vec2::ZERO, |texture| texture.size_vec2())
+}
+fn paint_image(ui: &Ui, painter: &egui::Painter, asset: &str, rect: Rect, opacity: f32) {
+    if let Some(texture) = image(ui, asset) {
+        let native = texture.size_vec2();
+        let scale = (rect.width() / native.x).min(rect.height() / native.y);
+        painter.image(
+            texture.id(),
+            Rect::from_center_size(rect.center(), native * scale),
+            Rect::from_min_max(egui::Pos2::ZERO, pos2(1.0, 1.0)),
+            Color32::WHITE.linear_multiply(opacity),
+        );
+    }
+}

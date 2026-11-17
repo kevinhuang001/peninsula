@@ -4,7 +4,6 @@ use std::time::Duration;
 pub struct NotificationPolicy {
     pub alert_timeout: Duration,
     pub max_alert_actions: usize,
-    pub max_center_items: usize,
 }
 
 impl Default for NotificationPolicy {
@@ -12,7 +11,6 @@ impl Default for NotificationPolicy {
         Self {
             alert_timeout: Duration::from_secs(8),
             max_alert_actions: 4,
-            max_center_items: 3,
         }
     }
 }

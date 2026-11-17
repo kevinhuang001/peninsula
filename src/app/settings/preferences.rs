@@ -5,11 +5,12 @@ use std::{
 };
 
 use crate::{
-    builtins::registry,
-    extension::{ExtensionId, ExtensionKind},
+    builtins::{kuaidi, registry},
+    extension::{ExtensionId, ExtensionKind, SettingValue, Settings},
 };
 
 use super::quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS};
+use super::theme::{parse_accent, WidgetTheme, DEFAULT_WIDGET_ACCENT};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompactItemPreference {
@@ -22,15 +23,16 @@ pub struct CompactItemPreference {
 pub struct CompactPreferences {
     pub compact_items: Vec<CompactItemPreference>,
     pub quiet_hours: QuietHours,
+    pub widget_theme: WidgetTheme,
+    pub widget_accent: [u8; 3],
     pub pomodoro_focus_minutes: u16,
     pub pomodoro_break_minutes: u16,
+    pub kuaidi_refresh_minutes: u16,
+    pub kuaidi_change_notifications: bool,
+    pub kuaidi_pickup_notifications: bool,
     pub bilibili_enabled: bool,
-    pub bilibili_dm_enabled: bool,
-    pub bilibili_likes_enabled: bool,
-    pub bilibili_show_dm_summary: bool,
     pub bilibili_poll_seconds: u16,
     pub opencli_path: String,
-    pub bilibili_check_requested: bool,
 }
 
 impl Default for CompactPreferences {
@@ -47,15 +49,16 @@ impl Default for CompactPreferences {
         Self {
             compact_items,
             quiet_hours: QuietHours::default(),
+            widget_theme: WidgetTheme::default(),
+            widget_accent: DEFAULT_WIDGET_ACCENT,
             pomodoro_focus_minutes: 25,
             pomodoro_break_minutes: 5,
+            kuaidi_refresh_minutes: kuaidi::DEFAULT_REFRESH_MINUTES,
+            kuaidi_change_notifications: true,
+            kuaidi_pickup_notifications: true,
             bilibili_enabled: false,
-            bilibili_dm_enabled: true,
-            bilibili_likes_enabled: true,
-            bilibili_show_dm_summary: true,
             bilibili_poll_seconds: 60,
             opencli_path: String::new(),
-            bilibili_check_requested: false,
         }
     }
 }
@@ -71,6 +74,16 @@ impl CompactPreferences {
                 continue;
             };
             match key.trim() {
+                "widget_theme" => {
+                    if let Some(theme) = WidgetTheme::parse(value) {
+                        settings.widget_theme = theme;
+                    }
+                }
+                "widget_accent" => {
+                    if let Some(accent) = parse_accent(value) {
+                        settings.widget_accent = accent;
+                    }
+                }
                 "extension" => {
                     let mut fields = value.split('|');
                     let (Some(id), Some(enabled), Some(order)) =
@@ -110,15 +123,6 @@ impl CompactPreferences {
                 }
                 "bilibili_enabled" => {
                     settings.bilibili_enabled = parse_bool(value).unwrap_or(false);
-                }
-                "bilibili_dm_enabled" => {
-                    settings.bilibili_dm_enabled = parse_bool(value).unwrap_or(true)
-                }
-                "bilibili_likes_enabled" => {
-                    settings.bilibili_likes_enabled = parse_bool(value).unwrap_or(true)
-                }
-                "bilibili_show_dm_summary" => {
-                    settings.bilibili_show_dm_summary = parse_bool(value).unwrap_or(true)
                 }
                 "bilibili_poll_seconds" => {
                     settings.bilibili_poll_seconds = value
@@ -174,39 +178,139 @@ impl CompactPreferences {
             "quiet_periods={}",
             encode_periods(&self.quiet_hours)
         ));
-        lines.push(format!(
-            "pomodoro_focus_minutes={}",
-            self.pomodoro_focus_minutes
-        ));
-        lines.push(format!(
-            "pomodoro_break_minutes={}",
-            self.pomodoro_break_minutes
-        ));
         lines.push(format!("bilibili_enabled={}", self.bilibili_enabled));
-        lines.push(format!("bilibili_dm_enabled={}", self.bilibili_dm_enabled));
-        lines.push(format!(
-            "bilibili_likes_enabled={}",
-            self.bilibili_likes_enabled
-        ));
-        lines.push(format!(
-            "bilibili_show_dm_summary={}",
-            self.bilibili_show_dm_summary
-        ));
-        lines.push(format!(
-            "bilibili_poll_seconds={}",
-            self.bilibili_poll_seconds
-        ));
-        lines.push(format!(
-            "opencli_path={}",
-            self.opencli_path.replace(['\n', '\r'], "")
-        ));
+        lines.push(format!("widget_theme={}", self.widget_theme.name()));
+        let [r, g, b] = self.widget_accent;
+        lines.push(format!("widget_accent=#{r:02x}{g:02x}{b:02x}"));
         format!("{}\n", lines.join("\n"))
     }
 
-    pub fn load() -> Self {
-        preference_path()
-            .and_then(|path| fs::read_to_string(path).ok())
-            .map_or_else(Self::default, |source| Self::parse(&source))
+    // Existing controls are an adapter; the runtime reads the registered schema.
+    pub fn extension_settings(&self) -> HashMap<ExtensionId, Settings> {
+        use SettingValue::*;
+        [
+            (
+                ExtensionId::builtin(crate::builtins::pomodoro::WIDGET_ID),
+                [
+                    (
+                        "focus_minutes".into(),
+                        Integer(i64::from(self.pomodoro_focus_minutes)),
+                    ),
+                    (
+                        "break_minutes".into(),
+                        Integer(i64::from(self.pomodoro_break_minutes)),
+                    ),
+                ]
+                .into(),
+            ),
+            (
+                ExtensionId::builtin(kuaidi::WIDGET_ID),
+                [
+                    (
+                        kuaidi::REFRESH_MINUTES_KEY.into(),
+                        Integer(i64::from(self.kuaidi_refresh_minutes)),
+                    ),
+                    (
+                        kuaidi::CHANGE_NOTIFICATIONS_KEY.into(),
+                        Boolean(self.kuaidi_change_notifications),
+                    ),
+                    (
+                        kuaidi::PICKUP_NOTIFICATIONS_KEY.into(),
+                        Boolean(self.kuaidi_pickup_notifications),
+                    ),
+                ]
+                .into(),
+            ),
+            (
+                ExtensionId::builtin(crate::builtins::bilibili::NOTIFICATION_ID),
+                [
+                    (
+                        "opencli_path".into(),
+                        String(self.opencli_path.trim().to_owned()),
+                    ),
+                    (
+                        "poll_interval".into(),
+                        Duration(u64::from(self.bilibili_poll_seconds) * 1000),
+                    ),
+                ]
+                .into(),
+            ),
+        ]
+        .into()
+    }
+
+    pub fn read_extension_settings(&mut self, host: &crate::builtins::BuiltinExtensions) {
+        let pomodoro = ExtensionId::builtin(crate::builtins::pomodoro::WIDGET_ID);
+        if let Some(settings) = host.settings(&pomodoro) {
+            if let Some(SettingValue::Integer(value)) = settings.get("focus_minutes") {
+                self.pomodoro_focus_minutes = *value as u16;
+            }
+            if let Some(SettingValue::Integer(value)) = settings.get("break_minutes") {
+                self.pomodoro_break_minutes = *value as u16;
+            }
+        }
+        if let Some(settings) = host.settings(&ExtensionId::builtin(kuaidi::WIDGET_ID)) {
+            if let Some(SettingValue::Integer(minutes)) = settings.get(kuaidi::REFRESH_MINUTES_KEY)
+            {
+                self.kuaidi_refresh_minutes = *minutes as u16;
+            }
+            if let Some(SettingValue::Boolean(enabled)) =
+                settings.get(kuaidi::CHANGE_NOTIFICATIONS_KEY)
+            {
+                self.kuaidi_change_notifications = *enabled;
+            }
+            if let Some(SettingValue::Boolean(enabled)) =
+                settings.get(kuaidi::PICKUP_NOTIFICATIONS_KEY)
+            {
+                self.kuaidi_pickup_notifications = *enabled;
+            }
+        }
+        let bilibili = ExtensionId::builtin(crate::builtins::bilibili::NOTIFICATION_ID);
+        if let Some(settings) = host.settings(&bilibili) {
+            if let Some(SettingValue::String(value)) = settings.get("opencli_path") {
+                self.opencli_path = value.clone();
+            }
+            if let Some(SettingValue::Duration(value)) = settings.get("poll_interval") {
+                self.bilibili_poll_seconds = (*value / 1000) as u16;
+            }
+        }
+    }
+
+    fn legacy_extension_settings(&self, source: &str) -> HashMap<ExtensionId, Settings> {
+        let keys: HashSet<_> = source
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(key, _)| key.trim())
+            .collect();
+        let mut settings = self.extension_settings();
+        for (id, values) in &mut settings {
+            values.retain(|key, _| {
+                let old = match (id.as_str(), key.as_str()) {
+                    (crate::builtins::pomodoro::WIDGET_ID, "focus_minutes") => {
+                        "pomodoro_focus_minutes"
+                    }
+                    (crate::builtins::pomodoro::WIDGET_ID, "break_minutes") => {
+                        "pomodoro_break_minutes"
+                    }
+                    (crate::builtins::bilibili::NOTIFICATION_ID, "poll_interval") => {
+                        "bilibili_poll_seconds"
+                    }
+                    (kuaidi::WIDGET_ID, _) => return false,
+                    _ => key.as_str(),
+                };
+                keys.contains(old)
+            });
+        }
+        settings
+    }
+
+    pub fn load() -> (Self, HashMap<ExtensionId, Settings>) {
+        let Some(source) = preference_path().and_then(|path| fs::read_to_string(path).ok()) else {
+            return (Self::default(), HashMap::new());
+        };
+        let preferences = Self::parse(&source);
+        let legacy = preferences.legacy_extension_settings(&source);
+        (preferences, legacy)
     }
 
     pub fn save(&self) -> io::Result<()> {
@@ -221,7 +325,26 @@ impl CompactPreferences {
             fs::create_dir_all(parent)?;
         }
         let temporary = path.with_extension("tmp");
-        fs::write(&temporary, self.encode())?;
+        let mut encoded = self.encode();
+        // Keep the old values available if the separate store could not be
+        // opened on this launch. New edits are recorded only by the schema store.
+        if let Ok(old) = fs::read_to_string(path) {
+            for line in old.lines() {
+                if line.split_once('=').is_some_and(|(key, _)| {
+                    matches!(
+                        key.trim(),
+                        "pomodoro_focus_minutes"
+                            | "pomodoro_break_minutes"
+                            | "bilibili_poll_seconds"
+                            | "opencli_path"
+                    )
+                }) {
+                    encoded.push_str(line);
+                    encoded.push('\n');
+                }
+            }
+        }
+        fs::write(&temporary, encoded)?;
         fs::rename(&temporary, path)
     }
 

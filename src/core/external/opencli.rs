@@ -64,11 +64,49 @@ impl OpenCli {
     }
 
     pub fn run(&self, args: &[&str], timeout: Duration) -> Result<CommandOutput, String> {
+        self.run_with_browser_timeout(args, timeout, None)
+    }
+
+    pub fn run_browser(&self, args: &[&str], timeout: Duration) -> Result<CommandOutput, String> {
+        self.run_with_browser_timeout(
+            args,
+            timeout,
+            Some(timeout.saturating_sub(Duration::from_secs(10))),
+        )
+    }
+
+    fn run_with_browser_timeout(
+        &self,
+        args: &[&str],
+        timeout: Duration,
+        browser_timeout: Option<Duration>,
+    ) -> Result<CommandOutput, String> {
         let _guard = CLI_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
             .map_err(|_| "OpenCLI execution lock poisoned".to_owned())?;
-        let mut child = Command::new(&self.executable)
+        let mut command = Command::new(&self.executable);
+        // Finder does not load NVM's shell initialization. Its OpenCLI script
+        // uses /usr/bin/env node, so make the sibling Node runtime discoverable.
+        if let Some(parent) = self
+            .executable
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+        {
+            let inherited = env::var_os("PATH").unwrap_or_default();
+            if let Ok(paths) = env::join_paths(
+                std::iter::once(parent.to_owned()).chain(env::split_paths(&inherited)),
+            ) {
+                command.env("PATH", paths);
+            }
+        }
+        if let Some(timeout) = browser_timeout {
+            command.env(
+                "OPENCLI_BROWSER_COMMAND_TIMEOUT",
+                timeout.as_secs().to_string(),
+            );
+        }
+        let mut child = command
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

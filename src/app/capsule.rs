@@ -1,34 +1,51 @@
 use crate::{
     app::settings::{CompactPreferences, SettingsView},
     extension::{
-        ActionInvocation, AlertInteraction, CompactView, ExtensionId, Notification,
-        NotificationAlertView, WidgetView,
+        ActionInvocation, AlertInteraction, CompactView, ExtensionId, Notification, WidgetView,
     },
 };
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
 mod compact;
 mod expanded;
-mod renderer;
+use crate::ui::renderer;
 
 use super::{compact_layout::CAPSULE_HEIGHT, icons::Icons, mascot::Mascot, widgets};
 
-const BLACK: Color32 = Color32::from_rgb(15, 16, 19);
-const EXPANDED_BASE_HEIGHT: f32 = 48.0;
+pub(super) const EXPANDED_BASE_HEIGHT: f32 = 48.0;
+pub(super) const ALERT_WIDTH: f32 = 320.0;
+pub(super) const BODY_SIDE: f32 = 10.0;
+pub(super) const BODY_BOTTOM: f32 = 15.0;
+
+pub(super) fn body_size(width: f32, widget_height: f32) -> Vec2 {
+    Vec2::new(
+        (width - BODY_SIDE * 2.0).max(0.0),
+        (widget_height - BODY_BOTTOM).max(0.0),
+    )
+}
 
 pub(super) fn draw_compact_chip(ui: &egui::Ui, rect: Rect, opacity: f32) {
     let painter = ui.painter();
     painter.rect_filled(
         rect,
         rect.height() * 0.5,
-        Color32::from_rgb(30, 33, 40).linear_multiply(opacity),
+        ui.visuals()
+            .widgets
+            .noninteractive
+            .bg_fill
+            .linear_multiply(opacity),
     );
     painter.rect_stroke(
         rect,
         rect.height() * 0.5,
         Stroke::new(
             1.0_f32,
-            Color32::from_rgb(66, 73, 85).linear_multiply(opacity),
+            ui.visuals()
+                .widgets
+                .noninteractive
+                .bg_stroke
+                .color
+                .linear_multiply(opacity),
         ),
         egui::StrokeKind::Inside,
     );
@@ -37,15 +54,15 @@ pub(super) fn draw_compact_chip(ui: &egui::Ui, rect: Rect, opacity: f32) {
 pub(super) struct CapsuleWidgets<'a> {
     pub mascot: &'a mut Mascot,
     pub preferences: &'a mut CompactPreferences,
-    pub compact_views: &'a [CompactView],
+    pub compact_views: &'a [&'a CompactView],
     pub settings_open: bool,
     pub settings_view: &'a mut SettingsView,
     pub active_widget: &'a mut ExtensionId,
     pub widget_ids: &'a [ExtensionId],
     pub widget_title: &'a str,
     pub widget_view: &'a WidgetView,
-    pub alert_view: Option<&'a NotificationAlertView>,
-    pub max_alert_actions: usize,
+    pub widget_body_limit: Vec2,
+    pub alert_view: Option<&'a super::notification::AlertSurface>,
     pub pinned: bool,
     pub icons: &'a Icons,
     pub notification: Option<&'a Notification>,
@@ -86,45 +103,38 @@ pub(super) fn show(
         Sense::drag(),
     );
     let drag_started = handle.drag_started();
-    if progress > 0.9
+    let page_swipe = if progress > 0.9
         && !content.settings_open
         && content.notification.is_none()
-        && swipe_finished(context, &capsule)
+        && !renderer::scrolls_horizontally(content.widget_view)
     {
-        *content.active_widget = widgets::next_widget(content.active_widget, content.widget_ids, 1);
-        context.request_repaint();
-    }
-    paint_shell(ui, rect, progress);
+        swipe_finished(context, &capsule)
+    } else {
+        None
+    };
+    paint_shell(ui, rect, progress, content.settings_open);
     let mut alert_interaction = None;
     let mut widget_action = None;
     let mut settings_changed = false;
     let mut quiet_toggled = false;
     let (settings, pin_toggled) = if progress < 0.9 {
-        (
-            compact::show(
-                ui,
-                context,
-                rect,
-                progress,
-                compact::CompactContent {
-                    mascot: content.mascot,
-                    prefs: content.preferences,
-                    views: content.compact_views,
-                    icons: content.icons,
-                },
-            ),
-            false,
-        )
+        widget_action = compact::show(
+            ui,
+            context,
+            rect,
+            progress,
+            compact::CompactContent {
+                mascot: content.mascot,
+                prefs: content.preferences,
+                views: content.compact_views,
+                icons: content.icons,
+            },
+        );
+        (false, false)
     } else if content.notification.is_some() {
-        alert_interaction = content.alert_view.and_then(|view| {
-            super::notification::show_alert(
-                ui,
-                rect,
-                view,
-                content.icons,
-                content.max_alert_actions,
-            )
-        });
+        alert_interaction = content
+            .alert_view
+            .and_then(|view| view.show(ui, rect, content.icons));
         (false, false)
     } else {
         let (settings, pin_toggled, quiet, changed, action) = paint_expanded(
@@ -136,6 +146,7 @@ pub(super) fn show(
                 widget_ids: content.widget_ids,
                 widget_title: content.widget_title,
                 widget_view: content.widget_view,
+                widget_body_limit: content.widget_body_limit,
                 pinned: content.pinned,
                 do_not_disturb: content.do_not_disturb,
                 icons: content.icons,
@@ -154,13 +165,18 @@ pub(super) fn show(
         if ui
             .add(
                 egui::Button::new(egui::RichText::new("退出灵动岛").color(egui::Color32::WHITE))
-                    .fill(crate::app::settings::theme::WIDGET_BUTTON),
+                    .fill(ui.visuals().selection.bg_fill),
             )
             .clicked()
         {
             context.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     });
+    if let Some(direction) = page_swipe {
+        *content.active_widget =
+            widgets::next_widget(content.active_widget, content.widget_ids, direction);
+        context.request_repaint();
+    }
     (
         rect,
         settings,
@@ -178,7 +194,17 @@ fn capsule_height(progress: f32, expanded_height: f32) -> f32 {
     CAPSULE_HEIGHT + (EXPANDED_BASE_HEIGHT - CAPSULE_HEIGHT + expanded_height) * reveal
 }
 
-fn swipe_finished(context: &egui::Context, response: &egui::Response) -> bool {
+pub(super) fn resized_bounds(previous: Rect, width: f32, extra_height: f32) -> Rect {
+    Rect::from_min_size(
+        Pos2::new(previous.center().x - width * 0.5, previous.top()),
+        Vec2::new(width, capsule_height(1.0, extra_height)),
+    )
+}
+
+fn swipe_finished(
+    context: &egui::Context,
+    response: &egui::Response,
+) -> Option<widgets::Direction> {
     let id = egui::Id::new("island-swipe-origin");
     if response.drag_started() {
         if let Some(origin) = context.input(|input| input.pointer.press_origin()) {
@@ -188,12 +214,13 @@ fn swipe_finished(context: &egui::Context, response: &egui::Response) -> bool {
     if response.drag_stopped() {
         let origin = context.data_mut(|data| data.remove_temp::<Pos2>(id));
         let end = context.input(|input| input.pointer.interact_pos());
-        return origin.zip(end).is_some_and(|(start, end)| {
-            let delta = end - start;
-            delta.x.abs() > 35.0 && delta.x.abs() > delta.y.abs()
-        });
+        let (start, end) = origin.zip(end)?;
+        let delta = end - start;
+        if delta.x.abs() > 35.0 && delta.x.abs() > delta.y.abs() {
+            return Some(widgets::Direction::from_swipe(delta.x));
+        }
     }
-    false
+    None
 }
 
 #[cfg(test)]
@@ -210,14 +237,25 @@ fn drag_handle_bounds(rect: Rect, progress: f32) -> Rect {
     }
 }
 
-fn paint_shell(ui: &egui::Ui, rect: Rect, progress: f32) {
+fn paint_shell(ui: &egui::Ui, rect: Rect, progress: f32, settings_open: bool) {
     let painter = ui.painter();
     let corner_radius = corner_radius(progress);
-    painter.rect_filled(rect, corner_radius, BLACK);
+    let dark = ui.visuals().dark_mode || settings_open;
+    let fill = if settings_open {
+        super::settings::theme::WIDGET_SURFACE_DARK
+    } else {
+        ui.visuals().panel_fill
+    };
+    let border = if dark {
+        Color32::from_rgb(43, 56, 76)
+    } else {
+        Color32::from_rgb(202, 213, 230)
+    };
+    painter.rect_filled(rect, corner_radius, fill);
     painter.rect_stroke(
         rect,
         corner_radius,
-        Stroke::new(1.0_f32, Color32::from_rgb(44, 47, 54)),
+        Stroke::new(1.0_f32, border),
         egui::StrokeKind::Inside,
     );
 }
@@ -231,6 +269,7 @@ struct ExpandedContent<'a> {
     widget_ids: &'a [ExtensionId],
     widget_title: &'a str,
     widget_view: &'a WidgetView,
+    widget_body_limit: Vec2,
     pinned: bool,
     do_not_disturb: bool,
     icons: &'a Icons,
@@ -251,6 +290,7 @@ fn paint_expanded(
         widget_ids,
         widget_title,
         widget_view,
+        widget_body_limit,
         pinned,
         do_not_disturb,
         icons,
@@ -281,11 +321,17 @@ fn paint_expanded(
     let settings_changed = if settings_open {
         settings_view.show(ui, rect, preferences, bilibili_status)
     } else {
-        let body = Rect::from_min_max(
-            Pos2::new(rect.left() + 10.0, rect.top() + 48.0),
-            Pos2::new(rect.right() - 10.0, rect.bottom() - 15.0),
-        );
-        widget_action = renderer::show_widget(ui, body, active_widget, widget_view, icons, reveal);
+        let available = body_size(rect.width(), rect.height() - EXPANDED_BASE_HEIGHT);
+        let size = available.min(widget_body_limit);
+        if size.x > 0.0 && size.y > 0.0 {
+            let top_left = Pos2::new(
+                rect.center().x - size.x * 0.5,
+                rect.top() + EXPANDED_BASE_HEIGHT,
+            );
+            let body = Rect::from_min_size(top_left, size);
+            widget_action =
+                renderer::show_widget(ui, body, active_widget, widget_view, icons, reveal);
+        }
         false
     };
     if !settings_open {

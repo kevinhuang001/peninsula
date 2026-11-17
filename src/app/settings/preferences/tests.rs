@@ -70,20 +70,21 @@ fn saves_preferences_to_disk_and_replaces_existing_content() {
 }
 
 #[test]
-fn pomodoro_and_bilibili_settings_round_trip_with_duration_bounds() {
-    let preferences = CompactPreferences {
-        pomodoro_focus_minutes: 50,
-        pomodoro_break_minutes: 10,
-        bilibili_enabled: true,
-        bilibili_dm_enabled: false,
-        bilibili_poll_seconds: 90,
-        opencli_path: "/Applications/Open CLI/opencli".into(),
-        ..CompactPreferences::default()
-    };
+fn legacy_extension_settings_seed_schema_values_with_duration_bounds() {
+    use crate::extension::{ExtensionId, SettingValue};
+    let source = "pomodoro_focus_minutes=50\npomodoro_break_minutes=10\nbilibili_enabled=true\nbilibili_poll_seconds=90\nopencli_path=/Applications/Open CLI/opencli\n";
+    let preferences = CompactPreferences::parse(source);
+    let legacy = preferences.legacy_extension_settings(source);
     assert_eq!(
-        CompactPreferences::parse(&preferences.encode()),
-        preferences
+        legacy[&ExtensionId::builtin(crate::builtins::pomodoro::WIDGET_ID)]["focus_minutes"],
+        SettingValue::Integer(50)
     );
+    assert_eq!(
+        legacy[&ExtensionId::builtin(crate::builtins::bilibili::NOTIFICATION_ID)]["poll_interval"],
+        SettingValue::Duration(90_000)
+    );
+    assert!(preferences.encode().contains("bilibili_enabled=true"));
+    assert!(!preferences.encode().contains("opencli_path="));
 
     let invalid = CompactPreferences::parse(
         "pomodoro_focus_minutes=0\npomodoro_break_minutes=181\nbilibili_poll_seconds=3\n",

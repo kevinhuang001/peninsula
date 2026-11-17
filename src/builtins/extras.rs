@@ -1,7 +1,7 @@
 use crate::extension::{
-    ColorRole, CompactNode, CompactView, ExtensionDescriptor, ExtensionId, ExtensionKind,
-    RuntimeExtension,
+    CompactView, ExtensionDescriptor, ExtensionId, ExtensionKind, RuntimeExtension,
 };
+use crate::ui::declarative::{ColorSpec, Node, ViewNode};
 
 const MASCOT_ID: &str = "builtin.mascot/face";
 const CLOCK_ID: &str = "builtin.clock/time";
@@ -24,6 +24,10 @@ impl RuntimeExtension for CompactExtras {
         descriptors()
     }
 
+    fn compact_refresh_interval(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(1))
+    }
+
     fn compact_views(&self) -> Vec<CompactView> {
         let time =
             time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
@@ -31,10 +35,7 @@ impl RuntimeExtension for CompactExtras {
             CompactView {
                 id: ExtensionId::builtin(MASCOT_ID),
                 source_extension_id: ExtensionId::builtin(MASCOT_ID),
-                content: CompactNode::Sprite {
-                    asset: "mascot".into(),
-                    size: [38.0, 28.0],
-                },
+                content: ViewNode::new(Node::Spacer),
                 min_width: 38.0,
                 preferred_width: 38.0,
                 priority: 0,
@@ -43,11 +44,12 @@ impl RuntimeExtension for CompactExtras {
             CompactView {
                 id: ExtensionId::builtin(CLOCK_ID),
                 source_extension_id: ExtensionId::builtin(CLOCK_ID),
-                content: CompactNode::IconText {
-                    icon: "clock".into(),
-                    text: format!("{:02}:{:02}", time.hour(), time.minute()),
-                    color: ColorRole::Primary,
-                },
+                content: super::icon_text(
+                    "clock",
+                    format!("{:02}:{:02}", time.hour(), time.minute()),
+                    ColorSpec::PrimaryText,
+                    16.0,
+                ),
                 min_width: 56.0,
                 preferred_width: 56.0,
                 priority: 0,

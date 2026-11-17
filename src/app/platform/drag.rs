@@ -61,7 +61,7 @@ fn moved_origin(origin: [f64; 2], start: [f64; 2], current: [f64; 2]) -> [f64; 2
 }
 
 #[cfg(target_os = "macos")]
-fn get_window(frame: &eframe::Frame) -> Option<objc2::rc::Retained<objc2_app_kit::NSWindow>> {
+pub(super) fn get_window(frame: &eframe::Frame) -> Option<objc2::rc::Retained<objc2_app_kit::NSWindow>> {
     let handle = frame.window_handle().ok()?;
     let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
         return None;

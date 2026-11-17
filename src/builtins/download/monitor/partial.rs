@@ -1,4 +1,7 @@
-use super::model::{Download, DownloadState};
+use super::{
+    completion::file_identity,
+    model::{Download, DownloadState},
+};
 use std::{
     collections::HashSet,
     env, fs,
@@ -81,7 +84,7 @@ fn remove_extension(path: &Path) -> PathBuf {
 
 #[derive(Default)]
 pub struct CompletionTracker {
-    previous: std::collections::HashMap<PathBuf, Download>,
+    previous: std::collections::HashMap<(u64, u64), Download>,
 }
 
 impl CompletionTracker {
@@ -103,7 +106,9 @@ impl CompletionTracker {
             if current.contains_key(key) {
                 continue;
             }
-            if item.path.is_file() {
+            if fs::metadata(&item.path)
+                .is_ok_and(|metadata| metadata.is_file() && file_identity(&metadata) == Some(*key))
+            {
                 let mut done = item.clone();
                 done.state = DownloadState::Complete;
                 completed.push(done);
@@ -141,21 +146,6 @@ impl CompletionTracker {
     }
 }
 
-#[cfg(unix)]
-fn file_identity(metadata: &fs::Metadata) -> Option<PathBuf> {
-    use std::os::unix::fs::MetadataExt;
-    Some(PathBuf::from(format!(
-        "{}:{}",
-        metadata.dev(),
-        metadata.ino()
-    )))
-}
-
-#[cfg(not(unix))]
-fn file_identity(_metadata: &fs::Metadata) -> Option<PathBuf> {
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,6 +164,21 @@ mod tests {
         assert_eq!(complete.len(), 1);
         assert_eq!(complete[0].path, final_path);
         assert!(tracker.update(&[]).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancelling_a_partial_does_not_count_an_older_file_at_the_same_path() {
+        let folder = tempfile::tempdir().unwrap();
+        let temporary = folder.path().join("report.zip.crdownload");
+        fs::write(folder.path().join("report.zip"), b"old").unwrap();
+        fs::write(&temporary, b"partial").unwrap();
+        let dirs = HashSet::from([folder.path().to_path_buf()]);
+        let mut tracker = CompletionTracker::default();
+        tracker.update(&scan(&dirs));
+
+        fs::remove_file(temporary).unwrap();
+        assert!(tracker.update(&scan(&dirs)).is_empty());
     }
 
     #[test]

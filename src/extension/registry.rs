@@ -7,11 +7,17 @@ pub struct ExtensionRegistry {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RegistrationError(pub ExtensionId);
+pub enum RegistrationError {
+    Duplicate(ExtensionId),
+    InvalidSchema(ExtensionId, String),
+}
 
 impl fmt::Display for RegistrationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "duplicate extension ID: {}", self.0)
+        match self {
+            Self::Duplicate(id) => write!(formatter, "duplicate extension ID: {id}"),
+            Self::InvalidSchema(id, error) => write!(formatter, "{id}: {error}"),
+        }
     }
 }
 
@@ -20,8 +26,16 @@ impl std::error::Error for RegistrationError {}
 impl ExtensionRegistry {
     pub fn register(&mut self, descriptor: ExtensionDescriptor) -> Result<(), RegistrationError> {
         if self.get(&descriptor.id).is_some() {
-            return Err(RegistrationError(descriptor.id));
+            return Err(RegistrationError::Duplicate(descriptor.id));
         }
+        if descriptor.settings_version == 0 {
+            return Err(RegistrationError::InvalidSchema(
+                descriptor.id,
+                "settings version must be positive".into(),
+            ));
+        }
+        super::validate_schema(&descriptor.settings)
+            .map_err(|error| RegistrationError::InvalidSchema(descriptor.id.clone(), error))?;
         self.descriptors.push(descriptor);
         Ok(())
     }

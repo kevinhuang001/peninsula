@@ -1,10 +1,11 @@
 use super::monitor::{self, DownloadState, Snapshot};
 use crate::extension::{
-    ColorRole, CompactNode, CompactView, ExtensionDescriptor, ExtensionId, ExtensionKind,
-    ExtensionOutput, Notification, NotificationAction, NotificationAlertView,
-    NotificationCenterItemView, NotificationPresentationProvider, NotificationPriority,
-    RuntimeExtension,
+    CompactView, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput, Notification,
+    NotificationAction, NotificationAlertView, NotificationCenterItemView,
+    NotificationPresentationProvider, NotificationPriority, ReloadPolicy, RuntimeExtension,
+    SettingSchema, SettingValue, Settings, ViewNode,
 };
+use crate::ui::declarative::{Align, ColorSpec, Flow, Size};
 use std::{path::Path, sync::mpsc::Receiver, time::SystemTime};
 
 pub const NOTIFICATION_ID: &str = "builtin.downloads/notifications";
@@ -20,7 +21,15 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
             false,
             5,
         )
-        .with_size_hint(88.0, 28.0),
+        .with_size_hint(88.0, 28.0)
+        .with_settings(
+            1,
+            vec![SettingSchema::new(
+                "show_rate",
+                SettingValue::Boolean(true),
+                "在胶囊显示下载速率",
+            )],
+        ),
         ExtensionDescriptor::builtin(
             NOTIFICATION_ID,
             ExtensionKind::Notification,
@@ -39,6 +48,8 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
 pub struct DownloadExtension {
     updates: Receiver<Snapshot>,
     snapshot: Snapshot,
+    show_rate: bool,
+    notification_sequence: u64,
 }
 
 impl DownloadExtension {
@@ -46,6 +57,8 @@ impl DownloadExtension {
         Self {
             updates: monitor::start(),
             snapshot: Snapshot::default(),
+            show_rate: true,
+            notification_sequence: 0,
         }
     }
 }
@@ -64,17 +77,31 @@ impl RuntimeExtension for DownloadExtension {
     fn update(&mut self, _now: std::time::Instant) -> ExtensionOutput {
         let mut output = ExtensionOutput::default();
         while let Ok(mut snapshot) = self.updates.try_recv() {
-            output.notifications.extend(
-                snapshot
-                    .completed
-                    .drain(..)
-                    .filter(|download| download.state == DownloadState::Complete)
-                    .map(download_notification),
-            );
+            for download in snapshot
+                .completed
+                .drain(..)
+                .filter(|download| download.state == DownloadState::Complete)
+            {
+                self.notification_sequence += 1;
+                output
+                    .notifications
+                    .push(download_notification(download, self.notification_sequence));
+            }
             self.snapshot = snapshot;
             output.invalidated.push(ExtensionId::builtin(COMPACT_ID));
         }
         output
+    }
+
+    fn on_settings_changed(
+        &mut self,
+        _ctx: &crate::extension::ExtensionContext,
+        _id: &ExtensionId,
+        settings: &Settings,
+        _policy: ReloadPolicy,
+    ) -> ExtensionOutput {
+        self.show_rate = settings.get("show_rate") != Some(&SettingValue::Boolean(false));
+        ExtensionOutput::default()
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
@@ -85,27 +112,42 @@ impl RuntimeExtension for DownloadExtension {
             || compact_size(download.received),
             |total| compact_pair(download.received, total),
         );
-        let content = CompactNode::Row(vec![
-            CompactNode::Progress {
-                fraction: download.progress().unwrap_or(0.0),
-                label: download
-                    .progress()
-                    .map_or_else(|| "↓".into(), |value| format!("{:.0}%", value * 100.0)),
-                color: ColorRole::Accent,
+        let progress = download.progress();
+        let mut detail = vec![super::super::compact_text(size)];
+        if self.show_rate {
+            detail.push(
+                super::super::compact_text(crate::builtins::performance::sampler::format_speed(
+                    download.bytes_per_second,
+                ))
+                .color(ColorSpec::Info),
+            );
+        }
+        let content = ViewNode::row(
+            vec![
+                ViewNode::ring(
+                    progress.unwrap_or(0.0),
+                    progress.map_or_else(|| "↓".into(), |value| format!("{:.0}%", value * 100.0)),
+                    24.0,
+                    2.0,
+                    6.0,
+                )
+                .color(ColorSpec::Info),
+                ViewNode::column(
+                    detail,
+                    Flow {
+                        gap: Some(0.0),
+                        align: Align::Start,
+                        ..Default::default()
+                    },
+                )
+                .sized(Size::Fill(1.0), Size::Auto),
+            ],
+            Flow {
+                gap: Some(4.0),
+                ..Default::default()
             },
-            CompactNode::Column(vec![
-                CompactNode::Text {
-                    text: size,
-                    color: ColorRole::Primary,
-                },
-                CompactNode::Text {
-                    text: crate::builtins::performance::sampler::format_speed(
-                        download.bytes_per_second,
-                    ),
-                    color: ColorRole::Accent,
-                },
-            ]),
-        ]);
+        )
+        .sized(Size::Fixed(80.0), Size::Auto);
         vec![CompactView {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(NOTIFICATION_ID),
@@ -156,11 +198,11 @@ impl NotificationPresentationProvider for DownloadExtension {
     }
 }
 
-fn download_notification(download: super::monitor::Download) -> Notification {
+fn download_notification(download: super::monitor::Download, sequence: u64) -> Notification {
     let path = download.path.to_string_lossy().into_owned();
     Notification {
         source_id: ExtensionId::builtin(NOTIFICATION_ID),
-        id: format!("{}:{}", download.browser, download.id),
+        id: format!("download-{sequence}"),
         title: "下载完成".into(),
         body: download.filename(),
         icon: Some("download".into()),

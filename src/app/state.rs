@@ -1,5 +1,9 @@
 use super::animation::Spring;
 
+pub(super) const MIN_EXPANDED_WIDTH: f32 = 244.0;
+const HOVER_LEAVE_DELAY: f32 = 0.28;
+const PAGE_SHRINK_GRACE: f32 = 1.2;
+
 pub(super) struct IslandState {
     pub expanded: bool,
     pinned: bool,
@@ -9,6 +13,7 @@ pub(super) struct IslandState {
     compact_width: f32,
     hover_elapsed: f32,
     leave_elapsed: f32,
+    shrink_grace_remaining: f32,
     notification_visible: bool,
     suppress_hover_until_exit: bool,
     hide_widget_until_reentry: bool,
@@ -21,10 +26,11 @@ impl Default for IslandState {
             pinned: false,
             width: Spring::new(114.0),
             height: Spring::new(0.0),
-            expanded_width: 244.0,
+            expanded_width: MIN_EXPANDED_WIDTH,
             compact_width: 114.0,
             hover_elapsed: 0.0,
             leave_elapsed: 0.0,
+            shrink_grace_remaining: 0.0,
             notification_visible: false,
             suppress_hover_until_exit: false,
             hide_widget_until_reentry: false,
@@ -40,9 +46,10 @@ impl IslandState {
         self.expanded = true;
         self.hover_elapsed = 0.18;
         self.leave_elapsed = 0.0;
+        self.shrink_grace_remaining = 0.0;
         self.width.tune(330.0, 0.70);
         self.height.tune(290.0, 0.74);
-        self.width.target(320.0);
+        self.width.target(super::capsule::ALERT_WIDTH);
         self.height.target(1.0);
     }
 
@@ -56,6 +63,7 @@ impl IslandState {
         self.hide_widget_until_reentry = true;
         self.hover_elapsed = 0.0;
         self.leave_elapsed = 0.0;
+        self.shrink_grace_remaining = 0.0;
         self.width.tune(620.0, 1.0);
         self.height.tune(620.0, 1.0);
         self.width.target(self.compact_width);
@@ -73,6 +81,7 @@ impl IslandState {
     pub fn toggle_pin(&mut self) {
         self.pinned = !self.pinned;
         self.leave_elapsed = 0.0;
+        self.shrink_grace_remaining = 0.0;
     }
 
     pub fn set_expanded_width(&mut self, width: f32) {
@@ -80,12 +89,12 @@ impl IslandState {
         // frame. Freeze the target for the whole transition to avoid retargeting
         // the spring while the native window is also resizing.
         if !self.expanded && !self.animating() {
-            self.expanded_width = width.clamp(244.0, 420.0);
+            self.expanded_width = width.max(MIN_EXPANDED_WIDTH);
         }
     }
 
     pub fn retarget_expanded_width(&mut self, width: f32) {
-        self.expanded_width = width.clamp(244.0, 420.0);
+        self.expanded_width = width.max(MIN_EXPANDED_WIDTH);
         if self.expanded {
             self.width.target(self.expanded_width);
         }
@@ -98,7 +107,12 @@ impl IslandState {
         }
     }
 
+    pub fn defer_collapse_after_shrink(&mut self) {
+        self.shrink_grace_remaining = PAGE_SHRINK_GRACE;
+    }
+
     pub fn observe_hover(&mut self, hovered: bool, dt: f32) -> bool {
+        self.shrink_grace_remaining = (self.shrink_grace_remaining - dt).max(0.0);
         if self.suppress_hover_until_exit {
             if hovered {
                 self.hover_elapsed = 0.0;
@@ -113,6 +127,10 @@ impl IslandState {
         }
         if hovered {
             self.hover_elapsed = (self.hover_elapsed + dt).min(0.18);
+            // Re-entering the smaller page restores the normal delay.
+            if self.leave_elapsed > 0.0 {
+                self.shrink_grace_remaining = 0.0;
+            }
             self.leave_elapsed = 0.0;
             if !self.expanded && self.hover_elapsed >= 0.18 {
                 self.expanded = true;
@@ -126,8 +144,8 @@ impl IslandState {
         } else {
             self.hover_elapsed = 0.0;
             if self.expanded {
-                self.leave_elapsed = (self.leave_elapsed + dt).min(0.28);
-                if self.leave_elapsed >= 0.28 {
+                self.leave_elapsed = (self.leave_elapsed + dt).min(HOVER_LEAVE_DELAY);
+                if self.leave_elapsed >= HOVER_LEAVE_DELAY && self.shrink_grace_remaining == 0.0 {
                     self.expanded = false;
                     self.leave_elapsed = 0.0;
                     self.width.tune(620.0, 1.0);
@@ -214,6 +232,28 @@ mod tests {
     }
 
     #[test]
+    fn shrinking_page_stays_open_longer_when_the_pointer_falls_outside() {
+        let mut state = IslandState::default();
+        state.observe_hover(true, 0.2);
+        state.defer_collapse_after_shrink();
+        assert!(!state.observe_hover(true, 0.15));
+        assert!(!state.observe_hover(false, 0.8));
+        assert!(state.expanded);
+        assert!(state.observe_hover(false, 0.3));
+        assert!(!state.expanded);
+    }
+
+    #[test]
+    fn returning_to_the_smaller_page_restores_the_normal_leave_delay() {
+        let mut state = IslandState::default();
+        state.observe_hover(true, 0.2);
+        state.defer_collapse_after_shrink();
+        assert!(!state.observe_hover(false, 0.15));
+        assert!(!state.observe_hover(true, 0.05));
+        assert!(state.observe_hover(false, 0.3));
+    }
+
+    #[test]
     fn opening_state_advances_smoothly_between_endpoints() {
         let mut state = IslandState::default();
         state.observe_hover(true, 0.2);
@@ -250,6 +290,8 @@ mod tests {
     fn switching_to_and_from_settings_retargets_the_expanded_capsule_width() {
         let mut state = IslandState::default();
         state.observe_hover(true, 0.2);
+        state.retarget_expanded_width(1080.0);
+        assert_eq!(state.width.target_value(), 1080.0);
         state.retarget_expanded_width(400.0);
         assert_eq!(state.width.target_value(), 400.0);
         state.retarget_expanded_width(300.0);

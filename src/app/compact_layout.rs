@@ -5,14 +5,14 @@ pub(super) const CAPSULE_HEIGHT: f32 = 44.0;
 pub(super) const CHIP_HEIGHT: f32 = 28.0;
 pub(super) const ITEM_GAP: f32 = 6.0;
 pub(super) const HORIZONTAL_PADDING: f32 = 16.0;
-pub(super) const COMPACT_ICON_SIZE: f32 = 16.0;
-pub(super) const COMPACT_TEXT_SIZE: f32 = 10.0;
-pub(super) const COMPACT_ICON_GAP: f32 = 4.0;
 
 const MIN_WIDTH: f32 = 64.0;
 const MAX_WIDTH: f32 = 600.0;
 
-pub(super) fn item_widths(preferences: &CompactPreferences, available: &[CompactView]) -> Vec<f32> {
+pub(super) fn item_widths(
+    preferences: &CompactPreferences,
+    available: &[&CompactView],
+) -> Vec<f32> {
     let mut widths = Vec::new();
     for item in preferences.ordered_compact_items() {
         if preferences.is_enabled(&item.id) {
@@ -24,7 +24,7 @@ pub(super) fn item_widths(preferences: &CompactPreferences, available: &[Compact
     widths
 }
 
-pub(super) fn width(preferences: &CompactPreferences, available: &[CompactView]) -> f32 {
+pub(super) fn width(preferences: &CompactPreferences, available: &[&CompactView]) -> f32 {
     let widths = item_widths(preferences, available);
     if widths.is_empty() {
         return MIN_WIDTH;
@@ -41,7 +41,7 @@ mod tests {
     use crate::{
         app::settings::CompactPreferences,
         builtins,
-        extension::{CompactNode, CompactView, ExtensionId, ExtensionKind},
+        extension::{CompactView, ExtensionId, ExtensionKind, ViewNode},
     };
 
     fn available_views() -> Vec<CompactView> {
@@ -51,10 +51,7 @@ mod tests {
             .map(|descriptor| CompactView {
                 id: descriptor.id.clone(),
                 source_extension_id: descriptor.id.clone(),
-                content: CompactNode::Text {
-                    text: String::new(),
-                    color: Default::default(),
-                },
+                content: ViewNode::text(String::new(), Default::default()),
                 min_width: descriptor.size_hint[0],
                 preferred_width: descriptor.size_hint[0],
                 priority: 0,
@@ -67,10 +64,10 @@ mod tests {
     fn compact_capsule_has_small_even_padding_around_its_contents() {
         let preferences = CompactPreferences::default();
         let views = available_views();
-        let widths = item_widths(&preferences, &views);
+        let widths = item_widths(&preferences, &views.iter().collect::<Vec<_>>());
         let content_width = widths.iter().sum::<f32>() + ITEM_GAP * (widths.len() - 1) as f32;
         assert_eq!(
-            width(&preferences, &views) - content_width,
+            width(&preferences, &views.iter().collect::<Vec<_>>()) - content_width,
             HORIZONTAL_PADDING
         );
         assert_eq!(HORIZONTAL_PADDING / 2.0, 8.0);
@@ -89,25 +86,25 @@ mod tests {
             &ExtensionId::builtin("builtin.system-monitor/network"),
             true,
         );
-        let without_download = width(&preferences, &views);
+        let without_download = width(&preferences, &views.iter().collect::<Vec<_>>());
         let mut active_views = views.clone();
         active_views.push(CompactView {
             id: ExtensionId::builtin("builtin.downloads/status"),
             source_extension_id: ExtensionId::builtin("builtin.downloads/notifications"),
-            content: CompactNode::Text {
-                text: "download".into(),
-                color: Default::default(),
-            },
+            content: ViewNode::text("download", Default::default()),
             min_width: 88.0,
             preferred_width: 100.0,
             priority: 0,
             tooltip: None,
         });
-        assert!(width(&preferences, &active_views) > without_download);
+        assert!(width(&preferences, &active_views.iter().collect::<Vec<_>>()) > without_download);
         for item in &mut preferences.compact_items {
             item.enabled = false;
         }
-        assert_eq!(width(&preferences, &active_views), 64.0);
+        assert_eq!(
+            width(&preferences, &active_views.iter().collect::<Vec<_>>()),
+            64.0
+        );
     }
 
     #[test]
@@ -117,10 +114,13 @@ mod tests {
             item.enabled = true;
         }
         let views = available_views();
-        let widths = item_widths(&preferences, &views);
+        let widths = item_widths(&preferences, &views.iter().collect::<Vec<_>>());
         let required =
             widths.iter().sum::<f32>() + ITEM_GAP * (widths.len() - 1) as f32 + HORIZONTAL_PADDING;
-        assert_eq!(width(&preferences, &views), required);
+        assert_eq!(
+            width(&preferences, &views.iter().collect::<Vec<_>>()),
+            required
+        );
     }
 
     #[test]
@@ -129,7 +129,7 @@ mod tests {
         let views = available_views();
         preferences.move_compact_item(&ExtensionId::builtin("builtin.system-monitor/battery"), -1);
         assert_eq!(
-            item_widths(&preferences, &views),
+            item_widths(&preferences, &views.iter().collect::<Vec<_>>()),
             [54.0, 38.0, 88.0].to_vec()
         );
     }

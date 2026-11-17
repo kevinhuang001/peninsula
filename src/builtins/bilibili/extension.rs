@@ -3,8 +3,9 @@ use crate::{
     core::external::opencli::OpenCli,
     extension::{
         ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput,
-        Notification, NotificationAlertView, NotificationCenterItemView,
-        NotificationPresentationProvider, NotificationPriority, RuntimeExtension,
+        Notification, NotificationAction, NotificationAlertView, NotificationCenterItemView,
+        NotificationPresentationProvider, NotificationPriority, ReloadPolicy, RuntimeExtension,
+        SettingSchema, SettingValue, Settings,
     },
 };
 use std::{
@@ -24,6 +25,8 @@ const PLUGIN_SPEC: &str = "github:kevinhuang001/opencli-bilibili-unread";
 const PLUGIN_NAME: &str = "bilibili-unread";
 const LEGACY_PLUGIN_NAME: &str = "peninsula-bilibili";
 const DEFAULT_POLL_SECS: u64 = 60;
+const OPEN_MESSAGES_ACTION: &str = "open-messages";
+const MESSAGES_URL: &str = "https://message.bilibili.com/";
 
 enum PollMessage {
     Increases(Vec<UnreadIncrease>),
@@ -35,11 +38,10 @@ pub struct BilibiliExtension {
     receiver: Option<Receiver<PollMessage>>,
     stop: Option<Arc<AtomicBool>>,
     worker: Option<JoinHandle<()>>,
-    check_sender: Option<mpsc::Sender<()>>,
     last_error: Option<String>,
     last_check: Option<SystemTime>,
     opencli_path: String,
-    poll_seconds: u16,
+    poll_interval: Duration,
     enabled: bool,
     notification_sequence: u128,
 }
@@ -50,11 +52,10 @@ impl Default for BilibiliExtension {
             receiver: None,
             stop: None,
             worker: None,
-            check_sender: None,
             last_error: None,
             last_check: None,
             opencli_path: String::new(),
-            poll_seconds: 60,
+            poll_interval: Duration::from_secs(DEFAULT_POLL_SECS),
             enabled: false,
             notification_sequence: 0,
         }
@@ -69,13 +70,12 @@ impl BilibiliExtension {
         let root = ctx.extension_data_dir(&ExtensionId::builtin(NOTIFICATION_ID));
         fs::create_dir_all(&root).map_err(|error| error.to_string())?;
         let (sender, receiver) = mpsc::channel();
-        let (check_sender, check_receiver) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let state_path = root.join("unread-counts.tsv");
         let configured =
             (!self.opencli_path.trim().is_empty()).then(|| PathBuf::from(self.opencli_path.trim()));
-        let poll_seconds = self.poll_seconds.clamp(15, 3600);
+        let poll_interval = self.poll_interval;
         let worker = thread::spawn(move || {
             let mut state = SyncState::load(&state_path);
             let mut backoff = Duration::from_secs(DEFAULT_POLL_SECS);
@@ -108,26 +108,24 @@ impl BilibiliExtension {
                         {
                             break;
                         }
-                        backoff = Duration::from_secs(u64::from(poll_seconds));
+                        backoff = poll_interval;
                     }
                     Err(error) => {
                         let _ = sender.send(PollMessage::Error(error));
                         backoff = (backoff * 2).min(Duration::from_secs(600));
                     }
                 }
-                let end = std::time::Instant::now() + backoff;
-                while std::time::Instant::now() < end && !worker_stop.load(Ordering::Relaxed) {
-                    if check_receiver
-                        .recv_timeout(Duration::from_millis(200))
-                        .is_ok()
-                    {
+                let deadline = std::time::Instant::now() + backoff;
+                while !worker_stop.load(Ordering::Relaxed) {
+                    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                    if remaining.is_zero() {
                         break;
                     }
+                    thread::park_timeout(remaining);
                 }
             }
         });
         self.receiver = Some(receiver);
-        self.check_sender = Some(check_sender);
         self.stop = Some(stop);
         self.worker = Some(worker);
         Ok(())
@@ -135,16 +133,23 @@ impl BilibiliExtension {
 
     fn unread_notification(&mut self, increases: &[UnreadIncrease]) -> Notification {
         self.notification_sequence += 1;
-        let body = increases
+        let mut body = increases
             .iter()
             .map(|item| {
-                format!(
-                    "{}：{} 条未读（增加 {} 条）",
-                    item.category, item.count, item.increase
-                )
+                let (category, suffix) = match item.category.as_str() {
+                    "回复我的" => ("回复", "消息"),
+                    "@我的" => ("@我的", "消息"),
+                    "收到的赞" => ("点赞", "消息"),
+                    category if category.ends_with("消息") || category.ends_with("通知") => {
+                        (category, "")
+                    }
+                    category => (category, "消息"),
+                };
+                format!("新增{}条{category}{suffix}", item.increase)
             })
             .collect::<Vec<_>>()
-            .join("\n");
+            .join("，");
+        body.push('。');
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -156,7 +161,11 @@ impl BilibiliExtension {
             body,
             icon: Some("bell".into()),
             priority: NotificationPriority::Normal,
-            actions: Vec::new(),
+            actions: vec![NotificationAction {
+                id: OPEN_MESSAGES_ACTION.into(),
+                label: "查看消息".into(),
+                data: None,
+            }],
             created_at: SystemTime::now(),
         }
     }
@@ -173,7 +182,29 @@ impl RuntimeExtension for BilibiliExtension {
             20,
         )
         .with_version(env!("CARGO_PKG_VERSION"))
-        .with_setup(true)]
+        .with_setup(true)
+        .with_settings(
+            1,
+            vec![
+                SettingSchema {
+                    reload_policy: ReloadPolicy::Reload,
+                    ..SettingSchema::new(
+                        "opencli_path",
+                        SettingValue::String(String::new()),
+                        "OpenCLI 可执行文件路径",
+                    )
+                },
+                SettingSchema {
+                    reload_policy: ReloadPolicy::Reload,
+                    ..SettingSchema::new(
+                        "poll_interval",
+                        SettingValue::Duration(60_000),
+                        "后台轮询间隔",
+                    )
+                    .range(15_000.0, 3_600_000.0)
+                },
+            ],
+        )]
     }
 
     fn on_install(&mut self, _ctx: &ExtensionContext) -> Result<(), String> {
@@ -189,25 +220,29 @@ impl RuntimeExtension for BilibiliExtension {
         self.begin_polling(ctx)
     }
 
-    fn configure_bilibili(
+    fn on_settings_changed(
         &mut self,
         ctx: &ExtensionContext,
-        opencli_path: &str,
-        _dm_enabled: bool,
-        _likes_enabled: bool,
-        _show_dm_summary: bool,
-        poll_seconds: u16,
-    ) -> Result<(), String> {
-        let changed = self.opencli_path != opencli_path.trim()
-            || self.poll_seconds != poll_seconds.clamp(15, 3600);
-        self.opencli_path = opencli_path.trim().to_owned();
-        self.poll_seconds = poll_seconds.clamp(15, 3600);
+        id: &ExtensionId,
+        settings: &Settings,
+        _policy: ReloadPolicy,
+    ) -> ExtensionOutput {
+        let (Some(SettingValue::String(path)), Some(SettingValue::Duration(ms))) =
+            (settings.get("opencli_path"), settings.get("poll_interval"))
+        else {
+            return ExtensionOutput::default();
+        };
+        let interval = Duration::from_millis(*ms);
+        let changed = self.opencli_path != path.trim() || self.poll_interval != interval;
+        self.opencli_path = path.trim().to_owned();
+        self.poll_interval = interval;
         if changed && self.enabled && self.worker.is_some() {
-            self.on_stop(ctx)?;
-            self.enabled = true;
-            self.begin_polling(ctx)?;
+            if let Err(error) = self.on_stop(ctx).and_then(|()| self.on_start(ctx)) {
+                ctx.log(id, &error);
+                self.last_error = Some(error);
+            }
         }
-        Ok(())
+        ExtensionOutput::default()
     }
 
     fn on_stop(&mut self, _ctx: &ExtensionContext) -> Result<(), String> {
@@ -215,9 +250,10 @@ impl RuntimeExtension for BilibiliExtension {
         if let Some(stop) = self.stop.take() {
             stop.store(true, Ordering::Relaxed);
         }
-        drop(self.worker.take());
+        if let Some(worker) = self.worker.take() {
+            worker.thread().unpark();
+        }
         self.receiver = None;
-        self.check_sender = None;
         Ok(())
     }
 
@@ -302,17 +338,6 @@ impl RuntimeExtension for BilibiliExtension {
             "尚未启用".into()
         })
     }
-
-    fn request_bilibili_check(&mut self, _ctx: &ExtensionContext) -> Result<(), String> {
-        if !self.enabled {
-            return Err("Bilibili notifications are not enabled".into());
-        }
-        self.check_sender
-            .as_ref()
-            .ok_or_else(|| "Bilibili poller is no longer running".to_owned())?
-            .send(())
-            .map_err(|_| "Bilibili poller is no longer running".to_owned())
-    }
 }
 
 impl NotificationPresentationProvider for BilibiliExtension {
@@ -331,6 +356,20 @@ impl NotificationPresentationProvider for BilibiliExtension {
             body: notification.body.clone(),
             icon: Some("bell".into()),
         }
+    }
+
+    fn on_notification_action(
+        &mut self,
+        _notification: &Notification,
+        action: &NotificationAction,
+    ) -> Result<(), String> {
+        if action.id != OPEN_MESSAGES_ACTION {
+            return Err(format!(
+                "unknown Bilibili notification action: {}",
+                action.id
+            ));
+        }
+        webbrowser::open(MESSAGES_URL).map_err(|error| error.to_string())
     }
 
     fn handles_notification(&self, source_id: &ExtensionId) -> bool {
@@ -404,12 +443,49 @@ fn ensure_opencli_plugin(cli: &OpenCli, root: &std::path::Path) -> Result<(), St
 
 #[cfg(test)]
 mod tests {
-    use super::opencli_version_supported;
+    use super::{
+        opencli_version_supported, BilibiliExtension, NotificationPresentationProvider,
+        UnreadIncrease, OPEN_MESSAGES_ACTION,
+    };
 
     #[test]
     fn unread_plugin_requires_opencli_two_or_newer() {
         assert!(!opencli_version_supported("1.9.9"));
         assert!(opencli_version_supported("2.0.0"));
         assert!(opencli_version_supported("OpenCLI 2.1.3"));
+    }
+    #[test]
+    fn unread_alert_lists_new_items_as_one_sentence() {
+        let mut extension = BilibiliExtension::default();
+        let increases = [
+            UnreadIncrease {
+                category: "我的消息".into(),
+                increase: 1,
+            },
+            UnreadIncrease {
+                category: "回复我的".into(),
+                increase: 2,
+            },
+            UnreadIncrease {
+                category: "收到的赞".into(),
+                increase: 3,
+            },
+            UnreadIncrease {
+                category: "系统通知".into(),
+                increase: 4,
+            },
+        ];
+        assert_eq!(
+            extension.unread_notification(&increases[..1]).body,
+            "新增1条我的消息。"
+        );
+        let notification = extension.unread_notification(&increases);
+        assert_eq!(
+            notification.body,
+            "新增1条我的消息，新增2条回复消息，新增3条点赞消息，新增4条系统通知。"
+        );
+        let alert = extension.alert_view(&notification);
+        assert_eq!(alert.actions[0].id, OPEN_MESSAGES_ACTION);
+        assert_eq!(alert.actions[0].label, "查看消息");
     }
 }

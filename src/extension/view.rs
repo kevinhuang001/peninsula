@@ -1,132 +1,22 @@
 use super::{
     ExtensionId, Notification, NotificationAction, NotificationAlertView,
-    NotificationCenterItemView,
+    NotificationCenterItemView, ReloadPolicy, Settings, WidgetView,
 };
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct WidgetView {
-    pub root: ViewNode,
-    pub preferred_size: [f32; 2],
-    pub refresh_hint: RefreshHint,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum RefreshHint {
-    #[default]
-    OnInvalidation,
-    EverySecond,
-    Static,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum ViewNode {
-    Row(Vec<ViewNode>),
-    Column(Vec<ViewNode>),
-    Text {
-        text: String,
-        style: TextStyle,
-    },
-    Icon {
-        name: String,
-        color: ColorRole,
-    },
-    Metric {
-        label: String,
-        value: String,
-        color: ColorRole,
-    },
-    MetricCard {
-        label: String,
-        value: String,
-        subtitle: Option<String>,
-        icon: Option<String>,
-        color: ColorRole,
-    },
-    NotificationItem {
-        stable_id: String,
-        title: String,
-        body: String,
-        icon: Option<String>,
-    },
-    Button {
-        label: String,
-        action: Action,
-    },
-    ProgressRing {
-        fraction: f32,
-        label: Option<String>,
-        color: ColorRole,
-    },
-    Sprite {
-        asset: String,
-        size: [f32; 2],
-    },
-    Spacer {
-        size: [f32; 2],
-    },
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum TextStyle {
-    #[default]
-    Body,
-    Heading,
-    Muted,
-    Small,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum ColorRole {
-    #[default]
-    Primary,
-    Muted,
-    Accent,
-    Success,
-    Warning,
-}
-
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CompactView {
     /// Preference key for a compact component. One extension can provide
     /// multiple components under its own extension ID.
     pub id: ExtensionId,
     pub source_extension_id: ExtensionId,
-    pub content: CompactNode,
+    pub content: super::ViewNode,
     pub min_width: f32,
     pub preferred_width: f32,
     pub priority: i32,
     pub tooltip: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum CompactNode {
-    Icon {
-        name: String,
-        color: ColorRole,
-    },
-    Text {
-        text: String,
-        color: ColorRole,
-    },
-    IconText {
-        icon: String,
-        text: String,
-        color: ColorRole,
-    },
-    Progress {
-        fraction: f32,
-        label: String,
-        color: ColorRole,
-    },
-    Sprite {
-        asset: String,
-        size: [f32; 2],
-    },
-    Row(Vec<CompactNode>),
-    Column(Vec<CompactNode>),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Action {
     Toggle,
     Advance,
@@ -231,35 +121,38 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
     fn widget_view(&self, _widget_id: &ExtensionId) -> Option<WidgetView> {
         None
     }
+    fn compact_refresh_interval(&self) -> Option<std::time::Duration> {
+        None
+    }
+
     fn compact_views(&self) -> Vec<CompactView> {
         Vec::new()
     }
     fn on_action(&mut self, _action: Action, _now: std::time::Instant) -> ExtensionOutput {
         ExtensionOutput::default()
     }
-    fn set_pomodoro_durations(
-        &mut self,
-        _focus_minutes: u16,
-        _break_minutes: u16,
-    ) -> ExtensionOutput {
-        ExtensionOutput::default()
-    }
-    fn configure_bilibili(
-        &mut self,
-        _ctx: &super::ExtensionContext,
-        _opencli_path: &str,
-        _dm_enabled: bool,
-        _likes_enabled: bool,
-        _show_dm_summary: bool,
-        _poll_seconds: u16,
+    /// Convert persisted values from an older schema before validation.
+    fn migrate_settings(
+        &self,
+        _id: &ExtensionId,
+        _from_version: u32,
+        _settings: &mut Settings,
     ) -> Result<(), String> {
         Ok(())
     }
+    /// Receives a validated snapshot. Restart-only changes take effect at the
+    /// next launch; Reload lets the extension reload any owned resources.
+    fn on_settings_changed(
+        &mut self,
+        _ctx: &super::ExtensionContext,
+        _id: &ExtensionId,
+        _settings: &Settings,
+        _policy: ReloadPolicy,
+    ) -> ExtensionOutput {
+        ExtensionOutput::default()
+    }
     fn status_message(&self) -> Option<String> {
         None
-    }
-    fn request_bilibili_check(&mut self, _ctx: &super::ExtensionContext) -> Result<(), String> {
-        Err("this extension does not support manual checks".into())
     }
     fn on_notifications_committed(&mut self, _notifications: &[super::Notification]) {}
 }
@@ -269,31 +162,4 @@ pub trait HostScheduler {
     fn schedule_at(&mut self, task_id: &str, deadline: std::time::Instant);
     fn cancel(&mut self, task_id: &str);
     fn on_event(&mut self, event: Event);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{CompactNode, CompactView, ExtensionId, ViewNode};
-
-    #[test]
-    fn compact_contract_carries_layout_preferences_without_ui_objects() {
-        let view = CompactView {
-            id: ExtensionId::builtin("builtin.system-monitor/cpu"),
-            source_extension_id: ExtensionId::builtin("builtin.system-monitor/overview"),
-            content: CompactNode::IconText {
-                icon: "cpu".into(),
-                text: "12%".into(),
-                color: Default::default(),
-            },
-            min_width: 40.0,
-            preferred_width: 56.0,
-            priority: 1,
-            tooltip: Some("CPU usage".into()),
-        };
-        assert_eq!(view.preferred_width, 56.0);
-        assert!(matches!(
-            ViewNode::Spacer { size: [8.0, 0.0] },
-            ViewNode::Spacer { .. }
-        ));
-    }
 }

@@ -1,7 +1,7 @@
 use super::ExtensionId;
 use std::time::SystemTime;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NotificationAction {
     pub id: String,
     pub label: String,
@@ -59,7 +59,7 @@ pub enum NotificationStatus {
     Acknowledged,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NotificationAlertView {
     pub title: String,
     pub body: String,
@@ -67,14 +67,14 @@ pub struct NotificationAlertView {
     pub actions: Vec<NotificationAction>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NotificationCenterItemView {
     pub title: String,
     pub body: String,
     pub icon: Option<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NotificationPresentation {
     pub alert: NotificationAlertView,
     pub center_item: NotificationCenterItemView,

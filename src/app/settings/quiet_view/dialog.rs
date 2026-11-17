@@ -1,7 +1,5 @@
 use super::super::quiet_hours::{QuietHours, QuietPeriod};
-use super::super::theme::{
-    ACCENT_SELECTED, BORDER, PANEL, ROW, SECONDARY_TEXT, SETTINGS_BUTTON, TEXT,
-};
+use super::super::theme::{ACCENT_SELECTED, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT};
 use super::DAYS;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
@@ -56,7 +54,7 @@ pub(super) fn show(
             Vec2::new(80.0, 21.0),
         ),
         egui::Button::new(egui::RichText::new("取消").color(Color32::WHITE))
-            .fill(SETTINGS_BUTTON)
+            .fill(ui.visuals().selection.bg_fill)
             .corner_radius(7.0),
     );
     let save = ui.put(
@@ -65,7 +63,7 @@ pub(super) fn show(
             Vec2::new(80.0, 21.0),
         ),
         egui::Button::new("完成")
-            .fill(SETTINGS_BUTTON)
+            .fill(ui.visuals().selection.bg_fill)
             .corner_radius(7.0)
             .min_size(Vec2::new(70.0, 21.0)),
     );

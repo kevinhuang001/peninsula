@@ -2,6 +2,7 @@ mod descriptor;
 mod lifecycle;
 mod notification;
 mod registry;
+mod schema;
 mod view;
 
 pub use descriptor::{Capability, ExtensionDescriptor, ExtensionId, ExtensionKind};
@@ -12,7 +13,12 @@ pub use notification::{
 };
 pub use registry::{ExtensionRegistry, RegistrationError, NOTIFICATION_CENTER_ID};
 pub use view::{
-    Action, ActionInvocation, AlertInteraction, ColorRole, CompactNode, CompactView, Event,
-    ExtensionOutput, HostScheduler, NotificationPresentationProvider, RefreshHint,
-    RuntimeExtension, ScheduledTask, TextStyle, ViewNode, WidgetView,
+    Action, ActionInvocation, AlertInteraction, CompactView, Event, ExtensionOutput, HostScheduler,
+    NotificationPresentationProvider, RuntimeExtension, ScheduledTask,
+};
+
+pub use crate::ui::declarative::{ViewNode, WidgetView};
+
+pub use schema::{
+    validate_schema, Constraints, ReloadPolicy, SettingSchema, SettingValue, Settings, ValueType,
 };
