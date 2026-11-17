@@ -248,8 +248,11 @@ fn paint_gpu(painter: &Painter, rect: Rect, color: Color32) {
 
 fn load(context: &egui::Context, name: &str, svg: &[u8]) -> TextureHandle {
     let svg = String::from_utf8_lossy(svg).replace("currentColor", "#FFFFFF");
-    let image = egui_extras::image::load_svg_bytes(svg.as_bytes())
-        .unwrap_or_else(|error| panic!("invalid bundled Lucide icon {name}: {error}"));
+    let image = egui_extras::image::load_svg_bytes_with_size(
+        svg.as_bytes(),
+        Some(egui::SizeHint::Size(96, 96)),
+    )
+    .unwrap_or_else(|error| panic!("invalid bundled Lucide icon {name}: {error}"));
     context.load_texture(name, image, egui::TextureOptions::LINEAR)
 }
 

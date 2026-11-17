@@ -369,7 +369,7 @@ fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str
     let hero = ViewNode::Row(vec![
         ViewNode::Column(vec![
             ViewNode::Sized {
-                height: 40.0,
+                height: 34.0,
                 child: Box::new(ViewNode::Text {
                     text: format!("{:.0}°", current.temperature),
                     style: TextStyle::Display,
@@ -383,7 +383,7 @@ fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str
                 }),
             },
             ViewNode::Sized {
-                height: 16.0,
+                height: 14.0,
                 child: Box::new(ViewNode::Text {
                     text: format!("体感 {:.0}° · {high_low}", current.apparent_temperature),
                     style: TextStyle::Small,
@@ -392,7 +392,7 @@ fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str
         ]),
         ViewNode::Column(vec![
             ViewNode::Sized {
-                height: 42.0,
+                height: 38.0,
                 child: Box::new(ViewNode::Icon {
                     name: snapshot.icon().into(),
                     color: ColorRole::Accent,
@@ -415,12 +415,28 @@ fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str
         ]),
     ]);
 
-    let arc = snapshot.today().map_or(ViewNode::Divider, |today| {
-        ViewNode::ArcMeter {
-            start_label: format!("日出 {}", today.sunrise),
-            end_label: format!("日落 {}", today.sunset),
-            center_label: snapshot.daylight().map(|daylight| format!("日照 {daylight}")),
-            progress: snapshot.sun_progress(),
+    let sun_bar = snapshot.today().map_or(ViewNode::Divider, |today| {
+        ViewNode::InfoBar {
+            cells: vec![
+                StatCell {
+                    label: "日出".into(),
+                    value: today.sunrise.clone(),
+                    icon: Some("sunrise".into()),
+                    color: ColorRole::Accent,
+                },
+                StatCell {
+                    label: "日落".into(),
+                    value: today.sunset.clone(),
+                    icon: Some("sunset".into()),
+                    color: ColorRole::Accent,
+                },
+                StatCell {
+                    label: "日照".into(),
+                    value: snapshot.daylight().unwrap_or_else(|| "--".into()),
+                    icon: Some("sun".into()),
+                    color: ColorRole::Success,
+                },
+            ],
         }
     });
 
@@ -434,7 +450,7 @@ fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str
             },
             StatCell {
                 label: format!(
-                    "{}风 · {}级",
+                    "{}风 {}级",
                     wind_direction(current.wind_direction),
                     wind_level(current.wind_speed)
                 ),
@@ -512,23 +528,35 @@ fn weather_root(snapshot: &Snapshot, alerts: &[WeatherAlert], error: Option<&str
 
     ViewNode::Column(vec![
         ViewNode::Sized {
-            height: 74.0,
+            height: 66.0,
             child: Box::new(hero),
         },
-        ViewNode::Sized {
-            height: 28.0,
-            child: Box::new(arc),
+        ViewNode::Spacer {
+            size: [0.0, 3.0],
         },
         ViewNode::Sized {
-            height: 62.0,
+            height: 30.0,
+            child: Box::new(sun_bar),
+        },
+        ViewNode::Spacer {
+            size: [0.0, 3.0],
+        },
+        ViewNode::Sized {
+            height: 64.0,
             child: Box::new(stats),
         },
-        ViewNode::Sized {
-            height: 16.0,
-            child: Box::new(section_header),
+        ViewNode::Spacer {
+            size: [0.0, 3.0],
         },
         ViewNode::Sized {
-            height: 78.0,
+            height: 18.0,
+            child: Box::new(section_header),
+        },
+        ViewNode::Spacer {
+            size: [0.0, 3.0],
+        },
+        ViewNode::Sized {
+            height: 75.0,
             child: Box::new(chart),
         },
     ])
@@ -712,13 +740,24 @@ mod tests {
         let ViewNode::Column(sections) = &view.root else {
             panic!("weather widget should be a column");
         };
-        assert_eq!(sections.len(), 5);
+        assert_eq!(sections.len(), 9);
         assert!(matches!(
             sections[0],
-            ViewNode::Sized { height, .. } if (height - 74.0).abs() < 0.01
+            ViewNode::Sized { height, .. } if (height - 66.0).abs() < 0.01
         ));
         assert!(matches!(
             &sections[2],
+            ViewNode::Sized { child, .. }
+                if matches!(
+                    child.as_ref(),
+                    ViewNode::InfoBar { cells }
+                        if cells.len() == 3
+                            && cells[0].value == "06:18"
+                            && cells[1].value == "16:57"
+                )
+        ));
+        assert!(matches!(
+            &sections[4],
             ViewNode::Sized { child, .. }
                 if matches!(
                     child.as_ref(),
@@ -726,7 +765,7 @@ mod tests {
                 )
         ));
         assert!(matches!(
-            &sections[4],
+            &sections[8],
             ViewNode::Sized { child, .. }
                 if matches!(child.as_ref(), ViewNode::RangeChart { labels, .. } if labels.len() == 1)
         ));
