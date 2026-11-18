@@ -21,7 +21,6 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
         )
         .with_size_hint(440.0, 410.0)
         .with_widget_bounds(WidgetBounds {
-            minimum_width_scale: None,
             min: [320.0, 200.0],
             max: [Some(620.0), Some(520.0)],
             resizable: true,

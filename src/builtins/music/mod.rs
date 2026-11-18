@@ -55,8 +55,8 @@ pub(super) fn descriptors() -> Vec<ContributionDescriptor> {
 
 fn widget_bounds() -> WidgetBounds {
     WidgetBounds {
-        min: [240.0, 0.0],
-        minimum_width_scale: Some(0.85),
+        // Let Core apply the same resolution-dependent minimum as every Widget.
+        min: [0.0, 0.0],
         max: [Some(MAX_CONTENT_WIDTH), None],
         fit_width: true,
         fit_height: true,

@@ -41,7 +41,7 @@ const SCREEN_FRACTION: f32 = 0.75;
 fn minimum_widget_size(screen: Vec2) -> Vec2 {
     // Width grows gently with logical screen resolution; height retains its reference ratio.
     egui::vec2(
-        widget_layout::width_range(screen.x, None)[0],
+        widget_layout::width_range(screen.x)[0],
         (screen.y * (160.0 / 900.0)).round(),
     )
 }
@@ -489,12 +489,7 @@ impl eframe::App for IslandApp {
         } else {
             self.extensions.widget_view(&self.active_widget, now)
         };
-        let widths = widget_layout::width_range(
-            self.screen_size().x,
-            widget_view
-                .as_ref()
-                .and_then(|view| view.bounds.minimum_width_scale),
-        );
+        let widths = widget_layout::width_range(self.screen_size().x);
         widget_limit[0] = widget_limit[0].min(widths[1]);
         let mut minimum = minimum_widget_size(self.screen_size());
         minimum.x = widths[0];

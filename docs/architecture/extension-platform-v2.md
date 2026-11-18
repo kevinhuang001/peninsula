@@ -44,4 +44,4 @@ Unit and headless egui tests cover registry/schema validation, five-section navi
 
 CI runs native tests and release builds on Linux, macOS and Windows. Formatting runs on every platform and strict all-target Clippy runs on Linux. Native OS integration and backend credentials remain dependent on their respective runners/machines.
 
-Settings stay expanded while open without requiring the pin control. Ordinary Widgets use screen-dependent width limits with square-root growth capped at 350–700 points on large displays (280–560 at 1440 logical points); Music declares a smaller minimum through layout metadata, while long content stays inside the same host maximum. Settings retain their independent navigation width.
+Settings stay expanded while open without requiring the pin control. Ordinary Widgets use screen-dependent width limits with square-root growth capped at 350–700 points on large displays (280–560 at 1440 logical points); Music uses the same host minimum: short content keeps that width, and only content exceeding it expands the Widget, up to the shared maximum. Settings retain their independent navigation width.
