@@ -726,6 +726,9 @@ impl Renderer<'_> {
                 let response = ui.ctx().read_response(id);
                 let mut value = ratio(*fraction);
                 if let Some(response) = &response {
+                    if enabled && (response.drag_started() || response.clicked()) {
+                        response.request_focus();
+                    }
                     response.widget_info(|| {
                         egui::WidgetInfo::labeled(egui::WidgetType::Slider, enabled, label)
                     });
@@ -750,9 +753,12 @@ impl Renderer<'_> {
                         }
                     }
                     if enabled && response.has_focus() {
-                        let step = ui.input(|input| {
-                            i32::from(input.key_pressed(egui::Key::ArrowRight))
-                                - i32::from(input.key_pressed(egui::Key::ArrowLeft))
+                        let step = ui.input_mut(|input| {
+                            i32::from(
+                                input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight),
+                            ) - i32::from(
+                                input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft),
+                            )
                         });
                         if step != 0 {
                             value = (value + step as f32 * 0.01).clamp(0.0, 1.0);

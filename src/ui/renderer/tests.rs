@@ -874,6 +874,26 @@ fn progress_slider_previews_drag_and_dispatches_one_bounded_value_on_release() {
             basis_points: 8000
         }
     );
+    let key_action = frame(
+        vec![Event::Key {
+            key: egui::Key::ArrowRight,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }],
+        true,
+    )
+    .unwrap();
+    assert_eq!(
+        key_action.action,
+        Action::SetProgress {
+            key: "seek".into(),
+            basis_points: 2100
+        }
+    );
+    // The focused slider consumes the arrow so the host cannot also turn pages.
+    assert!(!ctx.input(|input| input.key_pressed(egui::Key::ArrowRight)));
     frame(vec![], false);
     frame(vec![button(50.0, true)], false);
     assert!(frame(vec![button(50.0, false)], false).is_none());
