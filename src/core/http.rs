@@ -92,6 +92,9 @@ mod tests {
                 Err(error) => panic!("no HTTP request received: {error}"),
             }
         };
+        // Accepted sockets inherit nonblocking mode on Windows. The test
+        // server reads synchronously after accept, so restore blocking I/O.
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(2)))
             .unwrap();

@@ -117,7 +117,9 @@ fn snapshot(
     let file = text("xesam:url")
         .and_then(|raw| url::Url::parse(raw).ok())
         .and_then(|url| url.to_file_path().ok());
-    let position = player.get_property::<i64>("Position").unwrap_or(0);
+    // A missing position is not zero: resetting it would rewind lyrics.
+    let position = player.get_property::<i64>("Position").ok()?;
+    let observed = Instant::now();
     let rate = player
         .get_property::<f64>("Rate")
         .ok()
@@ -147,7 +149,7 @@ fn snapshot(
             rate,
             playing,
             controls,
-            observed: Instant::now(),
+            observed,
             audio_level: None,
             artwork: None,
         },
@@ -159,8 +161,9 @@ fn apply_artwork(
     cache: &mut artwork::Cache,
     (mut playback, url): (Playback, Option<String>),
 ) -> Playback {
-    playback.artwork = url
-        .as_deref()
-        .and_then(|url| cache.get(url, || artwork::read_url(url)));
+    playback.artwork = url.as_deref().and_then(|url| {
+        let source = url.to_owned();
+        cache.get(url, move || artwork::read_url(&source))
+    });
     playback
 }

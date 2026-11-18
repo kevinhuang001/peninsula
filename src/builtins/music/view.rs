@@ -6,7 +6,7 @@ pub(super) fn compact(
     value: &str,
     has_lyric: bool,
     playing: bool,
-    audio_level: Option<f32>,
+    _audio_level: Option<f32>,
 ) -> ViewNode {
     // Keep the notes in the same text run: no layout gap can separate them
     // from the lyric, and the host measures the complete line with its font.
@@ -15,75 +15,12 @@ pub(super) fn compact(
     } else {
         value.to_owned()
     };
-    let motion = |duration_ms, tracks| Motion {
-        trigger: Trigger::While(playing),
-        duration_ms,
-        repeat: Repeat::Infinite,
-        easing: Easing::EaseInOut,
-        tracks,
-        ..Default::default()
-    };
-    let mut cone = MotionTrack::new(MotionProperty::Scale, &[(0, 1.0), (160, 1.2), (320, 1.0)]);
-    cone.amplitude = audio_level
-        .filter(|value| value.is_finite())
-        .map(|value| ValueMapping {
-            value,
-            input: [0.0, 1.0],
-            output: [0.0, 1.35],
-        });
-    let speaker = ViewNode::new(Node::Stack(
-        [Align::Center; 2],
-        vec![
-            ViewNode::svg("compact/speaker-body", 22.0)
-                .color(if playing {
-                    ColorSpec::Info
-                } else {
-                    ColorSpec::SecondaryText
-                })
-                .motion(motion(
-                    320,
-                    vec![MotionTrack::new(
-                        MotionProperty::TranslateX,
-                        &[(0, 0.0), (80, -0.45), (160, 0.45), (240, -0.35), (320, 0.0)],
-                    )],
-                )),
-            ViewNode::svg("compact/speaker-cone", 22.0)
-                .color(if playing {
-                    ColorSpec::Info
-                } else {
-                    ColorSpec::SecondaryText
-                })
-                .motion(motion(320, vec![cone])),
-            ViewNode::svg("compact/speaker-waves", 20.0)
-                .styled(Style {
-                    normal: Paint {
-                        foreground: Some(ColorSpec::Info),
-                        opacity: Some(if playing { 1.0 } else { 0.24 }),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
-                .motion(motion(
-                    700,
-                    vec![
-                        MotionTrack::new(
-                            MotionProperty::Opacity,
-                            &[(0, 0.85), (450, 0.2), (700, 0.85)],
-                        ),
-                        MotionTrack::new(
-                            MotionProperty::Scale,
-                            &[(0, 0.95), (450, 1.12), (700, 0.95)],
-                        ),
-                    ],
-                )),
-        ],
-    ))
-    .sized(Size::Fixed(24.0), Size::Fixed(24.0));
+    let indicator = equalizer(playing);
     ViewNode::compact(
-        speaker,
+        indicator,
         super::super::compact_value(text, false),
         CompactLayout {
-            leading_size: [24.0, 24.0],
+            leading_size: [32.0, 24.0],
             width: Size::Fill(1.0),
             content_size: SizeSpec::default(),
             content_align: Align::Center,
@@ -91,6 +28,19 @@ pub(super) fn compact(
             ..Default::default()
         },
     )
+}
+
+fn equalizer(playing: bool) -> ViewNode {
+    ViewNode::icon(
+        if playing {
+            "equalizer-playing"
+        } else {
+            "equalizer"
+        },
+        32.0,
+    )
+    .sized(Size::Fixed(32.0), Size::Fixed(24.0))
+    .color(ColorSpec::Accent)
 }
 
 pub(super) fn widget(
@@ -207,15 +157,7 @@ fn artwork(playback: &Playback) -> ViewNode {
         }),
         None => ViewNode::new(Node::Stack(
             [Align::Center; 2],
-            vec![ViewNode::icon(
-                if playback.playing {
-                    "speaker-playing"
-                } else {
-                    "speaker"
-                },
-                22.0,
-            )
-            .color(ColorSpec::SecondaryText)],
+            vec![equalizer(playback.playing)],
         ))
         .styled(Style {
             normal: Paint {
@@ -381,16 +323,12 @@ mod tests {
             };
             assert_eq!(compact.layout.width, Size::Fill(1.0));
             assert_eq!(compact.layout.content_align, Align::Center);
-            let Node::Stack(_, layers) = &compact.leading.kind else {
-                panic!("expected speaker layers")
-            };
-            assert_eq!(layers.len(), 3);
-            assert!(matches!(&layers[1].kind, Node::Motion { motion, .. }
-                if motion.tracks[0].amplitude.is_some_and(|input| input.value == 0.7)));
-            assert!(layers
-                .iter()
-                .all(|layer| matches!(&layer.kind, Node::Motion { motion, .. }
-                if motion.trigger == Trigger::While(playing))));
+            assert!(matches!(&compact.leading.kind, Node::Icon { name, .. }
+                if name == if playing { "equalizer-playing" } else { "equalizer" }));
+            assert_eq!(
+                compact.leading.style.normal.foreground,
+                Some(ColorSpec::Accent)
+            );
             assert!(matches!(&compact.content.kind, Node::Text { text, .. }
                 if text == &format!("♪{lyric}♪")));
         }

@@ -59,6 +59,13 @@ const CLEAR_ALL_ACTION: &str = "core.notifications.clear_all";
 const ACKNOWLEDGE_ACTION_PREFIX: &str = "core.notifications.acknowledge:";
 const CENTER_PAGE_ACTION_PREFIX: &str = "core.notifications.page:";
 
+struct FittedMeasure {
+    view: Arc<WidgetView>,
+    key: [f32; 2],
+    width: Option<f32>,
+    height: Option<(f32, f32)>,
+}
+
 struct IslandApp {
     notifications: NotificationManager,
     scheduler: Scheduler,
@@ -72,6 +79,7 @@ struct IslandApp {
     dashboard_open: bool,
     notification_center_page: usize,
     center_view: Option<((u64, usize), Arc<WidgetView>)>,
+    fitted_measure: Option<FittedMeasure>,
     alert_surface: Option<(NotificationKey, notification::AlertSurface)>,
     last_expanded_width: Option<f32>,
     page_switch_from: Option<egui::Rect>,
@@ -119,6 +127,7 @@ impl IslandApp {
             dashboard_open: false,
             notification_center_page: 0,
             center_view: None,
+            fitted_measure: None,
             alert_surface: None,
             last_expanded_width: None,
             page_switch_from: None,
@@ -224,6 +233,12 @@ impl IslandApp {
     }
 
     fn apply_extension_output(&mut self, output: ExtensionOutput, context: &egui::Context) {
+        // Context task drains and idle extensions return empty output each pass.
+        // Requesting a repaint for those creates a permanent busy render loop.
+        if output == ExtensionOutput::default() {
+            return;
+        }
+        let repaint = !output.invalidated.is_empty() || !output.notifications.is_empty();
         for extension_id in output.invalidated {
             self.scheduler.invalidate(&extension_id);
         }
@@ -244,7 +259,9 @@ impl IslandApp {
         if published {
             self.scheduler.on_event(Event::NotificationPublished);
         }
-        context.request_repaint();
+        if repaint {
+            context.request_repaint();
+        }
     }
 
     fn handle_alert_interaction(
@@ -447,21 +464,36 @@ impl eframe::App for IslandApp {
             widget_limit[0] = widget_limit[0].max(maximum);
         }
         let minimum = minimum_widget_size(self.screen_size());
-        let fitted_width = widget_view
-            .as_deref()
-            .filter(|view| view.bounds.fit_width)
-            .map(|view| {
-                let limit = capsule::body_size(widget_limit[0], 0.0).x;
-                let width = (crate::ui::renderer::natural_content_width(
-                    context,
-                    &view.root,
-                    limit,
-                    &self.icons,
-                ) + 2.0 * capsule::BODY_SIDE
-                    + 1.0)
-                    .ceil();
-                width
-            });
+        // Retain the source Arc so pointer identity cannot be recycled. Measure
+        // only on data/layout changes, never on every frame of the capsule spring.
+        if let Some(view) = widget_view.as_ref() {
+            let key = [widget_limit[0], context.pixels_per_point()];
+            if self
+                .fitted_measure
+                .as_ref()
+                .is_none_or(|cached| !Arc::ptr_eq(&cached.view, view) || cached.key != key)
+            {
+                self.fitted_measure = Some(FittedMeasure {
+                    view: view.clone(),
+                    key,
+                    width: view.bounds.fit_width.then(|| {
+                        let limit = capsule::body_size(widget_limit[0], 0.0).x;
+                        (crate::ui::renderer::natural_content_width(
+                            context,
+                            &view.root,
+                            limit,
+                            &self.icons,
+                        ) + 2.0 * capsule::BODY_SIDE
+                            + 1.0)
+                            .ceil()
+                    }),
+                    height: None,
+                });
+            }
+        } else {
+            self.fitted_measure = None;
+        }
+        let fitted_width = self.fitted_measure.as_ref().and_then(|cached| cached.width);
         let [widget_width, preferred_height] = self.extensions.widget_size(
             &self.active_widget,
             widget_view.as_deref(),
@@ -471,21 +503,32 @@ impl eframe::App for IslandApp {
         let widget_width = widget_width
             .max(minimum.x.min(widget_limit[0]))
             .max(capsule::navigation_width(context, &widget_titles).min(widget_limit[0]));
-        let content_height = if let Some(view) =
-            widget_view.as_deref().filter(|view| view.bounds.fit_height)
-        {
-            let body_width = capsule::body_size(widget_width, 0.0).x;
-            let measured =
-                crate::ui::renderer::content_height(context, &view.root, body_width, &self.icons);
-            self.extensions.widget_size(
-                &self.active_widget,
-                Some(view),
-                widget_limit,
-                [fitted_width, Some(measured + capsule::BODY_BOTTOM)],
-            )[1]
-        } else {
-            preferred_height
-        };
+        let content_height =
+            if let Some(view) = widget_view.as_deref().filter(|view| view.bounds.fit_height) {
+                let body_width = capsule::body_size(widget_width, 0.0).x;
+                let cache = self.fitted_measure.as_mut().unwrap();
+                let measured = match cache.height {
+                    Some((width, height)) if width == body_width => height,
+                    _ => {
+                        let height = crate::ui::renderer::content_height(
+                            context,
+                            &view.root,
+                            body_width,
+                            &self.icons,
+                        );
+                        cache.height = Some((body_width, height));
+                        height
+                    }
+                };
+                self.extensions.widget_size(
+                    &self.active_widget,
+                    Some(view),
+                    widget_limit,
+                    [fitted_width, Some(measured + capsule::BODY_BOTTOM)],
+                )[1]
+            } else {
+                preferred_height
+            };
         let minimum_body_height = (minimum.y - capsule::EXPANDED_BASE_HEIGHT).max(0.0);
         let widget_height = content_height.max(minimum_body_height.min(widget_limit[1]));
         let pointer = context.input(|input| input.pointer.hover_pos());
@@ -538,7 +581,7 @@ impl eframe::App for IslandApp {
             compact_width.max(widget_width).max(self.state.width.value),
         );
         self.state.set_compact_width(compact_width);
-        let dt = context.input(|input| input.stable_dt).clamp(0.0, 0.05);
+        let dt = context.input(|input| input.unstable_dt).clamp(0.0, 0.1);
         let (pill_width, progress) = self.state.advance(dt);
         self.widget_height
             .target(if let Some((_, surface)) = &self.alert_surface {
@@ -784,7 +827,20 @@ impl eframe::App for IslandApp {
         if self.dashboard_open {
             self.show_dashboard(context, &widget_ids, now);
         }
-        context.request_repaint_after(Duration::from_millis(16));
+        // Motion nodes schedule their own frames. Poll asynchronous sources at
+        // 10 Hz while idle, keeping springs and dragging at the display cadence.
+        let interval = if self.state.animating() || !self.widget_height.settled() || dragging {
+            16
+        } else {
+            100
+        };
+        let wake = self
+            .scheduler
+            .next_deadline()
+            .map(|at| at.saturating_duration_since(Instant::now()));
+        context.request_repaint_after(wake.map_or(Duration::from_millis(interval), |due| {
+            due.min(Duration::from_millis(interval))
+        }));
     }
 }
 

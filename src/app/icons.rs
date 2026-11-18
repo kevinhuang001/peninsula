@@ -8,6 +8,9 @@ pub(crate) enum Icon {
     MusicNote,
     Speaker,
     SpeakerPlaying,
+    Equalizer,
+    EqualizerPlaying,
+    ClockLive,
     MediaPlay,
     MediaPause,
     MediaPrevious,
@@ -238,6 +241,27 @@ impl Icons {
             painter.circle_filled(c + Vec2::new(0.0, r), 0.9, stroke.color);
             return;
         }
+        if matches!(icon, Icon::Equalizer | Icon::EqualizerPlaying) {
+            let playing = matches!(icon, Icon::EqualizerPlaying)
+                && !crate::ui::renderer::reduced_motion(painter.ctx());
+            let time = painter.ctx().input(|input| input.time) as f32;
+            paint_equalizer(
+                painter,
+                rect,
+                color.linear_multiply(opacity),
+                playing.then_some(time),
+            );
+            if playing {
+                painter
+                    .ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(33));
+            }
+            return;
+        }
+        if matches!(icon, Icon::ClockLive) {
+            paint_live_clock(painter, rect, color.linear_multiply(opacity), opacity);
+            return;
+        }
         if matches!(icon, Icon::Speaker | Icon::SpeakerPlaying) {
             let playing = matches!(icon, Icon::SpeakerPlaying);
             let time = painter.ctx().input(|input| input.time) as f32;
@@ -292,6 +316,9 @@ impl Icons {
             | Icon::MusicNote
             | Icon::Speaker
             | Icon::SpeakerPlaying
+            | Icon::Equalizer
+            | Icon::EqualizerPlaying
+            | Icon::ClockLive
             | Icon::MediaPlay
             | Icon::MediaPause
             | Icon::MediaPrevious
@@ -308,6 +335,78 @@ impl Icons {
             color.linear_multiply(opacity),
         );
     }
+}
+
+/// Six centered, rounded bars matching the compact waveform reference.
+fn paint_equalizer(painter: &Painter, rect: Rect, color: Color32, time: Option<f32>) {
+    let unit = (rect.width() / 32.0).min(rect.height() / 24.0);
+    for (index, height) in [8.0, 16.0, 18.0, 10.0, 5.0, 5.0].into_iter().enumerate() {
+        let pulse = time.map_or(1.0, |t| {
+            let speed = [5.2, 6.4, 4.9, 5.8, 4.5, 5.5][index];
+            0.55 + 0.45 * ((t * speed + index as f32 * 1.1).sin() * 0.5 + 0.5)
+        });
+        let center = rect.center() + Vec2::new((index as f32 - 2.5) * 5.5 * unit, 0.0);
+        painter.rect_filled(
+            Rect::from_center_size(center, Vec2::new(3.4, height * pulse) * unit),
+            2.0 * unit,
+            color,
+        );
+    }
+}
+
+fn clock_angles(hour: u8, minute: u8, second: f32) -> [f32; 3] {
+    let turn = std::f32::consts::TAU;
+    let noon = -std::f32::consts::FRAC_PI_2;
+    [
+        noon + turn * (f32::from(hour % 12) / 12.0 + f32::from(minute) / 720.0 + second / 43_200.0),
+        noon + turn * (f32::from(minute) / 60.0 + second / 3600.0),
+        noon + turn * second / 60.0,
+    ]
+}
+
+fn paint_live_clock(painter: &Painter, rect: Rect, color: Color32, opacity: f32) {
+    let time =
+        time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    let reduced = crate::ui::renderer::reduced_motion(painter.ctx());
+    let seconds = f32::from(time.second())
+        + if reduced {
+            0.0
+        } else {
+            time.nanosecond() as f32 / 1e9
+        };
+    let angles = clock_angles(time.hour(), time.minute(), seconds);
+    let unit = rect.width().min(rect.height()) / 24.0;
+    let c = rect.center();
+    painter.circle_stroke(c, 10.0 * unit, Stroke::new(1.3 * unit, color));
+    let at = |angle: f32, length: f32| c + Vec2::angled(angle) * length * unit;
+    for quarter in 0..4 {
+        let angle = quarter as f32 * std::f32::consts::FRAC_PI_2;
+        painter.line_segment([at(angle, 8.0), at(angle, 9.0)], Stroke::new(unit, color));
+    }
+    for (angle, length, width) in [(angles[0], 4.8, 1.8), (angles[1], 7.3, 1.3)] {
+        painter.line_segment([c, at(angle, length)], Stroke::new(width * unit, color));
+    }
+    if !reduced {
+        let accent = painter
+            .ctx()
+            .style()
+            .visuals
+            .selection
+            .bg_fill
+            .linear_multiply(opacity);
+        painter.line_segment(
+            [at(angles[2], -1.8), at(angles[2], 8.1)],
+            Stroke::new(0.9 * unit, accent),
+        );
+    }
+    painter.circle_filled(c, 1.2 * unit, color);
+    painter
+        .ctx()
+        .request_repaint_after(std::time::Duration::from_millis(if reduced {
+            1000
+        } else {
+            100
+        }));
 }
 
 /// A speaker cabinet with a pulsing woofer and a small rhythmic shake.
@@ -554,5 +653,85 @@ mod tests {
             .pixels
             .iter()
             .any(|pixel| pixel.a() > 200 && pixel.r() != pixel.b()));
+    }
+}
+
+#[cfg(test)]
+mod live_indicator_tests {
+    use super::*;
+    #[test]
+    fn clock_hands_follow_real_hour_minute_and_second_positions() {
+        let noon = clock_angles(12, 0, 0.0);
+        for a in noon {
+            assert!((a + std::f32::consts::FRAC_PI_2).abs() < 0.00001);
+        }
+        assert!(clock_angles(3, 0, 0.0)[0].abs() < 0.00001);
+        let half_past_three = clock_angles(3, 30, 0.0);
+        assert!((half_past_three[0] - std::f32::consts::PI / 12.0).abs() < 0.00001);
+        assert!((half_past_three[1] - std::f32::consts::FRAC_PI_2).abs() < 0.00001);
+        assert!(clock_angles(0, 0, 15.0)[2].abs() < 0.00001);
+        assert!(clock_angles(3, 30, 30.0)[0] > half_past_three[0]);
+        assert!(clock_angles(3, 30, 30.0)[1] > half_past_three[1]);
+    }
+    #[test]
+    fn equalizer_changes_only_bar_heights_and_stops_with_reduced_motion() {
+        use crate::{
+            extension::ExtensionId,
+            ui::{declarative::*, renderer},
+        };
+        let ctx = egui::Context::default();
+        let icons = Icons::load(&ctx);
+        let draw = |time, playing, accent| {
+            ctx.style_mut(|style| style.visuals.selection.bg_fill = accent);
+            let output = ctx.run(
+                egui::RawInput {
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        renderer::show_compact(
+                            ui,
+                            Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(32.0, 24.0)),
+                            &ExtensionId::builtin("test/equalizer"),
+                            &ViewNode::icon(
+                                if playing {
+                                    "equalizer-playing"
+                                } else {
+                                    "equalizer"
+                                },
+                                32.0,
+                            )
+                            .sized(Size::Fixed(32.0), Size::Fixed(24.0))
+                            .color(ColorSpec::Accent),
+                            &icons,
+                            1.0,
+                        );
+                    });
+                },
+            );
+            output
+                .shapes
+                .into_iter()
+                .filter_map(|s| match s.shape {
+                    egui::Shape::Rect(r) if r.fill == accent => Some(r.rect),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let accent = Color32::from_rgb(195, 90, 208);
+        let first = draw(0.0, true, accent);
+        let next = draw(0.4, true, accent);
+        assert_eq!(first.len(), 6);
+        assert_ne!(first, next);
+        assert!(first
+            .iter()
+            .zip(&next)
+            .all(|(a, b)| a.width() == b.width() && a.center() == b.center()));
+        let paused = draw(0.6, false, accent);
+        assert_eq!(paused, draw(0.9, false, accent));
+        renderer::set_reduced_motion(&ctx, true);
+        assert_eq!(draw(1.0, true, accent), draw(1.4, true, accent));
+        assert_eq!(draw(1.6, false, Color32::from_rgb(60, 130, 230)).len(), 6);
     }
 }

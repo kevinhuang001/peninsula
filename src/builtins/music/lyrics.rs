@@ -23,6 +23,15 @@ pub(super) struct Line {
 }
 
 impl Lyrics {
+    pub fn next_time(&self, position: f64) -> Option<f64> {
+        let Self::Synced(lines) = self else {
+            return None;
+        };
+        lines
+            .get(lines.partition_point(|line| line.at <= position))
+            .map(|line| line.at)
+    }
+
     pub fn current_index(&self, position: f64) -> Option<usize> {
         match self {
             Self::Synced(lines) => lines

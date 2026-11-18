@@ -24,8 +24,8 @@ const COMPACT_ID: &str = "builtin.music/lyrics";
 const WIDGET_SIZE: [f32; 2] = [368.0, 188.0];
 const COMPACT_WIDTH: f32 = 176.0;
 const COMPACT_LYRIC_MIN_WIDTH: f32 = 360.0;
-const POLL_INTERVAL: Duration = Duration::from_millis(800);
-const IDLE_INTERVAL: Duration = Duration::from_secs(2);
+const POLL_INTERVAL: Duration = Duration::from_millis(250);
+const IDLE_INTERVAL: Duration = Duration::from_millis(500);
 const DISCONNECTED_AFTER: Duration = Duration::from_secs(4);
 
 pub(super) fn descriptors() -> Vec<ExtensionDescriptor> {
@@ -225,11 +225,30 @@ impl RuntimeExtension for MusicExtension {
         changed |= self.active_line != line;
         self.active_line = line;
 
-        if changed {
+        let mut output = if changed {
             invalidate()
         } else {
             ExtensionOutput::default()
+        };
+        let next = self
+            .playback
+            .as_ref()
+            .filter(|p| p.playing && p.rate > 0.0)
+            .and_then(|p| {
+                let lyrics = self.lyric_result.as_ref()?.as_ref().ok()?.as_ref()?;
+                let position = p.position_at(now);
+                let at = lyrics.next_time(position)?;
+                now.checked_add(Duration::try_from_secs_f64((at - position) / p.rate).ok()?)
+            });
+        if let Some(deadline) = next {
+            output.schedule.push(crate::extension::ScheduledTask {
+                task_id: "music-lyric-boundary".into(),
+                deadline,
+            });
+        } else {
+            output.cancel_tasks.push("music-lyric-boundary".into());
         }
+        output
     }
 
     fn on_action(&mut self, action: Action, _now: Instant) -> ExtensionOutput {
@@ -284,6 +303,7 @@ impl MusicExtension {
             (Some(previous), Some(next)) => {
                 previous.session != next.session
                     || previous.playing != next.playing
+                    || previous.rate != next.rate
                     || previous.controls != next.controls
                     || previous.artwork != next.artwork
                     || (previous.position_at(next.observed) - next.position_at(next.observed)).abs()
@@ -397,7 +417,7 @@ fn fetch_lyrics(requests: mpsc::Receiver<Track>, output: mpsc::Sender<(Track, Ly
 mod tests {
     use super::*;
 
-    fn sample(playing: bool, seconds: f64, now: Instant) -> Playback {
+    pub(super) fn sample(playing: bool, seconds: f64, now: Instant) -> Playback {
         Playback {
             session: "player".into(),
             track: Track {
@@ -481,5 +501,66 @@ mod tests {
         music.set_playback(Some(sample(false, 1.0, now + Duration::from_secs(2))));
         music.update(now + Duration::from_secs(10));
         assert_eq!(music.active_line, Some(0));
+    }
+}
+
+#[cfg(test)]
+mod timing_tests {
+    use super::*;
+    fn music(now: Instant) -> MusicExtension {
+        let mut music = MusicExtension::default();
+        music.set_playback(Some(super::tests::sample(true, 0.0, now)));
+        music.lyric_result = Some(Ok(Some(Arc::new(Lyrics::Synced(vec![
+            lyrics::Line {
+                at: 0.125,
+                text: "第一句".into(),
+            },
+            lyrics::Line {
+                at: 0.275,
+                text: "第二句".into(),
+            },
+            lyrics::Line {
+                at: 2.0,
+                text: "第三句".into(),
+            },
+        ])))));
+        music
+    }
+    #[test]
+    fn deadlines_follow_subsecond_boundaries_rate_pause_and_backward_seek() {
+        let now = Instant::now();
+        let mut music = music(now);
+        assert_eq!(
+            music.update(now).schedule[0].deadline,
+            now + Duration::from_millis(125)
+        );
+        music.update(now + Duration::from_millis(124));
+        assert_eq!(music.active_line, None);
+        let output = music.update(now + Duration::from_millis(125));
+        assert_eq!(music.active_line, Some(0));
+        assert_eq!(
+            output.schedule[0].deadline,
+            now + Duration::from_millis(275)
+        );
+        let mut playback = super::tests::sample(true, 0.125, now + Duration::from_millis(125));
+        playback.rate = 2.0;
+        assert!(music.set_playback(Some(playback)));
+        assert_eq!(
+            music.update(now + Duration::from_millis(125)).schedule[0].deadline,
+            now + Duration::from_millis(200)
+        );
+        music.set_playback(Some(super::tests::sample(false, 0.2, now)));
+        assert!(music
+            .update(now + Duration::from_secs(5))
+            .schedule
+            .is_empty());
+        assert_eq!(music.active_line, Some(0));
+        music.set_playback(Some(super::tests::sample(
+            true,
+            0.0,
+            now + Duration::from_secs(5),
+        )));
+        music.update(now + Duration::from_secs(5));
+        assert_eq!(music.active_line, None);
     }
 }

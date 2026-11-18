@@ -341,15 +341,32 @@ fn paint_expanded(
             rect.width(),
             rect.height() - EXPANDED_BASE_HEIGHT - NAVIGATION_HEIGHT,
         );
-        let size = available.min(widget_body_limit);
+        // Lay out at the destination width throughout the spring animation.
+        // Rewrapping a large parcel table at every intermediate width stalls frames
+        // and makes its intrinsic height jump. Reveal it through a clipped viewport.
+        let size = Vec2::new(widget_body_limit.x, available.y.min(widget_body_limit.y));
         if size.x > 0.0 && size.y > 0.0 {
             let top_left = Pos2::new(
                 rect.center().x - size.x * 0.5,
                 rect.top() + EXPANDED_BASE_HEIGHT + (available.y - size.y) * 0.5,
             );
             let body = Rect::from_min_size(top_left, size);
-            widget_action =
-                renderer::show_widget(ui, body, active_widget, widget_view, icons, reveal);
+            let visible =
+                Rect::from_min_size(Pos2::new(rect.left() + BODY_SIDE, top_left.y), available);
+            let mut surface = ui.new_child(
+                egui::UiBuilder::new()
+                    .id_salt("stable-widget-body")
+                    .max_rect(body),
+            );
+            surface.set_clip_rect(ui.clip_rect().intersect(visible));
+            widget_action = renderer::show_widget(
+                &mut surface,
+                body,
+                active_widget,
+                widget_view,
+                icons,
+                reveal,
+            );
         }
         false
     };
