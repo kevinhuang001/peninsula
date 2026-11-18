@@ -1,4 +1,9 @@
-use super::{anchor, layout, point, Renderer, MAX_DEPTH};
+use super::{
+    anchor,
+    animation::Effects,
+    assets::{self, image},
+    layout, point, Renderer, MAX_DEPTH,
+};
 use crate::{app::icons::Icon, ui::declarative::*};
 use eframe::egui::{
     self, pos2, vec2, Color32, FontFamily, FontId, Id, Rect, Sense, Stroke, StrokeKind, Ui,
@@ -7,7 +12,6 @@ use eframe::egui::{
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
     sync::Arc,
-    time::Duration,
 };
 
 fn font_size(style: TextStyle) -> f32 {
@@ -42,6 +46,9 @@ fn galley(ui: &Ui, text: &str, style: TextStyle, width: f32, elide: bool) -> Arc
     );
     if style.wrap || elide {
         job.wrap.max_width = width.max(1.0);
+    }
+    if let Some(max_lines) = style.max_lines.filter(|_| style.wrap) {
+        job.wrap.max_rows = max_lines.max(1);
     }
     if elide && !style.wrap {
         job.wrap.max_rows = 1;
@@ -148,6 +155,12 @@ impl Renderer<'_> {
             Node::Chart { .. } | Node::Sparkline(_) | Node::RangeChart { .. } => vec2(100.0, 36.0),
             Node::LineChart { .. } => vec2(120.0, 104.0),
             Node::Image { asset } => image_size(ui, asset),
+            Node::Svg { asset, svg_style } => assets::svg(ui, &self.theme, asset, *svg_style)
+                .map_or(Vec2::ZERO, |texture| texture.size_vec2()),
+            Node::SpriteSequence(spec) => spec.frames.first().map_or(Vec2::ZERO, |frame| {
+                image_size(ui, &frame.asset) * assets::uv_rect(frame.uv).size()
+            }),
+            Node::SegmentedIndicator { .. } => vec2(24.0, 10.0),
             Node::RasterImage(image) => vec2(f32::from(image.size[0]), f32::from(image.size[1])),
             Node::Sprite { frames, .. } => frames
                 .first()
@@ -177,6 +190,30 @@ impl Renderer<'_> {
         inherited: Color32,
         opacity: f32,
         depth: usize,
+    ) {
+        self.paint_with_effects(
+            ui,
+            node,
+            rect,
+            id,
+            inherited,
+            opacity,
+            depth,
+            Effects::default(),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn paint_with_effects(
+        &mut self,
+        ui: &mut Ui,
+        node: &ViewNode,
+        rect: Rect,
+        id: Id,
+        inherited: Color32,
+        opacity: f32,
+        depth: usize,
+        effects: Effects,
     ) {
         let visible = rect.is_positive() && ui.is_rect_visible(rect);
         if depth >= MAX_DEPTH
@@ -220,24 +257,26 @@ impl Renderer<'_> {
             Paint::default()
         };
         let normal = node.style.normal;
-        let foreground = active.foreground.or(normal.foreground).map_or_else(
-            || {
-                let default = match node.kind {
-                    Node::Control {
-                        kind: ControlKind::Button | ControlKind::Action,
-                        ..
-                    } => ColorSpec::OnAccent,
-                    Node::Control {
-                        kind: ControlKind::Link,
-                        ..
-                    } => ColorSpec::Info,
-                    _ if inherited != Color32::PLACEHOLDER => return inherited,
-                    _ => ColorSpec::PrimaryText,
-                };
-                self.theme.color(ui, default)
-            },
-            |color| self.theme.color(ui, color),
-        );
+        let foreground = effects.color.unwrap_or_else(|| {
+            active.foreground.or(normal.foreground).map_or_else(
+                || {
+                    let default = match node.kind {
+                        Node::Control {
+                            kind: ControlKind::Button | ControlKind::Action,
+                            ..
+                        } => ColorSpec::OnAccent,
+                        Node::Control {
+                            kind: ControlKind::Link,
+                            ..
+                        } => ColorSpec::Info,
+                        _ if inherited != Color32::PLACEHOLDER => return inherited,
+                        _ => ColorSpec::PrimaryText,
+                    };
+                    self.theme.color(ui, default)
+                },
+                |color| self.theme.color(ui, color),
+            )
+        });
         let opacity = opacity
             * active
                 .opacity
@@ -349,6 +388,38 @@ impl Renderer<'_> {
             ui
         };
 
+        if let Node::Compact(compact) = &node.kind {
+            self.paint_compact(ui, compact, inner, id, foreground, opacity, depth + 1);
+            return;
+        }
+        if let Node::Motion { motion, child } = &node.kind {
+            if visible {
+                let child_id = id.with(("motion-child", &child.key));
+                let mut current = self.effects(ui, id, motion, supports_progress(child));
+                current.color = effects.color.or(current.color);
+                current.progress = effects.progress.or(current.progress);
+                let size = self.in_cell(ui, child, inner.size(), [Align::Stretch; 2], depth + 1);
+                let rect = Rect::from_min_size(inner.min, size);
+                let start = current.has_transform().then(|| {
+                    ui.ctx()
+                        .graphics_mut(|graphics| graphics.entry(ui.layer_id()).next_idx())
+                });
+                self.paint_with_effects(
+                    ui,
+                    child,
+                    rect,
+                    child_id,
+                    foreground,
+                    opacity * current.opacity,
+                    depth + 1,
+                    current,
+                );
+                if let Some(start) = start {
+                    current.transform_shapes(ui, start, rect.center());
+                }
+            }
+            return;
+        }
         if let Node::Scroll(axes, child) = &node.kind {
             self.scroll(ui, inner, child, *axes, id, foreground, opacity, depth + 1);
             return;
@@ -379,7 +450,7 @@ impl Renderer<'_> {
             }
             return;
         }
-        self.paint_leaf(ui, inner, node, id, foreground, opacity);
+        self.paint_leaf(ui, inner, node, id, foreground, opacity, effects);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -465,14 +536,16 @@ impl Renderer<'_> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn paint_leaf(
-        &self,
+        &mut self,
         ui: &mut Ui,
         rect: Rect,
         node: &ViewNode,
         id: Id,
         foreground: Color32,
         opacity: f32,
+        effects: Effects,
     ) {
         let painter = ui.painter().with_clip_rect(rect);
         let fg = foreground.linear_multiply(opacity);
@@ -485,7 +558,11 @@ impl Renderer<'_> {
             Node::Icon { name, icon_style } => {
                 let size = Vec2::splat(point(icon_style.size)).min(rect.size());
                 let icon_rect = Rect::from_min_size(anchor(rect, size, icon_style.alignment), size);
-                let tint = icon_style.color.map_or(fg, color);
+                let tint = if effects.color.is_some() {
+                    fg
+                } else {
+                    icon_style.color.map_or(fg, color)
+                };
                 if let Some(icon) = named_icon(name) {
                     self.icons.paint(&painter, icon, icon_rect, tint, 1.0);
                 } else if let Some(texture) = image(ui, name) {
@@ -497,28 +574,92 @@ impl Renderer<'_> {
                     );
                 }
             }
-            Node::Image { asset } => paint_image(ui, &painter, asset, rect, opacity),
+            Node::Image { asset } => {
+                if let Some(texture) = image(ui, asset) {
+                    assets::paint_texture(
+                        &painter,
+                        &texture,
+                        rect,
+                        assets::uv_rect([0.0, 0.0, 1.0, 1.0]),
+                        node.image_fit.unwrap_or_default(),
+                        point(node.style.normal.corner_radius.unwrap_or(0.0)),
+                        effects
+                            .color
+                            .map_or(Color32::WHITE, |_| foreground)
+                            .linear_multiply(opacity),
+                    );
+                }
+            }
+            Node::Svg { asset, svg_style } => {
+                if let Some(texture) = assets::svg(ui, &self.theme, asset, *svg_style) {
+                    assets::paint_texture(
+                        &painter,
+                        &texture,
+                        rect,
+                        assets::uv_rect([0.0, 0.0, 1.0, 1.0]),
+                        svg_style.fit,
+                        point(node.style.normal.corner_radius.unwrap_or(0.0)),
+                        effects
+                            .color
+                            .map_or_else(|| assets::svg_tint(*svg_style, fg, opacity), |_| fg),
+                    );
+                }
+            }
             Node::RasterImage(image) => paint_raster(
                 ui,
                 &painter,
                 id,
                 image,
                 rect,
-                opacity,
+                effects
+                    .color
+                    .map_or(Color32::WHITE, |_| foreground)
+                    .linear_multiply(opacity),
                 point(node.style.normal.corner_radius.unwrap_or(0.0)),
+                node.image_fit.unwrap_or(ImageFit::Stretch),
             ),
             Node::Sprite { frames, frame_ms } => {
-                if !frames.is_empty() {
-                    let period = (*frame_ms).max(16);
-                    let time = ui.input(|i| i.time.max(0.0) * 1000.0);
-                    let frame = (time / f64::from(period)) as usize % frames.len();
-                    paint_image(ui, &painter, &frames[frame], rect, opacity);
-                    if frames.len() > 1 {
-                        ui.ctx().request_repaint_after(Duration::from_millis(
-                            u64::from(period) - time as u64 % u64::from(period),
-                        ));
+                let index = self.uniform_sprite_index(ui, id, frames.len(), *frame_ms);
+                if let Some(asset) = frames.get(index) {
+                    paint_image(ui, &painter, asset, rect, opacity);
+                }
+            }
+            Node::SpriteSequence(spec) => {
+                let index = self.sprite_index(ui, id, spec);
+                if let Some(frame) = spec.frames.get(index) {
+                    if let Some(texture) = image(ui, &frame.asset) {
+                        assets::paint_texture(
+                            &painter,
+                            &texture,
+                            rect,
+                            assets::uv_rect(frame.uv),
+                            node.image_fit.unwrap_or_default(),
+                            point(node.style.normal.corner_radius.unwrap_or(0.0)),
+                            effects
+                                .color
+                                .map_or(Color32::WHITE, |_| foreground)
+                                .linear_multiply(opacity),
+                        );
                     }
                 }
+            }
+            Node::SegmentedIndicator {
+                segments,
+                fraction,
+                gap,
+                direction,
+                inactive,
+            } => {
+                segments_paint(
+                    &painter,
+                    rect,
+                    *segments,
+                    ratio(effects.progress.unwrap_or(*fraction)),
+                    *gap,
+                    *direction,
+                    fg,
+                    color(*inactive),
+                );
             }
             Node::Metric { label, value, unit } => {
                 let mid = rect.top() + rect.height() * 0.42;
@@ -565,7 +706,7 @@ impl Renderer<'_> {
                 label,
                 marker,
             } => {
-                let fraction = ratio(*fraction);
+                let fraction = ratio(effects.progress.unwrap_or(*fraction));
                 let track = color(
                     node.style
                         .normal
@@ -617,20 +758,27 @@ impl Renderer<'_> {
                 label,
                 stroke,
                 text_style,
+                ring_style,
             } => {
                 let radius = (rect.width().min(rect.height()) - point(*stroke)) * 0.5;
                 if radius > 0.0 {
                     painter.circle_stroke(
                         rect.center(),
                         radius,
-                        Stroke::new(point(*stroke), color(ColorSpec::Border)),
+                        Stroke::new(point(*stroke), color(ring_style.track)),
                     );
                     arc(
                         &painter,
                         rect.center(),
                         radius,
-                        -std::f32::consts::FRAC_PI_2,
-                        std::f32::consts::TAU * ratio(*fraction),
+                        if ring_style.start_angle.is_finite() {
+                            ring_style.start_angle
+                        } else {
+                            RingStyle::default().start_angle
+                        },
+                        std::f32::consts::TAU
+                            * ratio(effects.progress.unwrap_or(*fraction))
+                            * if ring_style.clockwise { 1.0 } else { -1.0 },
                         Stroke::new(point(*stroke), fg),
                     );
                 }
@@ -654,7 +802,7 @@ impl Renderer<'_> {
                         center,
                         radius,
                         pi,
-                        pi * ratio(*fraction),
+                        pi * ratio(effects.progress.unwrap_or(*fraction)),
                         Stroke::new(3.0, fg),
                     );
                 }
@@ -746,6 +894,20 @@ impl Renderer<'_> {
     }
 }
 
+fn supports_progress(mut node: &ViewNode) -> bool {
+    for _ in 0..MAX_DEPTH {
+        match &node.kind {
+            Node::Motion { child, .. } => node = child,
+            Node::ProgressRing { .. }
+            | Node::ProgressBar { .. }
+            | Node::Gauge { .. }
+            | Node::SegmentedIndicator { .. } => return true,
+            _ => return false,
+        }
+    }
+    false
+}
+
 fn ratio(value: f32) -> f32 {
     if value.is_finite() {
         value.clamp(0.0, 1.0)
@@ -762,10 +924,10 @@ fn arc(
     sweep: f32,
     stroke: Stroke,
 ) {
-    if sweep <= 0.0 {
+    if sweep.abs() <= 0.0 {
         return;
     }
-    let segments = (sweep * 8.0).ceil().max(2.0) as usize;
+    let segments = (sweep.abs() * 8.0).ceil().max(2.0) as usize;
     let points = (0..=segments)
         .map(|i| {
             let angle = start + sweep * i as f32 / segments as f32;
@@ -1034,36 +1196,90 @@ fn chart(painter: &egui::Painter, rect: Rect, kind: ChartKind, values: &[f32], c
     }
 }
 
-pub(super) fn image_id(asset: &str) -> Id {
-    Id::new(("widget-image", asset))
-}
-fn image(ui: &Ui, asset: &str) -> Option<egui::TextureHandle> {
-    ui.ctx().data(|data| data.get_temp(image_id(asset)))
-}
 fn image_size(ui: &Ui, asset: &str) -> Vec2 {
     image(ui, asset).map_or(Vec2::ZERO, |texture| texture.size_vec2())
 }
 fn paint_image(ui: &Ui, painter: &egui::Painter, asset: &str, rect: Rect, opacity: f32) {
     if let Some(texture) = image(ui, asset) {
-        let native = texture.size_vec2();
-        let scale = (rect.width() / native.x).min(rect.height() / native.y);
-        painter.image(
-            texture.id(),
-            Rect::from_center_size(rect.center(), native * scale),
-            Rect::from_min_max(egui::Pos2::ZERO, pos2(1.0, 1.0)),
+        assets::paint_texture(
+            painter,
+            &texture,
+            rect,
+            assets::uv_rect([0.0, 0.0, 1.0, 1.0]),
+            ImageFit::Contain,
+            0.0,
             Color32::WHITE.linear_multiply(opacity),
         );
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn segments_paint(
+    painter: &egui::Painter,
+    rect: Rect,
+    count: u8,
+    fraction: f32,
+    gap: f32,
+    direction: FillDirection,
+    active: Color32,
+    inactive: Color32,
+) {
+    let count = usize::from(count.clamp(1, 64));
+    let horizontal = matches!(
+        direction,
+        FillDirection::LeftToRight | FillDirection::RightToLeft
+    );
+    let reverse = matches!(
+        direction,
+        FillDirection::RightToLeft | FillDirection::BottomToTop
+    );
+    let length = if horizontal {
+        rect.width()
+    } else {
+        rect.height()
+    };
+    let gap = point(gap).min(length / count as f32 * 0.85);
+    let step = (length + gap) / count as f32;
+    let active_count = fraction * count as f32;
+    for index in 0..count {
+        let offset = index as f32 * step;
+        let size = step - gap;
+        let segment = match (horizontal, reverse) {
+            (true, false) => Rect::from_min_size(
+                rect.left_top() + vec2(offset, 0.0),
+                vec2(size, rect.height()),
+            ),
+            (true, true) => Rect::from_min_size(
+                rect.right_top() - vec2(offset + size, 0.0),
+                vec2(size, rect.height()),
+            ),
+            (false, false) => Rect::from_min_size(
+                rect.left_top() + vec2(0.0, offset),
+                vec2(rect.width(), size),
+            ),
+            (false, true) => Rect::from_min_size(
+                rect.left_bottom() - vec2(0.0, offset + size),
+                vec2(rect.width(), size),
+            ),
+        };
+        let fill = (active_count - index as f32).clamp(0.0, 1.0);
+        painter.rect_filled(segment, 1.0, inactive);
+        if fill > 0.0 {
+            painter.rect_filled(segment, 1.0, active.linear_multiply(fill));
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn paint_raster(
     ui: &Ui,
     painter: &egui::Painter,
     id: Id,
     image: &RasterImage,
     rect: Rect,
-    opacity: f32,
+    tint: Color32,
     radius: f32,
+    fit: ImageFit,
 ) {
     let size = image.size.map(usize::from);
     if size.iter().any(|side| !(1..=256).contains(side))
@@ -1089,11 +1305,13 @@ fn paint_raster(
             texture
         }
     };
-    painter.add(
-        egui::epaint::RectShape::filled(rect, radius, Color32::WHITE.linear_multiply(opacity))
-            .with_texture(
-                texture.id(),
-                Rect::from_min_max(egui::Pos2::ZERO, pos2(1.0, 1.0)),
-            ),
+    assets::paint_texture(
+        painter,
+        &texture,
+        rect,
+        assets::uv_rect([0.0, 0.0, 1.0, 1.0]),
+        fit,
+        radius,
+        tint,
     );
 }

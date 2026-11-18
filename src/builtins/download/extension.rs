@@ -1,15 +1,21 @@
-use super::monitor::{self, DownloadState, Snapshot};
+use super::monitor::{self, Download, DownloadState, Snapshot};
 use crate::extension::{
     CompactView, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput, Notification,
     NotificationAction, NotificationAlertView, NotificationCenterItemView,
     NotificationPresentationProvider, NotificationPriority, ReloadPolicy, RuntimeExtension,
     SettingSchema, SettingValue, Settings, ViewNode,
 };
-use crate::ui::declarative::{Align, ColorSpec, Flow, Size};
-use std::{path::Path, sync::mpsc::Receiver, time::SystemTime};
+use crate::ui::declarative::*;
+use std::{
+    path::Path,
+    sync::mpsc::Receiver,
+    time::{Duration, Instant, SystemTime},
+};
 
 pub const NOTIFICATION_ID: &str = "builtin.downloads/notifications";
 pub const COMPACT_ID: &str = "builtin.downloads/status";
+const COMPACT_WIDTH: f32 = 124.0;
+const COMPLETION_HOLD: Duration = Duration::from_secs(3);
 
 pub fn descriptors() -> Vec<ExtensionDescriptor> {
     vec![
@@ -21,7 +27,7 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
             false,
             5,
         )
-        .with_size_hint(88.0, 28.0)
+        .with_size_hint(COMPACT_WIDTH, 28.0)
         .with_settings(
             1,
             vec![SettingSchema::new(
@@ -50,6 +56,7 @@ pub struct DownloadExtension {
     snapshot: Snapshot,
     show_rate: bool,
     notification_sequence: u64,
+    recent_completion: Option<(Download, Instant)>,
 }
 
 impl DownloadExtension {
@@ -59,6 +66,7 @@ impl DownloadExtension {
             snapshot: Snapshot::default(),
             show_rate: true,
             notification_sequence: 0,
+            recent_completion: None,
         }
     }
 }
@@ -74,8 +82,16 @@ impl RuntimeExtension for DownloadExtension {
         descriptors()
     }
 
-    fn update(&mut self, _now: std::time::Instant) -> ExtensionOutput {
+    fn update(&mut self, now: Instant) -> ExtensionOutput {
         let mut output = ExtensionOutput::default();
+        if self
+            .recent_completion
+            .as_ref()
+            .is_some_and(|(_, expires)| now >= *expires)
+        {
+            self.recent_completion = None;
+            output.invalidated.push(ExtensionId::builtin(COMPACT_ID));
+        }
         while let Ok(mut snapshot) = self.updates.try_recv() {
             for download in snapshot
                 .completed
@@ -83,6 +99,7 @@ impl RuntimeExtension for DownloadExtension {
                 .filter(|download| download.state == DownloadState::Complete)
             {
                 self.notification_sequence += 1;
+                self.recent_completion = Some((download.clone(), now + COMPLETION_HOLD));
                 output
                     .notifications
                     .push(download_notification(download, self.notification_sequence));
@@ -105,59 +122,105 @@ impl RuntimeExtension for DownloadExtension {
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
-        let Some(download) = self.snapshot.preferred_active() else {
+        let Some(download) = self.snapshot.preferred_active().or_else(|| {
+            self.recent_completion
+                .as_ref()
+                .map(|(download, _)| download)
+        }) else {
             return Vec::new();
+        };
+        let complete = download.state == DownloadState::Complete;
+        let color = if complete {
+            ColorSpec::Success
+        } else {
+            ColorSpec::Info
         };
         let size = download.total.filter(|total| *total > 0).map_or_else(
             || compact_size(download.received),
             |total| compact_pair(download.received, total),
         );
-        let progress = download.progress();
-        let mut detail = vec![super::super::compact_text(size)];
-        if self.show_rate {
-            detail.push(
-                super::super::compact_text(crate::builtins::performance::sampler::format_speed(
-                    download.bytes_per_second,
-                ))
-                .color(ColorSpec::Info),
-            );
-        }
-        let content = ViewNode::row(
+        let progress = if complete {
+            1.0
+        } else {
+            download.progress().unwrap_or(0.0)
+        };
+        let icon = if complete {
+            ViewNode::svg("compact/check", 16.0).motion(Motion {
+                duration_ms: 300,
+                easing: Easing::EaseOut,
+                tracks: vec![MotionTrack::new(
+                    MotionProperty::Scale,
+                    &[(0, 0.65), (160, 1.12), (300, 1.0)],
+                )],
+                ..Default::default()
+            })
+        } else {
+            ViewNode::svg("lucide/arrow-down", 14.0).motion(Motion {
+                duration_ms: 720,
+                gap_ms: 180,
+                repeat: Repeat::Infinite,
+                easing: Easing::EaseInOut,
+                tracks: vec![MotionTrack::new(
+                    MotionProperty::TranslateY,
+                    &[(0, -1.0), (360, 1.0), (720, -1.0)],
+                )],
+                ..Default::default()
+            })
+        };
+        let mut leading = ViewNode::new(Node::Stack(
+            [Align::Center; 2],
             vec![
-                ViewNode::ring(
-                    progress.unwrap_or(0.0),
-                    progress.map_or_else(|| "↓".into(), |value| format!("{:.0}%", value * 100.0)),
-                    24.0,
-                    2.0,
-                    6.0,
-                )
-                .color(ColorSpec::Info),
-                ViewNode::column(
-                    detail,
-                    Flow {
-                        gap: Some(0.0),
-                        align: Align::Start,
-                        ..Default::default()
-                    },
-                )
-                .sized(Size::Fill(1.0), Size::Auto),
+                ViewNode::ring(progress, "", 24.0, 1.6, 7.0)
+                    .motion(Motion::progress(progress, 220)),
+                icon,
             ],
-            Flow {
-                gap: Some(4.0),
+        ))
+        .sized(Size::Fixed(25.0), Size::Fixed(25.0));
+        leading.key = Some(format!("{}:{}", download.id, complete));
+        let (title, detail) = if complete {
+            ("下载完成".into(), download.filename())
+        } else if self.show_rate {
+            (
+                crate::builtins::performance::sampler::format_speed(download.bytes_per_second),
+                format!("下载中 · {size}"),
+            )
+        } else {
+            ("正在下载".into(), size.clone())
+        };
+        let content = ViewNode::compact(
+            leading,
+            ViewNode::column(
+                vec![
+                    super::super::compact_value(title, false).color(ColorSpec::PrimaryText),
+                    super::super::compact_detail(detail),
+                ],
+                Flow {
+                    gap: Some(0.0),
+                    align: Align::Start,
+                    ..Default::default()
+                },
+            ),
+            CompactLayout {
+                leading_size: [25.0, 25.0],
+                gap: 6.0,
                 ..Default::default()
             },
         )
-        .sized(Size::Fixed(80.0), Size::Auto);
+        .color(color);
         vec![CompactView {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(NOTIFICATION_ID),
             content,
             visibility: Default::default(),
-            min_width: 88.0,
-            preferred_width: 88.0,
+            min_width: 86.0,
+            preferred_width: COMPACT_WIDTH,
             fit_width: false,
             priority: 1,
-            tooltip: Some(download.filename()),
+            tooltip: Some(if complete {
+                download.filename()
+            } else {
+                format!("{} · {size}", download.filename())
+            }),
         }]
     }
 }
@@ -302,4 +365,59 @@ fn unit_index(bytes: u64) -> usize {
         unit += 1;
     }
     unit
+}
+
+#[cfg(test)]
+mod compact_tests {
+    use super::*;
+
+    #[test]
+    fn completion_switches_the_descriptor_then_expires() {
+        let (sender, updates) = std::sync::mpsc::channel();
+        let mut extension = DownloadExtension {
+            updates,
+            snapshot: Snapshot::default(),
+            show_rate: true,
+            notification_sequence: 0,
+            recent_completion: None,
+        };
+        let now = Instant::now();
+        let download = Download {
+            id: "job".into(),
+            browser: "Chrome",
+            path: "/tmp/example.zip".into(),
+            received: 40,
+            total: Some(100),
+            bytes_per_second: 20.0,
+            state: DownloadState::Active,
+        };
+        sender
+            .send(Snapshot {
+                active: vec![download.clone()],
+                completed: vec![],
+            })
+            .unwrap();
+        extension.update(now);
+        let active = serde_json::to_string(&extension.compact_views()[0].content).unwrap();
+        assert!(active.contains("lucide/arrow-down"));
+        assert!(active.contains("下载中"));
+
+        sender
+            .send(Snapshot {
+                active: vec![],
+                completed: vec![Download {
+                    received: 100,
+                    state: DownloadState::Complete,
+                    ..download
+                }],
+            })
+            .unwrap();
+        assert_eq!(extension.update(now).notifications.len(), 1);
+        let complete = serde_json::to_string(&extension.compact_views()[0].content).unwrap();
+        assert!(complete.contains("compact/check"));
+        assert!(complete.contains("下载完成"));
+
+        extension.update(now + COMPLETION_HOLD);
+        assert!(extension.compact_views().is_empty());
+    }
 }

@@ -41,7 +41,7 @@ impl Lyrics {
     }
 }
 
-pub(super) fn lookup(track: &Track, agent: &ureq::Agent) -> Result<Option<Lyrics>, ()> {
+pub(super) fn lookup(track: &Track) -> Result<Option<Lyrics>, ()> {
     if let Some(local) = track.file.as_ref().and_then(|file| {
         let filename = file.with_extension("lrc");
         if !std::fs::metadata(&filename).ok()?.is_file() {
@@ -58,6 +58,13 @@ pub(super) fn lookup(track: &Track, agent: &ureq::Agent) -> Result<Option<Lyrics
         return Ok(None);
     }
 
+    let timeout = Duration::from_secs(3);
+    let client = crate::core::http::client(
+        timeout,
+        timeout,
+        concat!("Peninsula/", env!("CARGO_PKG_VERSION"), " (lyrics)"),
+    )
+    .map_err(|_| ())?;
     let has_cjk = track.title.chars().chain(track.artist.chars()).any(|c| {
         matches!(c, '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}' | '\u{ac00}'..='\u{d7af}')
     });
@@ -69,7 +76,7 @@ pub(super) fn lookup(track: &Track, agent: &ureq::Agent) -> Result<Option<Lyrics
     let mut plain = None;
     let mut had_error = false;
     for provider in providers {
-        match provider(track, agent) {
+        match provider(track, &client) {
             Ok(Some(synced @ Lyrics::Synced(_))) => return Ok(Some(synced)),
             Ok(Some(lyrics)) => {
                 plain.get_or_insert(lyrics);
@@ -85,38 +92,31 @@ pub(super) fn lookup(track: &Track, agent: &ureq::Agent) -> Result<Option<Lyrics
     }
 }
 
-type Provider = fn(&Track, &ureq::Agent) -> Result<Option<Lyrics>, ()>;
+type Provider = fn(&Track, &reqwest::blocking::Client) -> Result<Option<Lyrics>, ()>;
 
-pub(super) fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(3))
-        .user_agent(concat!(
-            "Peninsula/",
-            env!("CARGO_PKG_VERSION"),
-            " (lyrics)"
-        ))
-        .build()
-}
-
-fn request(request: ureq::Request, params: &[(&str, &str)]) -> Result<Value, ()> {
-    let mut request = request.set("Accept", "application/json");
-    for (key, value) in params {
-        request = request.query(key, value);
-    }
+fn request(
+    request: reqwest::blocking::RequestBuilder,
+    params: &[(&str, &str)],
+) -> Result<Value, ()> {
     let mut bytes = Vec::new();
     request
-        .call()
+        .header("Accept", "application/json")
+        .query(params)
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
         .map_err(|_| ())?
-        .into_reader()
-        .take(MAX_RESPONSE)
+        .take(MAX_RESPONSE + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| ())?;
+    if bytes.len() as u64 > MAX_RESPONSE {
+        return Err(());
+    }
     serde_json::from_slice(&bytes).map_err(|_| ())
 }
 
-fn lrclib(track: &Track, agent: &ureq::Agent) -> Result<Option<Lyrics>, ()> {
+fn lrclib(track: &Track, client: &reqwest::blocking::Client) -> Result<Option<Lyrics>, ()> {
     let response = request(
-        agent.get(&format!("{LRCLIB}/api/search")),
+        client.get(format!("{LRCLIB}/api/search")),
         &[("track_name", &track.title), ("artist_name", &track.artist)],
     )?;
     let items = response.as_array().ok_or(())?;
@@ -143,10 +143,10 @@ fn lrclib(track: &Track, agent: &ureq::Agent) -> Result<Option<Lyrics>, ()> {
     Ok(best.map(|(_, lyrics)| lyrics))
 }
 
-fn netease(track: &Track, agent: &ureq::Agent) -> Result<Option<Lyrics>, ()> {
+fn netease(track: &Track, client: &reqwest::blocking::Client) -> Result<Option<Lyrics>, ()> {
     let query = format!("{} {}", track.title, track.artist);
     let response = request(
-        agent.get(&format!("{NETEASE}/api/search/get/web")),
+        client.get(format!("{NETEASE}/api/search/get/web")),
         &[("s", &query), ("type", "1"), ("limit", "16")],
     )?;
     if response["code"].as_i64() != Some(200) {
@@ -168,7 +168,7 @@ fn netease(track: &Track, agent: &ureq::Agent) -> Result<Option<Lyrics>, ()> {
         return Ok(None);
     };
     let response = request(
-        agent.get(&format!("{NETEASE}/api/song/lyric")),
+        client.get(format!("{NETEASE}/api/song/lyric")),
         &[("id", &song_id.to_string()), ("lv", "-1")],
     )?;
     if response["code"].as_i64() != Some(200) {
@@ -180,12 +180,12 @@ fn netease(track: &Track, agent: &ureq::Agent) -> Result<Option<Lyrics>, ()> {
         .and_then(parse))
 }
 
-fn qq(track: &Track, agent: &ureq::Agent) -> Result<Option<Lyrics>, ()> {
+fn qq(track: &Track, client: &reqwest::blocking::Client) -> Result<Option<Lyrics>, ()> {
     let query = format!("{} {}", track.title, track.artist);
     let get = |path| {
-        agent
-            .get(&format!("{QQ}{path}"))
-            .set("Referer", "https://y.qq.com/")
+        client
+            .get(format!("{QQ}{path}"))
+            .header("Referer", "https://y.qq.com/")
     };
     let response = request(
         get("/soso/fcgi-bin/client_search_cp"),

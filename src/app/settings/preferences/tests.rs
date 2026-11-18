@@ -114,3 +114,11 @@ fn legacy_extension_settings_seed_schema_values_with_duration_bounds() {
     assert_eq!(invalid.pomodoro_break_minutes, 5);
     assert_eq!(invalid.bilibili_poll_seconds, 60);
 }
+
+#[test]
+fn reduced_motion_is_restored_from_saved_preferences() {
+    let preferences = CompactPreferences::parse("reduced_motion=true\n");
+    assert!(preferences.reduced_motion);
+    assert!(CompactPreferences::parse(&preferences.encode()).reduced_motion);
+    assert!(!CompactPreferences::parse("").reduced_motion);
+}

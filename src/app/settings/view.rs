@@ -87,7 +87,7 @@ impl SettingsLayout {
                     .iter()
                     .filter(|item| registry.get(&item.id).is_some())
                     .count();
-                stacked_height(count, COMPACT_ROW_STEP, COMPACT_ROW_HEIGHT)
+                stacked_height(count + 1, COMPACT_ROW_STEP, COMPACT_ROW_HEIGHT)
             }
             Section::QuietHours => quiet_view::body_height(prefs.quiet_hours.periods().len()),
             Section::Pomodoro => {
@@ -529,10 +529,17 @@ fn paint_compact_options(
             })
         })
         .collect();
+    let motion_row = compact_row(panel, items.len());
     for (index, (id, title, enabled)) in items.into_iter().enumerate() {
         let row = compact_row(panel, index);
         changed |= paint_option(ui, row, preferences, id, &title, enabled);
     }
+    changed |= paint_checkbox_row(
+        ui,
+        motion_row,
+        "减少动态效果",
+        &mut preferences.reduced_motion,
+    );
     changed
 }
 
@@ -658,7 +665,7 @@ mod tests {
             let count = prefs.compact_items.len();
             assert!(count >= 8);
             assert_eq!(
-                compact_row(controls, count - 1).bottom() + PANEL_PADDING,
+                compact_row(controls, count).bottom() + PANEL_PADDING,
                 layout.height
             );
             let height = view.extra_height(ctx, &prefs, "");

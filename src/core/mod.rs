@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod external;
+pub(crate) mod http;
 pub mod notifications;
 pub mod scheduler;
 pub mod settings;

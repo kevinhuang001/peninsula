@@ -39,6 +39,44 @@ pub(crate) struct Icons {
 
 impl Icons {
     pub fn load(context: &egui::Context) -> Self {
+        use crate::ui::renderer::register_svg;
+        for (asset, source) in [
+            (
+                "lucide/clock",
+                include_str!("../../assets/icons/lucide/clock.svg"),
+            ),
+            (
+                "lucide/arrow-down",
+                include_str!("../../assets/icons/lucide/arrow-down.svg"),
+            ),
+            (
+                "compact/battery",
+                include_str!("../../assets/icons/compact/battery.svg"),
+            ),
+            (
+                "compact/check",
+                include_str!("../../assets/icons/compact/check.svg"),
+            ),
+            (
+                "compact/network",
+                include_str!("../../assets/icons/compact/network.svg"),
+            ),
+            (
+                "compact/speaker-body",
+                include_str!("../../assets/icons/compact/speaker-body.svg"),
+            ),
+            (
+                "compact/speaker-cone",
+                include_str!("../../assets/icons/compact/speaker-cone.svg"),
+            ),
+            (
+                "compact/speaker-waves",
+                include_str!("../../assets/icons/compact/speaker-waves.svg"),
+            ),
+        ] {
+            register_svg(context, asset, source);
+        }
+        crate::builtins::register_mascot_assets(context);
         let icons = Self {
             pin: load(
                 context,

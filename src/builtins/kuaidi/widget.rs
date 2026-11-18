@@ -5,7 +5,7 @@ use super::{
 };
 use crate::ui::declarative::*;
 
-pub(super) fn build(sources: &[Source; 2]) -> WidgetView {
+pub(super) fn build(sources: &[Source; 2], refreshing: bool) -> WidgetView {
     let mut parcels: Vec<_> = sources
         .iter()
         .filter_map(|source| source.snapshot.as_ref())
@@ -71,6 +71,15 @@ pub(super) fn build(sources: &[Source; 2]) -> WidgetView {
         };
         content.push(ViewNode::new(Node::Table(table)));
     }
+    let refresh = ViewNode::row(
+        vec![super::super::refresh_button(refreshing)],
+        Flow {
+            justify: Justify::End,
+            ..Default::default()
+        },
+    )
+    .sized(Size::Fill(1.0), Size::Auto);
+    content.insert(0, refresh);
     let root = ViewNode::column(
         content,
         Flow {

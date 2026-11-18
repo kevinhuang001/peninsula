@@ -46,8 +46,8 @@ pub(super) fn inset(rect: Rect, [left, top, right, bottom]: [f32; 4]) -> Rect {
     Rect::from_min_max(min, (rect.max - vec2(point(right), point(bottom))).max(min))
 }
 
-struct Axis {
-    mode: Size,
+pub(super) struct Axis {
+    pub(super) mode: Size,
     min: f32,
     max: f32,
 }
@@ -65,7 +65,7 @@ impl Axis {
         Self { mode, min, max }
     }
 
-    fn definite(&self, available: f32) -> Option<f32> {
+    pub(super) fn definite(&self, available: f32) -> Option<f32> {
         match self.mode {
             Size::Fixed(value) => Some(self.bound(value)),
             Size::Percent(value) => Some(self.bound(available * point(value).min(1.0))),
@@ -73,7 +73,7 @@ impl Axis {
         }
     }
 
-    fn bound(&self, value: f32) -> f32 {
+    pub(super) fn bound(&self, value: f32) -> f32 {
         point(value).clamp(self.min, self.max)
     }
 }
@@ -83,11 +83,24 @@ fn stretch_cross(axis: &Axis, align: Align) -> bool {
         || (align == Align::Stretch && matches!(axis.mode, Size::Auto | Size::MinMax { .. }))
 }
 
-fn axes(size: SizeSpec) -> [Axis; 2] {
+pub(super) fn axes(size: SizeSpec) -> [Axis; 2] {
     [
         Axis::new(size.width, size.min_width, size.max_width),
         Axis::new(size.height, size.min_height, size.max_height),
     ]
+}
+
+fn node_size(node: &ViewNode) -> SizeSpec {
+    let mut size = node.size;
+    if let Node::Compact(compact) = &node.kind {
+        if size.width == Size::Auto {
+            size.width = compact.layout.width;
+        }
+        if size.height == Size::Auto {
+            size.height = compact.layout.height;
+        }
+    }
+    size
 }
 
 pub(super) fn offset(align: Align, spare: f32) -> f32 {
@@ -108,9 +121,14 @@ pub(super) fn scrolls(node: &ViewNode, axis: usize, depth: usize, remaining: &mu
         Node::Scroll(axes, child) => {
             axes.axes()[axis] || scrolls(child, axis, depth + 1, remaining)
         }
-        Node::Container(child) | Node::ActionArea { content: child, .. } => {
-            scrolls(child, axis, depth + 1, remaining)
+        Node::Compact(compact) => {
+            matches!(compact.layout.overflow, Overflow::Scroll(axes) if axes.axes()[axis])
+                || scrolls(&compact.content, axis, depth + 1, remaining)
+                || scrolls(&compact.leading, axis, depth + 1, remaining)
         }
+        Node::Container(child)
+        | Node::Motion { child, .. }
+        | Node::ActionArea { content: child, .. } => scrolls(child, axis, depth + 1, remaining),
         Node::Table(table) => table
             .rows
             .iter()
@@ -157,7 +175,8 @@ impl Renderer<'_> {
             return Vec2::ZERO;
         }
         self.measure_remaining -= 1;
-        let axes = axes(node.size);
+        let spec = node_size(node);
+        let axes = axes(spec);
         let mut explicit = [
             forced[0]
                 .map(|v| axes[0].bound(v))
@@ -166,7 +185,7 @@ impl Renderer<'_> {
                 .map(|v| axes[1].bound(v))
                 .or_else(|| axes[1].definite(available.y)),
         ];
-        let ratio = node.size.aspect_ratio.filter(|r| r.is_finite() && *r > 0.0);
+        let ratio = spec.aspect_ratio.filter(|r| r.is_finite() && *r > 0.0);
         if let Some(ratio) = ratio {
             match explicit {
                 [Some(w), None] => explicit[1] = Some(axes[1].bound(w / ratio)),
@@ -195,6 +214,11 @@ impl Renderer<'_> {
         let extras = vec2(padding[0] + padding[2], padding[1] + padding[3]);
         let inner = (available - extras).max(Vec2::ZERO);
         let native = match &node.kind {
+            Node::Compact(compact) => {
+                // Unspecified height uses the intrinsic heights of both regions.
+                let inner = vec2(inner.x, explicit[1].map_or(0.0, |_| inner.y));
+                self.measure_compact(ui, compact, inner, depth + 1)
+            }
             Node::Table(table) => {
                 let width = if explicit[0].is_some() {
                     inner.x
@@ -332,6 +356,15 @@ impl Renderer<'_> {
                 }
                 result
             }
+            Node::Motion { child, .. } => {
+                let size = self.in_cell(ui, child, available, [Align::Start; 2], depth);
+                let mut result = Layout {
+                    size,
+                    ..Layout::default()
+                };
+                result.push(0, Pos2::ZERO, size);
+                result
+            }
             Node::Container(child) | Node::ActionArea { content: child, .. } => {
                 let size = self.in_cell(ui, child, available, [Align::Start; 2], depth);
                 let mut result = Layout {
@@ -402,7 +435,8 @@ impl Renderer<'_> {
         alignment: [Align; 2],
         depth: usize,
     ) -> Vec2 {
-        let modes = [child.size.width, child.size.height];
+        let size = node_size(child);
+        let modes = [size.width, size.height];
         let mut forced = [None; 2];
         for axis in 0..2 {
             if axis == 0 && self.intrinsic_width {
@@ -437,7 +471,7 @@ impl Renderer<'_> {
         let mut lines = vec![0];
         let mut occupied = 0.0;
         for (index, child) in children.iter().enumerate() {
-            let axes = axes(child.size);
+            let axes = axes(node_size(child));
             let weight = match axes[main].mode {
                 Size::Fill(weight) if !(horizontal && self.intrinsic_width) => point(weight),
                 _ => 0.0,
@@ -479,7 +513,7 @@ impl Renderer<'_> {
             let base = lengths[start..end].iter().sum::<f32>() + gap * (count - 1) as f32;
             let limits: Vec<_> = children[start..end]
                 .iter()
-                .map(|child| axes(child.size)[main].max)
+                .map(|child| axes(node_size(child))[main].max)
                 .collect();
             distribute(
                 &mut lengths[start..end],
@@ -496,7 +530,7 @@ impl Renderer<'_> {
                 }
                 if !(cross == 0 && self.intrinsic_width)
                     && !flow.wrap
-                    && stretch_cross(&axes(child.size)[cross], flow.align)
+                    && stretch_cross(&axes(node_size(child))[cross], flow.align)
                 {
                     force[cross] = Some(available[cross]);
                 }
@@ -526,9 +560,9 @@ impl Renderer<'_> {
                 at[main] = main_at;
                 if !(cross == 0 && self.intrinsic_width)
                     && flow.wrap
-                    && stretch_cross(&axes(children[index].size)[cross], flow.align)
+                    && stretch_cross(&axes(node_size(&children[index]))[cross], flow.align)
                 {
-                    let bounded = axes(children[index].size)[cross].bound(line_cross);
+                    let bounded = axes(node_size(&children[index]))[cross].bound(line_cross);
                     // The line determines this allocation after its natural height is known.
                     // Keep the measured main-axis allocation; it determined wrapping.
                     size[cross] = children[index]
@@ -670,9 +704,9 @@ pub(super) fn children(node: &ViewNode) -> Option<&[ViewNode]> {
         | Node::Wrap(_, children)
         | Node::Grid(_, children)
         | Node::Stack(_, children) => Some(children),
-        Node::Container(child) | Node::ActionArea { content: child, .. } => {
-            Some(std::slice::from_ref(child.as_ref()))
-        }
+        Node::Container(child)
+        | Node::Motion { child, .. }
+        | Node::ActionArea { content: child, .. } => Some(std::slice::from_ref(child.as_ref())),
         _ => None,
     }
 }

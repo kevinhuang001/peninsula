@@ -66,11 +66,14 @@ pub(super) fn read_url(raw: &str) -> Option<Vec<u8>> {
             Box::new(File::open(path).ok()?)
         }
         "http" | "https" => {
-            let response = ureq::get(url.as_str())
-                .timeout(Duration::from_secs(2))
-                .call()
-                .ok()?;
-            response.into_reader()
+            let timeout = Duration::from_secs(2);
+            let client = crate::core::http::client(
+                timeout,
+                timeout,
+                concat!("Peninsula/", env!("CARGO_PKG_VERSION")),
+            )
+            .ok()?;
+            Box::new(client.get(url).send().ok()?.error_for_status().ok()?)
         }
         _ => return None,
     };

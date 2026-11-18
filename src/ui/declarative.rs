@@ -2,6 +2,11 @@
 use crate::extension::Action;
 use serde::{Deserialize, Serialize};
 
+mod animation;
+mod compact;
+pub use animation::*;
+pub use compact::*;
+
 /// Generous host width for content-fitted, single-line surfaces (egui points).
 pub const MAX_CONTENT_WIDTH: f32 = 4096.0;
 
@@ -285,6 +290,8 @@ pub struct TextStyle {
     pub align: Align,
     pub line_height: Option<f32>,
     pub wrap: bool,
+    /// Maximum visible rows when wrapping, with an ellipsis on the final row.
+    pub max_lines: Option<usize>,
     pub monospace: bool,
 }
 
@@ -333,6 +340,51 @@ pub struct RasterImage {
     pub rgba: Vec<u8>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum ImageFit {
+    #[default]
+    Contain,
+    Cover,
+    Stretch,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SvgStyle {
+    pub fit: ImageFit,
+    pub fill: Option<ColorSpec>,
+    pub stroke: Option<ColorSpec>,
+    pub stroke_width: Option<f32>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum FillDirection {
+    #[default]
+    LeftToRight,
+    RightToLeft,
+    BottomToTop,
+    TopToBottom,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RingStyle {
+    pub track: ColorSpec,
+    /// Radians measured clockwise from the positive x-axis.
+    pub start_angle: f32,
+    pub clockwise: bool,
+}
+
+impl Default for RingStyle {
+    fn default() -> Self {
+        Self {
+            track: ColorSpec::Border,
+            start_angle: -std::f32::consts::FRAC_PI_2,
+            clockwise: true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ViewNode {
     pub kind: Node,
@@ -346,10 +398,17 @@ pub struct ViewNode {
     pub clip: bool,
     #[serde(default)]
     pub key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_fit: Option<ImageFit>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Node {
+    Compact(Box<Compact>),
+    Motion {
+        motion: Box<Motion>,
+        child: Box<ViewNode>,
+    },
     Row(Flow, Vec<ViewNode>),
     Column(Flow, Vec<ViewNode>),
     Wrap(Flow, Vec<ViewNode>),
@@ -371,7 +430,21 @@ pub enum Node {
     Image {
         asset: String,
     },
+    Svg {
+        /// Key of a host-registered SVG resource.
+        asset: String,
+        #[serde(default)]
+        svg_style: SvgStyle,
+    },
     RasterImage(RasterImage),
+    SpriteSequence(SpriteSequence),
+    SegmentedIndicator {
+        segments: u8,
+        fraction: f32,
+        gap: f32,
+        direction: FillDirection,
+        inactive: ColorSpec,
+    },
     Sprite {
         frames: Vec<String>,
         frame_ms: u32,
@@ -397,6 +470,8 @@ pub enum Node {
         label: String,
         stroke: f32,
         text_style: TextStyle,
+        #[serde(default)]
+        ring_style: RingStyle,
     },
     Sparkline(Vec<f32>),
     RangeChart {
@@ -442,7 +517,28 @@ impl ViewNode {
             placement: Placement::default(),
             clip: false,
             key: None,
+            image_fit: None,
         }
+    }
+    pub fn compact(leading: Self, content: Self, layout: CompactLayout) -> Self {
+        Self::new(Node::Compact(Box::new(Compact {
+            leading,
+            content,
+            layout,
+        })))
+    }
+    pub fn motion(self, motion: Motion) -> Self {
+        Self::new(Node::Motion {
+            motion: Box::new(motion),
+            child: Box::new(self),
+        })
+    }
+    pub fn svg(asset: impl Into<String>, size: f32) -> Self {
+        Self::new(Node::Svg {
+            asset: asset.into(),
+            svg_style: SvgStyle::default(),
+        })
+        .sized(Size::Fixed(size), Size::Fixed(size))
     }
     pub fn row(children: Vec<Self>, flow: Flow) -> Self {
         Self::new(Node::Row(flow, children))
@@ -506,6 +602,7 @@ impl ViewNode {
             fraction,
             label: label.into(),
             stroke,
+            ring_style: RingStyle::default(),
             text_style: TextStyle {
                 font_size: FontSize::Custom(font),
                 ..Default::default()
