@@ -172,7 +172,10 @@ fn every_menu_keeps_its_bordered_navigation_and_content_panels() {
             ..Default::default()
         };
         let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-        let panels = Panels::new(bounds(), section == Section::Extensions);
+        let panels = Panels::new(
+            bounds(),
+            matches!(section, Section::Extensions | Section::Capsule),
+        );
         for rect in [Some(panels.navigation), panels.plugins, Some(panels.form)]
             .into_iter()
             .flatten()
@@ -192,8 +195,41 @@ fn settings_height_grows_with_content_before_host_applies_the_screen_limit() {
     view.section = Section::Extensions;
     let extensions = view.extra_height(&ctx, &prefs);
     view.section = Section::Capsule;
+    view.capsule_section = CapsuleSection::Compact;
     let capsule = view.extra_height(&ctx, &prefs);
     assert!(extensions > general);
     assert!(capsule > general);
     assert!(general < 300.0);
+}
+
+#[test]
+fn capsule_submenus_keep_configuration_in_the_third_column() {
+    let ctx = egui::Context::default();
+    let mut prefs = CompactPreferences::default();
+    let mut view = SettingsView {
+        section: Section::Capsule,
+        ..Default::default()
+    };
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    let panels = Panels::new(bounds(), true);
+    assert!(panels
+        .plugins
+        .unwrap()
+        .contains(text_rect(&output, "动态效果").center()));
+    assert!(panels
+        .form
+        .contains(text_rect(&output, "全局动态效果").center()));
+    click(
+        &ctx,
+        &mut view,
+        &mut prefs,
+        text_rect(&output, "Mascot").center(),
+    );
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    assert_eq!(view.capsule_section, CapsuleSection::Mascot);
+    assert!(panels
+        .form
+        .contains(text_rect(&output, "显示 Mascot").center()));
+    toggle_for(&output, "显示 Mascot");
+    assert_eq!(view.capsule_section, CapsuleSection::Mascot);
 }

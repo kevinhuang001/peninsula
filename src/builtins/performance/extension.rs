@@ -7,7 +7,7 @@ use crate::extension::{
 use crate::ui::declarative::*;
 
 pub const ID: &str = "builtin.system-monitor/overview";
-const NETWORK_WIDTH: f32 = 88.0;
+const NETWORK_WIDTH: f32 = 106.0;
 
 pub fn descriptors() -> Vec<ContributionDescriptor> {
     vec![
@@ -225,8 +225,12 @@ impl RuntimeExtension for PerformanceExtension {
         ];
         if self.show_download || self.show_upload {
             let rates = [
-                (self.show_download, "↓", metrics.download_bytes_per_second),
-                (self.show_upload, "↑", metrics.upload_bytes_per_second),
+                (
+                    self.show_download,
+                    "下行",
+                    metrics.download_bytes_per_second,
+                ),
+                (self.show_upload, "上行", metrics.upload_bytes_per_second),
             ];
             let mut transmitting = 0.0_f64;
             let mut lines = Vec::new();

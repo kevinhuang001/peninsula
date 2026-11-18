@@ -86,6 +86,7 @@ struct IslandApp {
     last_expanded_width: Option<f32>,
     page_switch_from: Option<egui::Rect>,
     window_drag: platform::WindowDrag,
+    hover_focus: platform::HoverFocus,
     active_widget: ExtensionId,
     widget_height: animation::Spring,
     trackpad_swipe: trackpad::TrackpadSwipe,
@@ -139,6 +140,7 @@ impl IslandApp {
             last_expanded_width: None,
             page_switch_from: None,
             window_drag: platform::WindowDrag::default(),
+            hover_focus: platform::HoverFocus::default(),
             active_widget: active_widget.clone(),
             widget_height: animation::Spring::new(initial_widget_height),
             trackpad_swipe: trackpad::TrackpadSwipe::default(),
@@ -568,8 +570,13 @@ impl eframe::App for IslandApp {
                 && notice.is_none()
                 && (next.height() + 1.0 < previous.height()
                     || next.width() + 1.0 < previous.width())
-                && platform::pointer_inside(frame, Some(previous), pointer)
-                && !platform::pointer_inside(frame, Some(next), pointer)
+                && platform::pointer_inside(
+                    frame,
+                    Some(previous),
+                    pointer,
+                    context.pixels_per_point(),
+                )
+                && !platform::pointer_inside(frame, Some(next), pointer, context.pixels_per_point())
             {
                 self.state.defer_collapse_after_shrink();
                 self.page_edge_grace = Some((previous, now + Duration::from_millis(1000)));
@@ -812,7 +819,7 @@ impl eframe::App for IslandApp {
         let grace_rect = self.page_edge_grace.take().filter(|(rect, deadline)| {
             can_turn_page
                 && now < *deadline
-                && platform::pointer_inside(frame, Some(*rect), pointer)
+                && platform::pointer_inside(frame, Some(*rect), pointer, context.pixels_per_point())
         });
         self.page_edge_grace = grace_rect;
         let swipe_region = match grace_rect {
@@ -821,15 +828,20 @@ impl eframe::App for IslandApp {
             }
             None => interactive_rect,
         };
-        platform::update_hit_region(frame, swipe_region, dragging);
+        platform::update_hit_region(frame, swipe_region, dragging, context.pixels_per_point());
 
-        let hovering = platform::pointer_inside(frame, interactive_rect, pointer);
+        let hovering =
+            platform::pointer_inside(frame, interactive_rect, pointer, context.pixels_per_point());
+        if self.hover_focus.entered(hovering) {
+            context.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
         if hovering && notice.is_some() {
             self.notifications.keep_alert_visible(now);
         }
         let (scroll, time, modifiers) =
             context.input(|input| (input.raw_scroll_delta, input.time, input.modifiers));
-        let swipe_hovering = platform::pointer_inside(frame, swipe_region, pointer);
+        let swipe_hovering =
+            platform::pointer_inside(frame, swipe_region, pointer, context.pixels_per_point());
         let eligible = swipe_hovering
             && !interactive_rect
                 .zip(pointer)
@@ -880,9 +892,6 @@ impl eframe::App for IslandApp {
             self.settings_open,
             dt,
         ) {
-            if self.state.expanded && notice.is_none() {
-                context.send_viewport_cmd(egui::ViewportCommand::Focus);
-            }
             context.request_repaint();
         }
         if self.dashboard_open {

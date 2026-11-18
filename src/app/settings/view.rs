@@ -14,10 +14,31 @@ const PLUGIN_WIDTH: f32 = 134.0;
 const COLUMN_GAP: f32 = 9.0;
 const PANEL_INSET: f32 = 10.0;
 
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+enum CapsuleSection {
+    #[default]
+    Motion,
+    Mascot,
+    Compact,
+    Widgets,
+}
+impl CapsuleSection {
+    const ALL: [Self; 4] = [Self::Motion, Self::Mascot, Self::Compact, Self::Widgets];
+    fn label(self) -> &'static str {
+        match self {
+            Self::Motion => "动态效果",
+            Self::Mascot => "Mascot",
+            Self::Compact => "Compact 顺序",
+            Self::Widgets => "Widget 顺序",
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct SettingsView {
     section: Section,
     selected: Option<ExtensionId>,
+    capsule_section: CapsuleSection,
     quiet_dialog: Option<QuietDialog>,
 }
 
@@ -68,7 +89,7 @@ impl SettingsView {
         let width = Self::WIDTH.min(context.screen_rect().width() * 0.75);
         let panels = Panels::new(
             Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 10_000.0)),
-            self.section == Section::Extensions,
+            matches!(self.section, Section::Extensions | Section::Capsule),
         );
         let mut measure = egui::Ui::new(
             context.clone(),
@@ -85,6 +106,7 @@ impl SettingsView {
                 .selected
                 .clone()
                 .or_else(|| prefs.pages.first().map(|p| p.descriptor.id.clone())),
+            capsule_section: self.capsule_section,
             quiet_dialog: None,
         };
         let content_height = if self.section == Section::QuietHours {
@@ -105,7 +127,7 @@ impl SettingsView {
     fn content(&mut self, ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
         match self.section {
             Section::General => general(ui, prefs),
-            Section::Capsule => capsule_options(ui, prefs),
+            Section::Capsule => capsule_options(ui, prefs, self.capsule_section),
             Section::Extensions => self.extension_form(ui, prefs),
             Section::About => {
                 about(ui);
@@ -131,10 +153,17 @@ impl SettingsView {
         let nav_rect = Panels::new(capsule, false).navigation;
         panel(&surface, nav_rect, NAV_BACKGROUND);
         self.navigation(&mut surface, nav_rect);
-        let panels = Panels::new(capsule, self.section == Section::Extensions);
+        let panels = Panels::new(
+            capsule,
+            matches!(self.section, Section::Extensions | Section::Capsule),
+        );
         if let Some(plugins) = panels.plugins {
             panel(&surface, plugins, NAV_BACKGROUND);
-            self.plugins(&mut surface, plugins, prefs);
+            if self.section == Section::Capsule {
+                self.capsule_navigation(&mut surface, plugins);
+            } else {
+                self.plugins(&mut surface, plugins, prefs);
+            }
         }
         panel(&surface, panels.form, PANEL);
         let mut content = child(
@@ -147,7 +176,12 @@ impl SettingsView {
         }
         let mut changed = false;
         egui::ScrollArea::vertical()
-            .id_salt(("settings-form-scroll", self.section, self.selected.clone()))
+            .id_salt((
+                "settings-form-scroll",
+                self.section,
+                self.selected.clone(),
+                self.capsule_section,
+            ))
             .auto_shrink([false; 2])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
             .show(&mut content, |ui| {
@@ -170,6 +204,27 @@ impl SettingsView {
                 self.section = section;
             }
         }
+    }
+
+    fn capsule_navigation(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        let mut list = child(ui, rect.shrink(5.0), "capsule-navigation");
+        egui::ScrollArea::vertical()
+            .id_salt("capsule-sections")
+            .auto_shrink([false; 2])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+            .show(&mut list, |ui| {
+                for section in CapsuleSection::ALL {
+                    if menu_row(
+                        ui,
+                        ("capsule-section", section),
+                        section.label(),
+                        self.capsule_section == section,
+                        None,
+                    ) {
+                        self.capsule_section = section;
+                    }
+                }
+            });
     }
 
     fn plugins(&mut self, ui: &mut egui::Ui, rect: Rect, prefs: &CompactPreferences) {
@@ -285,8 +340,25 @@ fn general(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
         changed
     });
     changed |= forms::row(ui, "强调色", |ui| {
-        ui.color_edit_button_srgb(&mut prefs.widget_accent)
-            .changed()
+        let mut changed = false;
+        let colors = super::theme::ACCENT_PRESETS;
+        let selected = colors
+            .iter()
+            .find(|(_, color)| *color == prefs.widget_accent)
+            .map_or("蓝色", |(name, _)| *name);
+        egui::ComboBox::from_id_salt("accent-preset")
+            .width(ui.available_width())
+            .selected_text(selected)
+            .show_ui(ui, |ui| {
+                for (name, color) in colors {
+                    let label = egui::RichText::new(name)
+                        .color(Color32::from_rgb(color[0], color[1], color[2]));
+                    changed |= ui
+                        .selectable_value(&mut prefs.widget_accent, color, label)
+                        .changed();
+                }
+            });
+        changed
     });
     changed
 }
@@ -298,64 +370,76 @@ fn theme_label(theme: WidgetTheme) -> &'static str {
     }
 }
 
-fn capsule_options(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
-    let mut changed = forms::row(ui, "全局动态效果", |ui| {
-        let before = (prefs.reduced_motion, prefs.motion_off);
-        let mut motion = if prefs.motion_off {
-            "Off"
-        } else if prefs.reduced_motion {
-            "Reduced"
-        } else {
-            "Full"
-        };
-        motion_picker(ui, "global-motion", &mut motion);
-        prefs.reduced_motion = motion == "Reduced";
-        prefs.motion_off = motion == "Off";
-        before != (prefs.reduced_motion, prefs.motion_off)
-    });
-    forms::section(ui, "Mascot");
-    changed |= forms::boolean(ui, "显示 Mascot", &mut prefs.mascot_enabled);
-    changed |= forms::row(ui, "Mascot 大小", |ui| {
-        ui.add(
-            egui::DragValue::new(&mut prefs.mascot_size)
-                .range(24..=64)
-                .suffix(" px"),
-        )
-        .changed()
-    });
-    changed |= forms::row(ui, "Mascot 动画", |ui| {
-        let before = prefs.mascot_motion.clone();
-        let mut value = prefs.mascot_motion.as_str();
-        motion_picker(ui, "mascot-motion", &mut value);
-        let value = value.to_owned();
-        prefs.mascot_motion = value;
-        prefs.mascot_motion != before
-    });
-    forms::section(ui, "Compact 顺序");
-    let order: Vec<_> = prefs
-        .ordered_compact_items()
-        .into_iter()
-        .map(|i| i.id.clone())
-        .collect();
-    for id in order {
-        let name = prefs
-            .pages
-            .iter()
-            .flat_map(|p| &p.descriptor.contributions)
-            .find(|c| c.id == id)
-            .map_or_else(|| id.to_string(), |c| c.title.clone());
-        let mut direction = 0;
-        ui.push_id(&id, |ui| {
-            forms::row(ui, &name, |ui| {
-                direction = forms::reorder(ui);
-                false
-            });
+fn capsule_options(
+    ui: &mut egui::Ui,
+    prefs: &mut CompactPreferences,
+    section: CapsuleSection,
+) -> bool {
+    let mut changed = false;
+    if section == CapsuleSection::Motion {
+        changed |= forms::row(ui, "全局动态效果", |ui| {
+            let before = (prefs.reduced_motion, prefs.motion_off);
+            let mut motion = if prefs.motion_off {
+                "Off"
+            } else if prefs.reduced_motion {
+                "Reduced"
+            } else {
+                "Full"
+            };
+            motion_picker(ui, "global-motion", &mut motion);
+            prefs.reduced_motion = motion == "Reduced";
+            prefs.motion_off = motion == "Off";
+            before != (prefs.reduced_motion, prefs.motion_off)
         });
-        if direction != 0 {
-            changed |= prefs.move_compact_item(&id, direction as isize);
-        }
+        return changed;
     }
-    forms::section(ui, "Widget 顺序 · 通知中心固定第一位");
+    if section == CapsuleSection::Mascot {
+        changed |= forms::boolean(ui, "显示 Mascot", &mut prefs.mascot_enabled);
+        changed |= forms::row(ui, "Mascot 大小", |ui| {
+            ui.add(
+                egui::DragValue::new(&mut prefs.mascot_size)
+                    .range(24..=64)
+                    .suffix(" px"),
+            )
+            .changed()
+        });
+        changed |= forms::row(ui, "Mascot 动画", |ui| {
+            let before = prefs.mascot_motion.clone();
+            let mut value = prefs.mascot_motion.as_str();
+            motion_picker(ui, "mascot-motion", &mut value);
+            let value = value.to_owned();
+            prefs.mascot_motion = value;
+            prefs.mascot_motion != before
+        });
+        return changed;
+    }
+    if section == CapsuleSection::Compact {
+        let order: Vec<_> = prefs
+            .ordered_compact_items()
+            .into_iter()
+            .map(|i| i.id.clone())
+            .collect();
+        for id in order {
+            let name = prefs
+                .pages
+                .iter()
+                .flat_map(|p| &p.descriptor.contributions)
+                .find(|c| c.id == id)
+                .map_or_else(|| id.to_string(), |c| c.title.clone());
+            let mut direction = 0;
+            ui.push_id(&id, |ui| {
+                forms::row(ui, &name, |ui| {
+                    direction = forms::reorder(ui);
+                    false
+                });
+            });
+            if direction != 0 {
+                changed |= prefs.move_compact_item(&id, direction as isize);
+            }
+        }
+        return changed;
+    }
+    forms::section(ui, "通知中心固定第一位");
     for (index, id) in prefs.widget_order.clone().iter().enumerate() {
         let name = prefs
             .pages
@@ -447,7 +531,7 @@ fn menu_row(
         );
     }
     ui.add_space(4.0);
-    response.on_hover_text(name).clicked()
+    response.clicked()
 }
 fn panel(ui: &egui::Ui, rect: Rect, fill: Color32) {
     ui.painter().rect_filled(rect, 10.0, fill);

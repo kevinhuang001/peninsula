@@ -1,11 +1,13 @@
+use super::icons::IconCache;
 use super::network::rate;
 use std::time::Instant;
-use sysinfo::{Networks, ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::{Networks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 #[derive(Clone, Debug, Default)]
 pub struct ProcessSnapshot {
     pub pid: u32,
     pub name: String,
+    pub icon: Option<crate::ui::declarative::RasterImage>,
     /// Percentage of the whole machine, matching the overview CPU meter.
     pub cpu_percent: f32,
     pub memory_bytes: u64,
@@ -33,6 +35,7 @@ pub struct MetricsSampler {
     last_transmitted: u64,
     snapshot: Snapshot,
     sampled_once: bool,
+    icons: IconCache,
 }
 
 impl Default for MetricsSampler {
@@ -45,6 +48,7 @@ impl Default for MetricsSampler {
             last_transmitted: 0,
             snapshot: Snapshot::default(),
             sampled_once: false,
+            icons: IconCache::default(),
         }
     }
 }
@@ -63,7 +67,10 @@ impl MetricsSampler {
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
-            ProcessRefreshKind::nothing().with_cpu().with_memory(),
+            ProcessRefreshKind::nothing()
+                .with_cpu()
+                .with_memory()
+                .with_exe(UpdateKind::OnlyIfNotSet),
         );
         self.snapshot.memory_used = self.system.used_memory();
         self.snapshot.memory_total = self.system.total_memory();
@@ -78,6 +85,7 @@ impl MetricsSampler {
             .map(|(pid, process)| ProcessSnapshot {
                 pid: pid.as_u32(),
                 name: process.name().to_string_lossy().into_owned(),
+                icon: None,
                 cpu_percent: if self.sampled_once {
                     (process.cpu_usage() / cores).clamp(0.0, 100.0)
                 } else {
@@ -89,6 +97,20 @@ impl MetricsSampler {
         self.snapshot.process_count = processes.len();
         self.snapshot.top_cpu = ranked(processes.clone(), true);
         self.snapshot.top_memory = ranked(processes, false);
+        for process in self
+            .snapshot
+            .top_cpu
+            .iter_mut()
+            .chain(self.snapshot.top_memory.iter_mut())
+        {
+            if let Some(exe) = self
+                .system
+                .process(sysinfo::Pid::from_u32(process.pid))
+                .and_then(|p| p.exe())
+            {
+                process.icon = self.icons.get(exe);
+            }
+        }
         self.snapshot.ready = self.sampled_once;
         self.networks.refresh(true);
         let (received, transmitted) = self
@@ -165,6 +187,7 @@ mod process_tests {
             .map(|pid| ProcessSnapshot {
                 pid,
                 name: format!("process-{pid}"),
+                icon: None,
                 cpu_percent: (pid / 2) as f32,
                 memory_bytes: u64::from(25 - pid) * 1024,
             })

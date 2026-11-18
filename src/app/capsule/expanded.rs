@@ -152,7 +152,14 @@ fn header_button(rect: Rect, from_right: f32, size: Vec2) -> Rect {
 }
 
 pub(in crate::app) const NAVIGATION_HEIGHT: f32 = 22.0;
-const NAVIGATION_FONT: f32 = 8.0;
+fn navigation_font(screen_width: f32) -> f32 {
+    let screen_width = if screen_width.is_finite() {
+        screen_width.max(1.0)
+    } else {
+        1440.0
+    };
+    10.0 * (screen_width / 1440.0).sqrt().clamp(0.9, 1.2)
+}
 const TAB_PADDING: f32 = 3.0;
 
 pub(in crate::app) fn navigation_rect(rect: Rect) -> Rect {
@@ -172,6 +179,13 @@ pub(super) fn paint_tabs(
     titles: &[String],
     opacity: f32,
 ) {
+    let font_size = navigation_font(ui.input(|input| {
+        input
+            .viewport()
+            .monitor_size
+            .unwrap_or(input.screen_rect.size())
+            .x
+    }));
     let bounds = navigation_rect(rect);
     if !bounds.is_positive() {
         return;
@@ -207,7 +221,7 @@ pub(super) fn paint_tabs(
                 .map(|(_, title)| {
                     ui.painter().layout_no_wrap(
                         (*title).to_owned(),
-                        FontId::proportional(NAVIGATION_FONT),
+                        FontId::proportional(font_size),
                         Color32::PLACEHOLDER,
                     )
                 })
@@ -394,5 +408,17 @@ mod navigation_tests {
         assert_eq!(titles, ["通知中心", "性能监控"]);
         let mark = indicator(&output);
         assert!(mark.bottom() < text_center(&output, "性能监控").y);
+    }
+}
+
+#[cfg(test)]
+mod sizing_tests {
+    use super::navigation_font;
+    #[test]
+    fn navigation_text_scales_gently_with_monitor_resolution() {
+        assert_eq!(navigation_font(1440.0), 10.0);
+        assert!(navigation_font(1920.0) > navigation_font(1440.0));
+        assert_eq!(navigation_font(3840.0), 12.0);
+        assert_eq!(navigation_font(800.0), 9.0);
     }
 }

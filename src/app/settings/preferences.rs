@@ -126,7 +126,7 @@ impl CompactPreferences {
                 }
                 "widget_accent" => {
                     if let Some(accent) = parse_accent(value) {
-                        settings.widget_accent = accent;
+                        settings.widget_accent = super::theme::preset_accent(accent);
                     }
                 }
                 "widget_order" => {

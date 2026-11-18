@@ -21,7 +21,6 @@ fn clock_descriptor() -> ContributionDescriptor {
 pub struct ClockExtension {
     twelve_hour: bool,
     show_date: bool,
-    motion: crate::core::mascot::MotionPolicy,
 }
 
 impl crate::extension::NotificationPresentationProvider for ClockExtension {}
@@ -66,17 +65,8 @@ impl RuntimeExtension for ClockExtension {
         }
     }
 
-    fn set_motion_policy(&mut self, policy: crate::core::mascot::MotionPolicy) {
-        self.motion = policy;
-    }
     fn compact_refresh_interval(&self) -> Option<std::time::Duration> {
-        Some(std::time::Duration::from_millis(
-            if self.motion == crate::core::mascot::MotionPolicy::Full {
-                100
-            } else {
-                1000
-            },
-        ))
+        Some(std::time::Duration::from_secs(1))
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
@@ -86,16 +76,8 @@ impl RuntimeExtension for ClockExtension {
             id: ExtensionId::builtin(CLOCK_ID),
             source_extension_id: ExtensionId::builtin(CLOCK_ID),
             content: ViewNode::compact(
-                ViewNode::svg(
-                    clock_svg(
-                        time.hour(),
-                        time.minute(),
-                        f32::from(time.second()) + time.nanosecond() as f32 / 1e9,
-                        self.motion == crate::core::mascot::MotionPolicy::Full,
-                    ),
-                    18.0,
-                )
-                .color(ColorSpec::SecondaryText),
+                ViewNode::svg(clock_svg(time.hour(), time.minute()), 18.0)
+                    .color(ColorSpec::SecondaryText),
                 super::compact_value(
                     format!(
                         "{:02}:{:02}{}{}",
@@ -138,23 +120,19 @@ impl RuntimeExtension for ClockExtension {
     }
 }
 
-fn clock_angles(hour: u8, minute: u8, second: f32) -> [f32; 3] {
+fn clock_angles(hour: u8, minute: u8) -> [f32; 2] {
     let turn = std::f32::consts::TAU;
     let noon = -std::f32::consts::FRAC_PI_2;
     [
-        noon + turn * (f32::from(hour % 12) / 12.0 + f32::from(minute) / 720.0 + second / 43_200.0),
-        noon + turn * (f32::from(minute) / 60.0 + second / 3600.0),
-        noon + turn * second / 60.0,
+        noon + turn * (f32::from(hour % 12) / 12.0 + f32::from(minute) / 720.0),
+        noon + turn * (f32::from(minute) / 60.0),
     ]
 }
 
-fn clock_svg(hour: u8, minute: u8, second: f32, show_seconds: bool) -> String {
-    let angles = clock_angles(hour, minute, second);
+fn clock_svg(hour: u8, minute: u8) -> String {
+    let angles = clock_angles(hour, minute);
     let mut svg = String::from("inline:<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\" stroke-width=\"1.3\"/>");
-    let mut hands = vec![(angles[0], 4.8, 1.8), (angles[1], 7.3, 1.3)];
-    if show_seconds {
-        hands.push((angles[2], 8.0, 0.8));
-    }
+    let hands = [(angles[0], 4.8, 1.8), (angles[1], 7.3, 1.3)];
     for (angle, length, width) in hands {
         svg.push_str(&format!(
             "<path d=\"M12 12 L{:.2} {:.2}\" stroke-width=\"{width}\"/>",
@@ -170,7 +148,9 @@ mod tests {
     use super::*;
     #[test]
     fn analog_hands_follow_extension_time() {
-        assert!(clock_angles(3, 0, 0.0)[0].abs() < 0.00001);
-        assert!(clock_svg(12, 30, 1.0, true).starts_with("inline:<svg"));
+        assert!(clock_angles(3, 0)[0].abs() < 0.00001);
+        let svg = clock_svg(12, 30);
+        assert!(svg.starts_with("inline:<svg"));
+        assert_eq!(svg.matches("<path ").count(), 2);
     }
 }

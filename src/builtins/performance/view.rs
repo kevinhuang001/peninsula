@@ -150,7 +150,7 @@ pub(super) fn build(
     if download {
         system.push(text(
             format!(
-                "↓ {}",
+                "下行 {}",
                 super::sampler::format_speed(s.download_bytes_per_second)
             ),
             10.0,
@@ -160,7 +160,7 @@ pub(super) fn build(
     if upload {
         system.push(text(
             format!(
-                "↑ {}",
+                "上行 {}",
                 super::sampler::format_speed(s.upload_bytes_per_second)
             ),
             10.0,
@@ -202,10 +202,28 @@ pub(super) fn build(
             .enumerate()
             .map(|(index, p)| {
                 vec![
-                    text(
-                        format!("{:02}  {} · {}", index + 1, p.name, p.pid),
-                        10.0,
-                        ColorSpec::PrimaryText,
+                    ViewNode::row(
+                        vec![
+                            p.icon.as_ref().map_or_else(
+                                || {
+                                    ViewNode::svg(r#"inline:<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18"/></svg>"#, 16.0)
+                                        .color(ColorSpec::SecondaryText)
+                                },
+                                |icon| {
+                                    ViewNode::new(Node::RasterImage(icon.clone()))
+                                        .sized(Size::Fixed(16.0), Size::Fixed(16.0))
+                                },
+                            ),
+                            text(
+                                format!("{:02}  {} · {}", index + 1, p.name, p.pid),
+                                10.0,
+                                ColorSpec::PrimaryText,
+                            ),
+                        ],
+                        Flow {
+                            gap: Some(5.0),
+                            ..Default::default()
+                        },
                     ),
                     text(
                         if s.ready {
@@ -233,7 +251,17 @@ pub(super) fn build(
             })
             .collect(),
     };
-    let mut content = vec![metrics, panel(row(system, 6.0)), heading];
+    let mut content = vec![
+        metrics,
+        panel(ViewNode::column(
+            system,
+            Flow {
+                gap: Some(4.0),
+                ..Default::default()
+            },
+        )),
+        heading,
+    ];
     if processes.is_empty() {
         content.push(text("正在读取进程…", 11.0, ColorSpec::SecondaryText));
     } else {
@@ -251,4 +279,35 @@ pub(super) fn build(
         6.0,
     ));
     WidgetView::new(column(content, 8.0), [440.0, 410.0])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn process_rows_include_app_icons_and_network_rates_have_direction_labels() {
+        let icon = RasterImage {
+            size: [1, 1],
+            rgba: vec![255, 100, 0, 255],
+        };
+        let process = super::super::sampler::ProcessSnapshot {
+            pid: 42,
+            name: "Example".into(),
+            icon: Some(icon),
+            ..Default::default()
+        };
+        let snapshot = Snapshot {
+            top_cpu: vec![process.clone()],
+            top_memory: vec![process],
+            ..Default::default()
+        };
+        for memory in [false, true] {
+            let view = build(&snapshot, memory, &[], &[], true, true);
+            let serialized = serde_json::to_string(&view.root).unwrap();
+            assert!(serialized.contains("RasterImage"));
+            assert!(serialized.contains("Example"));
+            assert!(serialized.contains("上行 0 B/s"));
+            assert!(serialized.contains("下行 0 B/s"));
+        }
+    }
 }

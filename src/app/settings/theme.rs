@@ -10,6 +10,29 @@ pub(super) const ROW: Color32 = Color32::from_rgb(36, 39, 46);
 pub(super) const ROW_DISABLED: Color32 = Color32::from_rgb(30, 32, 37);
 pub(super) const BORDER: Color32 = Color32::from_rgb(47, 51, 59);
 
+pub(super) const ACCENT_PRESETS: [(&str, [u8; 3]); 6] = [
+    ("蓝色", [37, 87, 156]),
+    ("紫色", [109, 69, 160]),
+    ("青色", [20, 112, 122]),
+    ("绿色", [43, 116, 75]),
+    ("橙色", [167, 85, 31]),
+    ("玫红", [160, 55, 98]),
+];
+
+pub(super) fn preset_accent(color: [u8; 3]) -> [u8; 3] {
+    ACCENT_PRESETS
+        .iter()
+        .min_by_key(|(_, candidate)| {
+            color
+                .iter()
+                .zip(candidate)
+                .map(|(a, b)| (i32::from(*a) - i32::from(*b)).pow(2))
+                .sum::<i32>()
+        })
+        .unwrap()
+        .1
+}
+
 pub(super) const DEFAULT_WIDGET_ACCENT: [u8; 3] = [37, 87, 156];
 
 pub(in crate::app) const WIDGET_SURFACE_DARK: Color32 = palette::SURFACE_DARK;
@@ -110,4 +133,19 @@ pub fn parse_accent(value: &str) -> Option<[u8; 3]> {
     }
     let rgb = u32::from_str_radix(hex, 16).ok()?;
     Some([(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8])
+}
+
+#[cfg(test)]
+mod preset_tests {
+    use super::*;
+    #[test]
+    fn saved_custom_colors_migrate_to_the_nearest_supported_preset() {
+        for (_, color) in ACCENT_PRESETS {
+            assert_eq!(preset_accent(color), color);
+        }
+        assert_eq!(preset_accent([38, 86, 155]), DEFAULT_WIDGET_ACCENT);
+        assert!(ACCENT_PRESETS
+            .iter()
+            .any(|(_, color)| *color == preset_accent([255, 255, 255])));
+    }
 }
