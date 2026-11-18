@@ -140,23 +140,20 @@ pub fn show_compact(
     let mut renderer = Renderer::new(ui, icons);
     let mut surface = ui.new_child(UiBuilder::new().id_salt(("compact", id)).max_rect(rect));
     surface.set_clip_rect(ui.clip_rect().intersect(rect));
-    let align = if matches!(node.kind, Node::Compact(_)) {
-        [Align::Stretch, Align::Start]
-    } else {
-        [Align::Start; 2]
-    };
-    let size = renderer
-        .in_cell(&surface, node, rect.size(), align, 0)
-        .min(rect.size());
-    let rect = Rect::from_min_size(
-        rect.min
-            + vec2(
-                layout::offset(Align::Center, rect.width() - size.x),
-                layout::offset(Align::Center, rect.height() - size.y),
-            ),
-        size,
+    // The chip keeps its allocation while shorter content sits in its center.
+    let measured = renderer.in_cell(&surface, node, rect.size(), [Align::Start; 2], 0);
+    let size = vec2(measured.x.ceil(), measured.y).min(rect.size());
+    let rect = Rect::from_center_size(rect.center(), size);
+    let root_id = surface.id().with(node.key.as_deref());
+    renderer.paint(
+        &mut surface,
+        node,
+        rect,
+        root_id,
+        Color32::PLACEHOLDER,
+        opacity,
+        0,
     );
-    renderer.paint_root(&mut surface, rect, node, opacity);
     renderer.action
 }
 

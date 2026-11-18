@@ -500,14 +500,73 @@ fn compact_preserves_independent_regions_and_draws_a_center_overlay() {
     let (label_index, label, leading_clip) = find_text("Go");
     let (_, title, content_clip) = find_text(&heading);
     let center = label.pos + label.galley.rect.center().to_vec2();
-    assert!((center - pos2(35.0, 36.0)).length() < 1.0);
-    assert!(output.shapes[..label_index]
+    let ring_center = output.shapes[..label_index]
         .iter()
-        .any(|shape| matches!(shape.shape, egui::Shape::Circle(_))));
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Circle(circle) => Some(circle.center),
+            _ => None,
+        })
+        .unwrap();
+    assert!((center - ring_center).length() < 1.0);
+    assert_eq!(ring_center.y, rect.center().y);
     assert!(leading_clip.right() + 5.0 <= content_clip.left());
-    assert_eq!(content_clip.right(), rect.right() - 4.0);
+    assert!(content_clip.right() <= rect.right() - 4.0);
     assert!(title.galley.elided);
     assert_eq!(title.galley.rows.len(), 1);
+}
+
+#[test]
+fn compact_centers_its_leading_and_content_together_in_wide_chips() {
+    let ctx = egui::Context::default();
+    let icons = Icons::load(&ctx);
+    let bounds = Rect::from_min_size(pos2(20.0, 20.0), vec2(360.0, 28.0));
+    let marker = Color32::from_rgb(35, 178, 220);
+    let mut leading = spacer(Size::Fixed(24.0), Size::Fixed(24.0));
+    leading.style.normal.background = Some(ColorSpec::rgb(35, 178, 220));
+    let label = "Short lyric";
+    let node = ViewNode::compact(
+        leading,
+        ViewNode::text(
+            label,
+            TextStyle {
+                align: Align::Start,
+                ..Default::default()
+            },
+        ),
+        CompactLayout {
+            gap: 5.0,
+            ..Default::default()
+        },
+    );
+    let output = ctx.run(RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            show_compact(
+                ui,
+                bounds,
+                &ExtensionId::builtin("test.centered-compact"),
+                &node,
+                &icons,
+                1.0,
+            );
+        });
+    });
+
+    let mut icon = None;
+    let mut text = None;
+    for clipped in &output.shapes {
+        match &clipped.shape {
+            egui::Shape::Rect(rect) if rect.fill == marker => icon = Some(rect.rect),
+            egui::Shape::Text(shape) if shape.galley.job.text == label => {
+                text = Some(shape.galley.rect.translate(shape.pos.to_vec2()));
+                assert!(!shape.galley.elided);
+            }
+            _ => {}
+        }
+    }
+    let (icon, text) = (icon.unwrap(), text.unwrap());
+    assert_eq!(icon.width(), 24.0);
+    assert!((text.left() - icon.right() - 5.0).abs() < 0.5);
+    assert!(((icon.left() + text.right()) * 0.5 - bounds.center().x).abs() < 0.5);
 }
 
 #[test]
@@ -567,12 +626,6 @@ fn motion_transforms_paint_without_moving_compact_regions_and_reduced_motion_is_
             .unwrap()
     };
     assert_eq!(label(&resting), label(&moving));
-    assert!(moving.shapes.iter().any(|entry| {
-        matches!(&entry.shape, egui::Shape::Vec(shapes) if shapes.iter().any(|shape| matches!(shape, egui::Shape::Mesh(_))))
-            && entry.clip_rect.right() <= rect.left() + 24.0
-    }));
-    set_reduced_motion(&ctx, true);
-    let reduced = render(0.2);
     let tile_rect = |output: &egui::FullOutput| {
         output
             .shapes
@@ -585,6 +638,13 @@ fn motion_transforms_paint_without_moving_compact_regions_and_reduced_motion_is_
             })
             .unwrap()
     };
+    let leading_right = tile_rect(&resting).center().x + 12.0;
+    assert!(moving.shapes.iter().any(|entry| {
+        matches!(&entry.shape, egui::Shape::Vec(shapes) if shapes.iter().any(|shape| matches!(shape, egui::Shape::Mesh(_))))
+            && entry.clip_rect.right() <= leading_right
+    }));
+    set_reduced_motion(&ctx, true);
+    let reduced = render(0.2);
     assert_eq!(tile_rect(&resting), tile_rect(&reduced));
 }
 

@@ -246,7 +246,6 @@ impl RuntimeExtension for PomodoroExtension {
                 CompactLayout {
                     leading_size: [26.0, 26.0],
                     gap: 6.0,
-                    padding: [1.0, 0.0, 0.0, 0.0],
                     ..Default::default()
                 },
             )

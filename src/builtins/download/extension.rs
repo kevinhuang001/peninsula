@@ -203,7 +203,6 @@ impl RuntimeExtension for DownloadExtension {
             CompactLayout {
                 leading_size: [25.0, 25.0],
                 gap: 6.0,
-                padding: [2.0, 0.0, 0.0, 0.0],
                 ..Default::default()
             },
         )
