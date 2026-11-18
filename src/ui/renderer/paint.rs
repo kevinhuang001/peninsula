@@ -153,11 +153,12 @@ impl Renderer<'_> {
                 }
             }
             Node::ProgressBar { .. } => vec2(100.0, 16.0),
+            Node::Slider { .. } => vec2(100.0, 24.0),
             Node::ProgressRing { .. } | Node::Gauge { .. } => Vec2::splat(60.0),
             Node::Chart { .. } | Node::Sparkline(_) | Node::RangeChart { .. } => vec2(100.0, 36.0),
             Node::LineChart { .. } => vec2(120.0, 104.0),
             Node::Image { asset } => image_size(ui, asset),
-            Node::Svg { asset, svg_style } => assets::svg(ui, &self.theme, asset, *svg_style)
+            Node::Svg { asset, svg_style } => assets::svg(ui, &self.theme, asset, *svg_style, None)
                 .map_or(Vec2::ZERO, |texture| texture.size_vec2()),
             Node::SpriteSequence(spec) => spec.frames.first().map_or(Vec2::ZERO, |frame| {
                 image_size(ui, &frame.asset) * assets::uv_rect(frame.uv).size()
@@ -226,7 +227,9 @@ impl Renderer<'_> {
         }
         self.remaining -= 1;
         let (interactive, enabled) = match node.kind {
-            Node::Control { enabled, .. } => (true, enabled && ui.is_enabled()),
+            Node::Control { enabled, .. } | Node::Slider { enabled, .. } => {
+                (true, enabled && ui.is_enabled())
+            }
             Node::ActionArea { .. } => (true, ui.is_enabled()),
             _ => (false, true),
         };
@@ -234,7 +237,15 @@ impl Renderer<'_> {
             // Use the same hit rectangle and focus behavior as egui widgets.
             let target = rect.intersect(ui.clip_rect());
             if enabled {
-                Some(ui.interact(target, id, Sense::click()))
+                Some(ui.interact(
+                    target,
+                    id,
+                    if matches!(node.kind, Node::Slider { .. }) {
+                        Sense::click_and_drag()
+                    } else {
+                        Sense::click()
+                    },
+                ))
             } else {
                 let disabled =
                     ui.new_child(UiBuilder::new().id_salt(id).max_rect(target).disabled());
@@ -593,7 +604,9 @@ impl Renderer<'_> {
                 }
             }
             Node::Svg { asset, svg_style } => {
-                if let Some(texture) = assets::svg(ui, &self.theme, asset, *svg_style) {
+                if let Some(texture) =
+                    assets::svg(ui, &self.theme, asset, *svg_style, Some(rect.size()))
+                {
                     assets::paint_texture(
                         &painter,
                         &texture,
@@ -702,6 +715,68 @@ impl Renderer<'_> {
                     [pos2(rect.left(), c.y), pos2(rect.right(), c.y)]
                 };
                 painter.line_segment(line, Stroke::new(1.0_f32, fg));
+            }
+            Node::Slider {
+                fraction,
+                label,
+                action,
+                enabled,
+            } => {
+                let enabled = *enabled && ui.is_enabled();
+                let response = ui.ctx().read_response(id);
+                let mut value = ratio(*fraction);
+                if let Some(response) = &response {
+                    response.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Slider, enabled, label)
+                    });
+                    let preview_id = id.with("slider-preview");
+                    if enabled
+                        && (response.dragged() || response.drag_stopped() || response.clicked())
+                    {
+                        if let Some(position) = response.interact_pointer_pos() {
+                            value = ((position.x - rect.left()) / rect.width().max(1.0))
+                                .clamp(0.0, 1.0);
+                            ui.data_mut(|data| data.insert_temp(preview_id, value));
+                        } else if let Some(preview) =
+                            ui.data(|data| data.get_temp::<f32>(preview_id))
+                        {
+                            value = preview;
+                        }
+                        if response.clicked() || response.drag_stopped() {
+                            self.action = Some(crate::extension::Action::SetProgress {
+                                key: action.clone(),
+                                basis_points: (value * 10_000.0).round() as u16,
+                            });
+                        }
+                    }
+                    if enabled && response.has_focus() {
+                        let step = ui.input(|input| {
+                            i32::from(input.key_pressed(egui::Key::ArrowRight))
+                                - i32::from(input.key_pressed(egui::Key::ArrowLeft))
+                        });
+                        if step != 0 {
+                            value = (value + step as f32 * 0.01).clamp(0.0, 1.0);
+                            self.action = Some(crate::extension::Action::SetProgress {
+                                key: action.clone(),
+                                basis_points: (value * 10_000.0).round() as u16,
+                            });
+                        }
+                    }
+                }
+                let track = Rect::from_center_size(rect.center(), vec2(rect.width(), 3.0));
+                let tint = if enabled {
+                    fg
+                } else {
+                    color(ColorSpec::MutedText)
+                };
+                painter.rect_filled(track, 1.5, color(ColorSpec::SurfaceVariant));
+                let x = egui::lerp(track.x_range(), value);
+                painter.rect_filled(
+                    Rect::from_min_max(track.min, pos2(x, track.bottom())),
+                    1.5,
+                    tint,
+                );
+                painter.circle_filled(pos2(x, track.center().y), 3.0, tint);
             }
             Node::ProgressBar {
                 fraction,

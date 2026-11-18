@@ -138,35 +138,38 @@ pub(super) fn build(
         ],
     ))
     .sized(Size::Fill(1.0), Size::Auto);
-    let mut system = vec![text(
-        format!(
-            "GPU  {}",
-            s.gpu_percent
-                .map_or_else(|| "—".into(), |p| format!("{p:.0}%"))
-        ),
-        10.0,
+    let tile = |label: &str, value: String, color| {
+        panel(column(
+            vec![
+                text(label, 10.0, ColorSpec::SecondaryText),
+                text(value, 12.0, color),
+            ],
+            5.0,
+        ))
+    };
+    let mut system = vec![tile(
+        "GPU",
+        s.gpu_percent
+            .map_or_else(|| "—".into(), |p| format!("{p:.0}%")),
         ColorSpec::SecondaryText,
     )];
     if download {
-        system.push(text(
-            format!(
-                "下行 {}",
-                super::sampler::format_speed(s.download_bytes_per_second)
-            ),
-            10.0,
+        system.push(tile(
+            "下行",
+            super::sampler::format_speed(s.download_bytes_per_second),
             ColorSpec::Info,
         ));
     }
     if upload {
-        system.push(text(
-            format!(
-                "上行 {}",
-                super::sampler::format_speed(s.upload_bytes_per_second)
-            ),
-            10.0,
+        system.push(tile(
+            "上行",
+            super::sampler::format_speed(s.upload_bytes_per_second),
             ColorSpec::Info,
         ));
     }
+    let mut system_grid = Grid::new(Columns::Tracks(vec![Track::Fraction(1.0); system.len()]));
+    system_grid.column_gap = Some(6.0);
+    let system = ViewNode::new(Node::Grid(system_grid, system)).sized(Size::Fill(1.0), Size::Auto);
     let tab = |label: &str, key: &str, active: bool| {
         let mut button = ViewNode::subtle_button(label, Action::Select(key.into()));
         button.style.normal.corner_radius = Some(7.0);
@@ -187,13 +190,13 @@ pub(super) fn build(
         },
     );
     let heading = row(
-        vec![text("进程 TOP 10", 11.0, ColorSpec::PrimaryText), tabs],
+        vec![text("应用 TOP 10", 11.0, ColorSpec::PrimaryText), tabs],
         8.0,
     );
     let processes = if memory { &s.top_memory } else { &s.top_cpu };
     let table = Table {
         columns: vec![
-            TableColumn::new("进程 / PID", 2.8),
+            TableColumn::new("应用", 2.8),
             TableColumn::new(if memory { "CPU" } else { "CPU ↓" }, 1.0),
             TableColumn::new(if memory { "内存 ↓" } else { "内存" }, 1.0),
         ],
@@ -215,7 +218,7 @@ pub(super) fn build(
                                 },
                             ),
                             text(
-                                format!("{:02}  {} · {}", index + 1, p.name, p.pid),
+                                format!("{:02}  {} · {} 进程", index + 1, p.name, p.process_count),
                                 10.0,
                                 ColorSpec::PrimaryText,
                             ),
@@ -251,26 +254,19 @@ pub(super) fn build(
             })
             .collect(),
     };
-    let mut content = vec![
-        metrics,
-        panel(ViewNode::column(
-            system,
-            Flow {
-                gap: Some(4.0),
-                ..Default::default()
-            },
-        )),
-        heading,
-    ];
+    let mut content = vec![metrics, system, heading];
     if processes.is_empty() {
-        content.push(text("正在读取进程…", 11.0, ColorSpec::SecondaryText));
+        content.push(text("正在读取应用…", 11.0, ColorSpec::SecondaryText));
     } else {
         content.push(ViewNode::new(Node::Table(table)).sized(Size::Fill(1.0), Size::Auto));
     }
     content.push(row(
         vec![
             text(
-                format!("{} 个进程 · 每秒更新", s.process_count),
+                format!(
+                    "{} 个应用 · {} 个进程",
+                    s.application_count, s.process_count
+                ),
                 9.0,
                 ColorSpec::MutedText,
             ),
@@ -290,7 +286,7 @@ mod tests {
             size: [1, 1],
             rgba: vec![255, 100, 0, 255],
         };
-        let process = super::super::sampler::ProcessSnapshot {
+        let process = super::super::sampler::ApplicationSnapshot {
             pid: 42,
             name: "Example".into(),
             icon: Some(icon),
@@ -303,11 +299,18 @@ mod tests {
         };
         for memory in [false, true] {
             let view = build(&snapshot, memory, &[], &[], true, true);
+            let Node::Column(_, children) = &view.root.kind else {
+                panic!("expected overview column")
+            };
+            let Node::Grid(_, tiles) = &children[1].kind else {
+                panic!("network summary must be a horizontal grid")
+            };
+            assert_eq!(tiles.len(), 3);
             let serialized = serde_json::to_string(&view.root).unwrap();
             assert!(serialized.contains("RasterImage"));
             assert!(serialized.contains("Example"));
-            assert!(serialized.contains("上行 0 B/s"));
-            assert!(serialized.contains("下行 0 B/s"));
+            assert!(serialized.contains("上行"));
+            assert!(serialized.contains("下行"));
         }
     }
 }

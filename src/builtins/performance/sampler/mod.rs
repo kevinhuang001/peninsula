@@ -4,7 +4,7 @@ mod network;
 mod platform;
 
 #[cfg(test)]
-pub(super) use metrics::ProcessSnapshot;
+pub(super) use metrics::ApplicationSnapshot;
 pub use metrics::{MetricsSampler, Snapshot};
 
 pub fn format_speed(bytes_per_second: f64) -> String {

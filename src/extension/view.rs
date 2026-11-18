@@ -43,6 +43,11 @@ pub enum Action {
     Advance,
     Reset,
     Select(String),
+    /// Normalized slider position, from 0 to 10,000 basis points.
+    SetProgress {
+        key: String,
+        basis_points: u16,
+    },
     Dismiss,
     Custom(String),
 }

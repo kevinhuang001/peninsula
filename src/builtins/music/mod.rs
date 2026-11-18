@@ -297,12 +297,24 @@ impl RuntimeExtension for MusicExtension {
         output
     }
 
-    fn on_action(&mut self, action: Action, _now: Instant) -> ExtensionOutput {
+    fn on_action(&mut self, action: Action, now: Instant) -> ExtensionOutput {
         let Some(playback) = &self.playback else {
             return ExtensionOutput::default();
         };
         let command = match action {
             Action::Toggle => Command::Toggle,
+            Action::SetProgress {
+                ref key,
+                basis_points,
+            } if key == "seek" => {
+                let Some(duration) = playback.track.duration else {
+                    return ExtensionOutput::default();
+                };
+                Command::Seek(
+                    (duration * 1000.0 * f64::from(basis_points.min(10_000)) / 10_000.0).round()
+                        as u64,
+                )
+            }
             Action::Custom(ref name) if name == "previous" => Command::Previous,
             Action::Advance => Command::Next,
             Action::Custom(ref name) if name == "lyrics-retry" => {
@@ -323,6 +335,20 @@ impl RuntimeExtension for MusicExtension {
             .controller
             .as_ref()
             .is_none_or(|sender| sender.send((playback.session.clone(), command)).is_err());
+        if !self.control_failed {
+            if let Command::Seek(milliseconds) = command {
+                if let Some(playback) = self.playback.as_mut() {
+                    playback.position = milliseconds as f64 / 1000.0;
+                    playback.observed = now;
+                }
+                self.active_line = self
+                    .lyric_result
+                    .as_ref()
+                    .and_then(|r| r.as_ref().ok())
+                    .and_then(Option::as_deref)
+                    .and_then(|lyrics| lyrics.current_index(milliseconds as f64 / 1000.0));
+            }
+        }
         invalidate()
     }
 }
@@ -608,5 +634,52 @@ mod timing_tests {
         )));
         music.update(now + Duration::from_secs(5));
         assert_eq!(music.active_line, None);
+    }
+}
+
+#[cfg(test)]
+mod seek_tests {
+    use super::*;
+    #[test]
+    fn seek_sends_position_to_backend_and_updates_paused_playback_and_lyrics() {
+        let now = Instant::now();
+        let (sender, receiver) = mpsc::channel();
+        let mut music = MusicExtension {
+            controller: Some(sender),
+            ..Default::default()
+        };
+        let mut playback = super::tests::sample(false, 10.0, now);
+        playback.controls.seek = true;
+        music.playback = Some(playback);
+        music.lyric_result = Some(Ok(Some(Arc::new(Lyrics::Synced(vec![
+            lyrics::Line {
+                at: 0.0,
+                text: "first".into(),
+            },
+            lyrics::Line {
+                at: 50.0,
+                text: "second".into(),
+            },
+        ])))));
+        music.on_action(
+            Action::SetProgress {
+                key: "seek".into(),
+                basis_points: 7500,
+            },
+            now,
+        );
+        assert_eq!(receiver.try_recv().unwrap().1, Command::Seek(75_000));
+        assert_eq!(music.playback.as_ref().unwrap().position_at(now), 75.0);
+        assert!(!music.playback.as_ref().unwrap().playing);
+        assert_eq!(music.active_line, Some(1));
+        music.playback.as_mut().unwrap().controls.seek = false;
+        music.on_action(
+            Action::SetProgress {
+                key: "seek".into(),
+                basis_points: 10_000,
+            },
+            now,
+        );
+        assert!(receiver.try_recv().is_err());
     }
 }
