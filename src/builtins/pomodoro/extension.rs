@@ -194,21 +194,59 @@ impl RuntimeExtension for PomodoroExtension {
     fn compact_refresh_interval(&self) -> Option<std::time::Duration> {
         self.timer
             .running
-            .then_some(std::time::Duration::from_millis(100))
+            .then_some(std::time::Duration::from_millis(250))
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
         let now = Instant::now();
+        let progress = self.timer.progress_at(now);
         vec![CompactView {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(WIDGET_ID),
-            content: ViewNode::row(
-                vec![
-                    ViewNode::ring(self.timer.progress_at(now), "", 24.0, 2.0, 6.0),
-                    super::super::compact_text(format_time(self.timer.remaining_at(now))),
-                ],
-                Flow {
-                    gap: Some(7.0),
+            content: ViewNode::compact(
+                ViewNode::new(Node::Stack(
+                    [Align::Center; 2],
+                    vec![
+                        ViewNode::ring(progress, "", 26.0, 1.8, 7.0)
+                            .motion(Motion::progress(progress, 190)),
+                        ViewNode::text(
+                            if self.timer.phase == Phase::Focus {
+                                "专注"
+                            } else {
+                                "休息"
+                            },
+                            TextStyle {
+                                font_size: FontSize::Custom(8.0),
+                                font_weight: FontWeight::Bold,
+                                ..Default::default()
+                            },
+                        ),
+                    ],
+                ))
+                .sized(Size::Fixed(26.0), Size::Fixed(26.0)),
+                ViewNode::column(
+                    vec![
+                        super::super::compact_value(
+                            format_time(self.timer.remaining_at(now)),
+                            true,
+                        ),
+                        super::super::compact_detail(if self.timer.running {
+                            "剩余时间"
+                        } else {
+                            "已暂停"
+                        }),
+                    ],
+                    Flow {
+                        align: Align::Start,
+                        gap: Some(0.0),
+                        ..Default::default()
+                    },
+                )
+                .color(ColorSpec::PrimaryText),
+                CompactLayout {
+                    leading_size: [26.0, 26.0],
+                    gap: 6.0,
+                    padding: [1.0, 0.0, 0.0, 0.0],
                     ..Default::default()
                 },
             )

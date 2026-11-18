@@ -23,6 +23,7 @@ const WIDGET_ID: &str = "builtin.music/now-playing";
 const COMPACT_ID: &str = "builtin.music/lyrics";
 const WIDGET_SIZE: [f32; 2] = [368.0, 188.0];
 const COMPACT_WIDTH: f32 = 176.0;
+const COMPACT_LYRIC_MIN_WIDTH: f32 = 360.0;
 const POLL_INTERVAL: Duration = Duration::from_millis(800);
 const IDLE_INTERVAL: Duration = Duration::from_secs(2);
 const DISCONNECTED_AFTER: Duration = Duration::from_secs(4);
@@ -148,13 +149,23 @@ impl RuntimeExtension for MusicExtension {
         if let Some(lyric) = lyric {
             tooltip = format!("{lyric}\n{tooltip}");
         }
+        let min_width = if lyric.is_some() {
+            COMPACT_LYRIC_MIN_WIDTH
+        } else {
+            84.0
+        };
         vec![CompactView {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(WIDGET_ID),
-            content: view::compact(lyric.unwrap_or(title), lyric.is_some(), playback.playing),
+            content: view::compact(
+                lyric.unwrap_or(title),
+                lyric.is_some(),
+                playback.playing,
+                playback.audio_level,
+            ),
             visibility: CompactVisibility::Visible,
-            min_width: 84.0,
-            preferred_width: COMPACT_WIDTH,
+            min_width,
+            preferred_width: COMPACT_WIDTH.max(min_width),
             fit_width: true,
             priority: 0,
             tooltip: Some(tooltip),
@@ -265,6 +276,10 @@ impl MusicExtension {
             (None, None) => false,
             _ => true,
         };
+        let amplitude_changed = match (&self.playback, &next) {
+            (Some(previous), Some(next)) => previous.audio_level != next.audio_level,
+            _ => false,
+        };
         let presentation_changed = match (&self.playback, &next) {
             (Some(previous), Some(next)) => {
                 previous.session != next.session
@@ -293,7 +308,7 @@ impl MusicExtension {
         if song_changed || presentation_changed {
             self.control_failed = false;
         }
-        song_changed || presentation_changed
+        song_changed || presentation_changed || amplitude_changed
     }
 
     fn request_lyrics(&mut self) {
@@ -398,6 +413,7 @@ mod tests {
             position: seconds,
             rate: 1.0,
             observed: now,
+            audio_level: None,
             artwork: None,
         }
     }
@@ -446,6 +462,8 @@ mod tests {
             music.update(now + Duration::from_secs(1)).invalidated.len(),
             2
         );
+        assert_eq!(music.compact_views()[0].min_width, COMPACT_LYRIC_MIN_WIDTH);
+        assert!(music.compact_views()[0].fit_width);
         assert!(music.compact_views()[0]
             .tooltip
             .as_deref()

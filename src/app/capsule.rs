@@ -1,8 +1,6 @@
 use crate::{
     app::settings::{CompactPreferences, SettingsView},
-    extension::{
-        ActionInvocation, AlertInteraction, CompactView, ExtensionId, Notification, WidgetView,
-    },
+    extension::{ActionInvocation, AlertInteraction, ExtensionId, Notification, WidgetView},
 };
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
@@ -11,7 +9,11 @@ mod expanded;
 use crate::ui::renderer;
 pub(super) use expanded::{navigation_rect, navigation_width, NAVIGATION_HEIGHT};
 
-use super::{compact_layout::CAPSULE_HEIGHT, icons::Icons, mascot::Mascot, widgets};
+use super::{
+    compact_layout::{CompactItem, CAPSULE_HEIGHT},
+    icons::Icons,
+    widgets,
+};
 
 pub(super) const EXPANDED_BASE_HEIGHT: f32 = 48.0;
 pub(super) const ALERT_WIDTH: f32 = 320.0;
@@ -53,9 +55,8 @@ pub(super) fn draw_compact_chip(ui: &egui::Ui, rect: Rect, opacity: f32) {
 }
 
 pub(super) struct CapsuleWidgets<'a> {
-    pub mascot: &'a mut Mascot,
     pub preferences: &'a mut CompactPreferences,
-    pub compact_views: &'a [&'a CompactView],
+    pub compact_views: &'a [CompactItem<'a>],
     pub settings_open: bool,
     pub settings_view: &'a mut SettingsView,
     pub active_widget: &'a mut ExtensionId,
@@ -132,11 +133,9 @@ pub(super) fn show(
     let (settings, pin_toggled) = if progress < 0.9 {
         widget_action = compact::show(
             ui,
-            context,
             rect,
             progress,
             compact::CompactContent {
-                mascot: content.mascot,
                 prefs: content.preferences,
                 views: content.compact_views,
                 icons: content.icons,

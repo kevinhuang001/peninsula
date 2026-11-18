@@ -396,10 +396,12 @@ impl RuntimeExtension for WeatherExtension {
         vec![CompactView {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(WIDGET_ID),
-            content: ViewNode::row(
-                vec![weather_icon(icon, 25.0), text(label, 11.0, color)],
-                Flow {
-                    gap: Some(5.0),
+            content: ViewNode::compact(
+                weather_icon(icon, 25.0),
+                super::super::compact_value(label, false),
+                CompactLayout {
+                    leading_size: [25.0, 26.0],
+                    gap: 5.0,
                     ..Default::default()
                 },
             )
@@ -881,11 +883,13 @@ mod tests {
         let views = extension.compact_views();
         assert_eq!(views.len(), 1);
         assert_eq!(views[0].id.as_str(), COMPACT_ID);
-        let Node::Row(_, children) = &views[0].content.kind else {
-            panic!("weather compact row");
+        let Node::Compact(compact) = &views[0].content.kind else {
+            panic!("weather compact");
         };
-        assert!(matches!(&children[0].kind, Node::Image { asset } if asset == "meteo/overcast"));
-        assert!(matches!(&children[1].kind, Node::Text { text, .. } if text == "15°"));
+        assert!(
+            matches!(&compact.leading.kind, Node::Image { asset } if asset == "meteo/overcast")
+        );
+        assert!(matches!(&compact.content.kind, Node::Text { text, .. } if text == "15°"));
         assert!(views[0]
             .tooltip
             .as_deref()

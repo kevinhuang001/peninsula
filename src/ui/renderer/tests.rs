@@ -438,3 +438,259 @@ fn semantic_text_uses_the_shared_palette_in_both_themes() {
         });
     }
 }
+
+#[test]
+fn compact_preserves_independent_regions_and_draws_a_center_overlay() {
+    let ctx = egui::Context::default();
+    let icons = Icons::load(&ctx);
+    let rect = Rect::from_min_size(pos2(20.0, 20.0), vec2(92.0, 32.0));
+    let ring = ViewNode::ring(0.5, "", 24.0, 2.0, 8.0).color(ColorSpec::Info);
+    let heading = "A heading that wraps and should be ellipsized".repeat(3);
+    let node = ViewNode::compact(
+        ViewNode::new(Node::Stack(
+            [Align::Center; 2],
+            vec![ring, ViewNode::text("Go", TextStyle::default())],
+        ))
+        .sized(Size::Fixed(24.0), Size::Fixed(24.0)),
+        ViewNode::text(
+            &heading,
+            TextStyle {
+                wrap: true,
+                max_lines: Some(1),
+                align: Align::Start,
+                ..Default::default()
+            },
+        ),
+        CompactLayout {
+            leading_size: [45.0, 26.0],
+            leading_max_size: [Some(26.0), None],
+            padding: [2.0, 2.0, 4.0, 2.0],
+            gap: 5.0,
+            height: Size::Fixed(32.0),
+            ..Default::default()
+        },
+    );
+    let decoded = serde_json::from_str::<ViewNode>(&serde_json::to_string(&node).unwrap()).unwrap();
+    assert_eq!(decoded, node);
+    let output = ctx.run(RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            show_compact(
+                ui,
+                rect,
+                &ExtensionId::builtin("test.compact"),
+                &node,
+                &icons,
+                1.0,
+            );
+        });
+    });
+    let find_text = |value: &str| {
+        output
+            .shapes
+            .iter()
+            .enumerate()
+            .find_map(|(index, clipped)| match &clipped.shape {
+                egui::Shape::Text(text) if text.galley.job.text == value => {
+                    Some((index, text, clipped.clip_rect))
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    let (label_index, label, leading_clip) = find_text("Go");
+    let (_, title, content_clip) = find_text(&heading);
+    let center = label.pos + label.galley.rect.center().to_vec2();
+    assert!((center - pos2(35.0, 36.0)).length() < 1.0);
+    assert!(output.shapes[..label_index]
+        .iter()
+        .any(|shape| matches!(shape.shape, egui::Shape::Circle(_))));
+    assert!(leading_clip.right() + 5.0 <= content_clip.left());
+    assert_eq!(content_clip.right(), rect.right() - 4.0);
+    assert!(title.galley.elided);
+    assert_eq!(title.galley.rows.len(), 1);
+}
+
+#[test]
+fn motion_transforms_paint_without_moving_compact_regions_and_reduced_motion_is_static() {
+    let ctx = egui::Context::default();
+    let icons = Icons::load(&ctx);
+    let rect = Rect::from_min_size(pos2(20.0, 20.0), vec2(70.0, 28.0));
+    let color = ColorSpec::rgb(47, 176, 200);
+    let mut tile = spacer(Size::Fixed(10.0), Size::Fixed(10.0));
+    tile.style.normal.background = Some(color);
+    let motion = tile.motion(Motion {
+        duration_ms: 100,
+        tracks: vec![
+            MotionTrack::new(MotionProperty::TranslateX, &[(0, 0.0), (100, 12.0)]),
+            MotionTrack::new(MotionProperty::Rotation, &[(0, 0.0), (100, 1.0)]),
+        ],
+        ..Default::default()
+    });
+    let node = ViewNode::compact(
+        motion,
+        ViewNode::text("status", TextStyle::default()),
+        CompactLayout {
+            leading_size: [24.0, 24.0],
+            ..Default::default()
+        },
+    );
+    let render = |time| {
+        ctx.run(
+            RawInput {
+                time: Some(time),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    show_compact(
+                        ui,
+                        rect,
+                        &ExtensionId::builtin("test.motion"),
+                        &node,
+                        &icons,
+                        1.0,
+                    );
+                });
+            },
+        )
+    };
+    let resting = render(0.0);
+    let moving = render(0.1);
+    let label = |output: &egui::FullOutput| {
+        output
+            .shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) if text.galley.job.text == "status" => Some(text.pos),
+                _ => None,
+            })
+            .unwrap()
+    };
+    assert_eq!(label(&resting), label(&moving));
+    assert!(moving.shapes.iter().any(|entry| {
+        matches!(&entry.shape, egui::Shape::Vec(shapes) if shapes.iter().any(|shape| matches!(shape, egui::Shape::Mesh(_))))
+            && entry.clip_rect.right() <= rect.left() + 24.0
+    }));
+    set_reduced_motion(&ctx, true);
+    let reduced = render(0.2);
+    let tile_rect = |output: &egui::FullOutput| {
+        output
+            .shapes
+            .iter()
+            .find_map(|entry| match &entry.shape {
+                egui::Shape::Rect(shape) if shape.fill == Color32::from_rgb(47, 176, 200) => {
+                    Some(shape.rect)
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    assert_eq!(tile_rect(&resting), tile_rect(&reduced));
+}
+
+#[test]
+fn sprite_uses_atlas_frames_and_respects_the_reduced_motion_preference() {
+    let ctx = egui::Context::default();
+    let icons = Icons::load(&ctx);
+    let node = ViewNode::new(Node::SpriteSequence(SpriteSequence {
+        frames: vec![
+            SpriteFrame {
+                asset: "mascot/wink".into(),
+                duration_ms: 100,
+                uv: [0.0, 0.0, 1.0, 0.0625],
+            },
+            SpriteFrame {
+                asset: "mascot/wink".into(),
+                duration_ms: 100,
+                uv: [0.0, 0.0625, 1.0, 0.125],
+            },
+        ],
+        speed: 1.0,
+        trigger: Trigger::Always,
+        playback: Playback::Running,
+        repeat: Repeat::Once,
+        delay_ms: 0,
+        gap_ms: 0,
+    }))
+    .sized(Size::Fixed(24.0), Size::Fixed(24.0));
+    let draw = |time| {
+        ctx.run(
+            RawInput {
+                time: Some(time),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    show_compact(
+                        ui,
+                        Rect::from_min_size(pos2(20.0, 20.0), Vec2::splat(24.0)),
+                        &ExtensionId::builtin("test.sprite"),
+                        &node,
+                        &icons,
+                        1.0,
+                    );
+                });
+            },
+        )
+        .shapes
+        .into_iter()
+        .find_map(|entry| match entry.shape {
+            egui::Shape::Rect(rect) => rect.brush.map(|brush| brush.uv),
+            _ => None,
+        })
+        .unwrap()
+    };
+    assert_eq!(draw(0.0).top(), 0.0);
+    assert_eq!(draw(0.125).top(), 0.0625);
+    assert_eq!(draw(1.0).top(), 0.0625);
+    set_reduced_motion(&ctx, true);
+    assert_eq!(draw(1.25).top(), 0.0);
+}
+
+#[test]
+fn host_svg_style_and_image_fit_render_from_registered_assets() {
+    let ctx = egui::Context::default();
+    let icons = Icons::load(&ctx);
+    let rect = Rect::from_min_size(pos2(20.0, 20.0), vec2(30.0, 24.0));
+    let asset = "test/colored-svg";
+    register_svg(
+        &ctx,
+        asset,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 24" fill="none" stroke="currentColor"><rect x="5" y="5" width="38" height="14"/></svg>"#,
+    );
+    let mut node = ViewNode::new(Node::Svg {
+        asset: asset.into(),
+        svg_style: SvgStyle {
+            fit: ImageFit::Cover,
+            fill: Some(ColorSpec::rgb(100, 150, 210)),
+            stroke: Some(ColorSpec::rgb(224, 190, 86)),
+            stroke_width: Some(2.0),
+        },
+    })
+    .sized(Size::Fixed(30.0), Size::Fixed(24.0));
+    node.style.normal.corner_radius = Some(3.0);
+    let output = ctx.run(RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            show_compact(
+                ui,
+                rect,
+                &ExtensionId::builtin("test.svg"),
+                &node,
+                &icons,
+                1.0,
+            );
+        });
+    });
+    assert!(output.shapes.iter().any(|entry| {
+        matches!(&entry.shape, egui::Shape::Rect(shape)
+            if shape.rect == rect && shape.corner_radius.nw == 3
+                && shape.brush.as_ref().is_some_and(|brush| brush.uv.left() > 0.0))
+    }));
+    let test_color = Color32::from_rgb(100, 150, 210);
+    assert!(output.textures_delta.set.iter().any(|(_, delta)| {
+        let egui::ImageData::Color(image) = &delta.image else {
+            return false;
+        };
+        image.pixels.contains(&test_color)
+    }));
+}

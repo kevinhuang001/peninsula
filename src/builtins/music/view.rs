@@ -2,7 +2,12 @@ use super::{lyrics::Lyrics, platform::Playback, LyricsResult, WIDGET_SIZE};
 use crate::{extension::Action, ui::declarative::*};
 use std::time::Instant;
 
-pub(super) fn compact(value: &str, has_lyric: bool, playing: bool) -> ViewNode {
+pub(super) fn compact(
+    value: &str,
+    has_lyric: bool,
+    playing: bool,
+    audio_level: Option<f32>,
+) -> ViewNode {
     // Keep the notes in the same text run: no layout gap can separate them
     // from the lyric, and the host measures the complete line with its font.
     let text = if has_lyric {
@@ -10,26 +15,78 @@ pub(super) fn compact(value: &str, has_lyric: bool, playing: bool) -> ViewNode {
     } else {
         value.to_owned()
     };
-    ViewNode::row(
+    let motion = |duration_ms, tracks| Motion {
+        trigger: Trigger::While(playing),
+        duration_ms,
+        repeat: Repeat::Infinite,
+        easing: Easing::EaseInOut,
+        tracks,
+        ..Default::default()
+    };
+    let mut cone = MotionTrack::new(MotionProperty::Scale, &[(0, 1.0), (160, 1.2), (320, 1.0)]);
+    cone.amplitude = audio_level
+        .filter(|value| value.is_finite())
+        .map(|value| ValueMapping {
+            value,
+            input: [0.0, 1.0],
+            output: [0.0, 1.35],
+        });
+    let speaker = ViewNode::new(Node::Stack(
+        [Align::Center; 2],
         vec![
-            ViewNode::icon(
-                if playing {
-                    "speaker-playing"
+            ViewNode::svg("compact/speaker-body", 22.0)
+                .color(if playing {
+                    ColorSpec::Info
                 } else {
-                    "speaker"
-                },
-                16.0,
-            ),
-            ViewNode::text(
-                text,
-                TextStyle {
-                    align: Align::Start,
-                    font_size: FontSize::Custom(11.0),
+                    ColorSpec::SecondaryText
+                })
+                .motion(motion(
+                    320,
+                    vec![MotionTrack::new(
+                        MotionProperty::TranslateX,
+                        &[(0, 0.0), (80, -0.45), (160, 0.45), (240, -0.35), (320, 0.0)],
+                    )],
+                )),
+            ViewNode::svg("compact/speaker-cone", 22.0)
+                .color(if playing {
+                    ColorSpec::Info
+                } else {
+                    ColorSpec::SecondaryText
+                })
+                .motion(motion(320, vec![cone])),
+            ViewNode::svg("compact/speaker-waves", 20.0)
+                .styled(Style {
+                    normal: Paint {
+                        foreground: Some(ColorSpec::Info),
+                        opacity: Some(if playing { 1.0 } else { 0.24 }),
+                        ..Default::default()
+                    },
                     ..Default::default()
-                },
-            ),
+                })
+                .motion(motion(
+                    700,
+                    vec![
+                        MotionTrack::new(
+                            MotionProperty::Opacity,
+                            &[(0, 0.85), (450, 0.2), (700, 0.85)],
+                        ),
+                        MotionTrack::new(
+                            MotionProperty::Scale,
+                            &[(0, 0.95), (450, 1.12), (700, 0.95)],
+                        ),
+                    ],
+                )),
         ],
-        gap(4.0),
+    ))
+    .sized(Size::Fixed(24.0), Size::Fixed(24.0));
+    ViewNode::compact(
+        speaker,
+        super::super::compact_value(text, false),
+        CompactLayout {
+            leading_size: [24.0, 24.0],
+            gap: 4.0,
+            ..Default::default()
+        },
     )
 }
 
@@ -315,13 +372,21 @@ mod tests {
     fn compact_keeps_full_lyric_with_adjacent_notes_and_playback_icon() {
         let lyric = "这是一句很长的歌词，需要完整显示而不是省略".repeat(8);
         for playing in [true, false] {
-            let node = compact(&lyric, true, playing);
-            let Node::Row(_, items) = node.kind else {
-                panic!("expected row")
+            let node = compact(&lyric, true, playing, Some(0.7));
+            let Node::Compact(compact) = node.kind else {
+                panic!("expected compact")
             };
-            assert!(matches!(&items[0].kind, Node::Icon { name, .. }
-                if name == if playing { "speaker-playing" } else { "speaker" }));
-            assert!(matches!(&items[1].kind, Node::Text { text, .. }
+            let Node::Stack(_, layers) = &compact.leading.kind else {
+                panic!("expected speaker layers")
+            };
+            assert_eq!(layers.len(), 3);
+            assert!(matches!(&layers[1].kind, Node::Motion { motion, .. }
+                if motion.tracks[0].amplitude.is_some_and(|input| input.value == 0.7)));
+            assert!(layers
+                .iter()
+                .all(|layer| matches!(&layer.kind, Node::Motion { motion, .. }
+                if motion.trigger == Trigger::While(playing))));
+            assert!(matches!(&compact.content.kind, Node::Text { text, .. }
                 if text == &format!("♪{lyric}♪")));
         }
     }
@@ -370,6 +435,7 @@ mod rendering_tests {
             position: 1.0,
             rate: 1.0,
             observed: Instant::now(),
+            audio_level: None,
             artwork: None,
         };
         let lyrics = Some(Ok(Some(std::sync::Arc::new(Lyrics::Synced(vec![

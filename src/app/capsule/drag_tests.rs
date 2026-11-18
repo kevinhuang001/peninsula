@@ -1,15 +1,11 @@
 use super::{show, CapsuleWidgets};
-use crate::app::{
-    mascot::Mascot,
-    settings::{CompactPreferences, SettingsView},
-};
+use crate::app::settings::{CompactPreferences, SettingsView};
 use eframe::egui::{self, pos2, vec2, Event, Modifiers, PointerButton, RawInput, Rect};
 
 #[test]
 fn dragging_the_page_right_reveals_the_previous_widget_on_release() {
     let ctx = egui::Context::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
-    let mut mascot = Mascot::default();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
@@ -39,7 +35,6 @@ fn dragging_the_page_right_reveals_the_previous_widget_on_release() {
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
                                 alert_view: None,
-                                mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 settings_view: &mut settings_view,
@@ -73,7 +68,6 @@ fn dragging_the_page_right_reveals_the_previous_widget_on_release() {
 fn clicking_widget_body_does_not_change_the_page() {
     let ctx = egui::Context::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
-    let mut mascot = Mascot::default();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
@@ -103,7 +97,6 @@ fn clicking_widget_body_does_not_change_the_page() {
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
                                 alert_view: None,
-                                mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 settings_view: &mut settings_view,
@@ -139,7 +132,6 @@ fn clicking_widget_body_does_not_change_the_page() {
 fn dashboard_button_to_the_left_of_pin_acts_independently() {
     let ctx = egui::Context::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
-    let mut mascot = Mascot::default();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
@@ -171,7 +163,6 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
                                 alert_view: None,
-                                mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 settings_view: &mut settings_view,
@@ -209,7 +200,6 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
 fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
     let ctx = egui::Context::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
-    let mut mascot = Mascot::default();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
@@ -241,7 +231,6 @@ fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
                                 alert_view: None,
-                                mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 settings_view: &mut settings_view,

@@ -1,8 +1,5 @@
 use super::{capsule_height, corner_radius, drag_handle_bounds, show, CapsuleWidgets};
-use crate::app::{
-    mascot::Mascot,
-    settings::{CompactPreferences, SettingsView},
-};
+use crate::app::settings::{CompactPreferences, SettingsView};
 use eframe::egui::{self, Pos2, Rect, Vec2};
 
 #[test]
@@ -19,7 +16,6 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                 .frame(egui::Frame::NONE)
                 .show(context, |ui| {
                     ui.vertical_centered(|ui| {
-                        let mut mascot = Mascot::default();
                         let mut tab = crate::app::widgets::default_widget_id();
                         let mut preferences = CompactPreferences::default();
                         let mut settings_view = SettingsView::default();
@@ -39,7 +35,6 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
                                 alert_view: None,
-                                mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 settings_view: &mut settings_view,
@@ -72,7 +67,6 @@ fn in_capsule_settings_toggle_updates_compact_preferences() {
     use eframe::egui::{Event, Modifiers, PointerButton};
 
     let context = egui::Context::default();
-    let mut mascot = Mascot::default();
     let mut tab = crate::app::widgets::default_widget_id();
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
@@ -105,7 +99,6 @@ fn in_capsule_settings_toggle_updates_compact_preferences() {
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
                                 alert_view: None,
-                                mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: true,
                                 settings_view: &mut settings_view,
@@ -144,7 +137,6 @@ fn settings_close_button_returns_to_the_active_widget() {
     use eframe::egui::{Event, Modifiers, PointerButton};
 
     let context = egui::Context::default();
-    let mut mascot = Mascot::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut preferences = CompactPreferences::default();
     let mut settings_view = SettingsView::default();
@@ -177,7 +169,6 @@ fn settings_close_button_returns_to_the_active_widget() {
                                 widget_view: &widget_view,
                                 widget_body_limit: egui::vec2(300.0, 76.0),
                                 alert_view: None,
-                                mascot: &mut mascot,
                                 preferences: &mut preferences,
                                 settings_open: true,
                                 settings_view: &mut settings_view,

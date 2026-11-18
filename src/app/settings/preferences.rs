@@ -22,6 +22,7 @@ pub struct CompactItemPreference {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompactPreferences {
     pub compact_items: Vec<CompactItemPreference>,
+    pub reduced_motion: bool,
     pub quiet_hours: QuietHours,
     pub widget_theme: WidgetTheme,
     pub widget_accent: [u8; 3],
@@ -49,6 +50,7 @@ impl Default for CompactPreferences {
             .collect();
         Self {
             compact_items,
+            reduced_motion: false,
             quiet_hours: QuietHours::default(),
             widget_theme: WidgetTheme::default(),
             widget_accent: DEFAULT_WIDGET_ACCENT,
@@ -76,6 +78,7 @@ impl CompactPreferences {
                 continue;
             };
             match key.trim() {
+                "reduced_motion" => settings.reduced_motion = value.trim() == "true",
                 "widget_theme" => {
                     if let Some(theme) = WidgetTheme::parse(value) {
                         settings.widget_theme = theme;
@@ -182,6 +185,7 @@ impl CompactPreferences {
             .into_iter()
             .map(|item| format!("extension={}|{}|{}", item.id, item.enabled, item.order))
             .collect();
+        lines.push(format!("reduced_motion={}", self.reduced_motion));
         lines.push(format!("quiet_manual={}", self.quiet_hours.manual_enabled));
         lines.push(format!(
             "quiet_periods={}",

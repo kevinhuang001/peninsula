@@ -23,7 +23,6 @@ mod compact_layout;
 mod dashboard;
 mod fonts;
 pub(crate) mod icons;
-mod mascot;
 mod notification;
 mod platform;
 mod settings;
@@ -32,7 +31,6 @@ mod trackpad;
 mod widgets;
 
 use icons::Icons;
-use mascot::Mascot;
 use settings::{CompactPreferences, SettingsView};
 
 const INITIAL_WINDOW_SIZE: [f32; 2] = [720.0, 372.0];
@@ -68,7 +66,6 @@ struct IslandApp {
     extensions: BuiltinExtensions,
     state: IslandState,
     icons: Icons,
-    mascot: Mascot,
     preferences: CompactPreferences,
     settings_view: SettingsView,
     settings_open: bool,
@@ -116,7 +113,6 @@ impl IslandApp {
             extensions,
             state: IslandState::default(),
             icons: Icons::load(context),
-            mascot: Mascot::default(),
             preferences,
             settings_view: SettingsView::default(),
             settings_open: false,
@@ -526,12 +522,16 @@ impl eframe::App for IslandApp {
         }
         let widget_title = self.extensions.widget_title(&self.active_widget);
         let bilibili_status = self.extensions.bilibili_status();
-        let measured_views = compact_layout::measure_views(
+        crate::ui::renderer::set_reduced_motion(context, self.preferences.reduced_motion);
+        let available_views = self.extensions.compact_views(now);
+        let compact_views = compact_layout::measure_views(
             context,
-            &self.extensions.compact_views(now),
+            available_views
+                .iter()
+                .map(Arc::as_ref)
+                .filter(|view| self.preferences.is_enabled(&view.id)),
             &self.icons,
         );
-        let compact_views: Vec<_> = measured_views.iter().collect();
         let compact_width = compact_layout::width(&self.preferences, &compact_views);
         self.update_viewport_size(
             context,
@@ -555,9 +555,6 @@ impl eframe::App for IslandApp {
                 widget_height
             });
         self.widget_height.step(dt);
-        if progress < 0.99 {
-            self.mascot.advance(dt, false);
-        }
         let fallback = widget_view.is_none().then(empty_widget_view);
         let widget_view = widget_view.as_deref().or(fallback.as_ref()).unwrap();
 
@@ -592,7 +589,6 @@ impl eframe::App for IslandApp {
                         progress,
                         self.widget_height.value.clamp(0.0, widget_limit[1]),
                         capsule::CapsuleWidgets {
-                            mascot: &mut self.mascot,
                             preferences: &mut self.preferences,
                             compact_views: &compact_views,
                             settings_open: self.settings_open,

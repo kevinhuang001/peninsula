@@ -148,6 +148,7 @@ fn snapshot(
             playing,
             controls,
             observed: Instant::now(),
+            audio_level: None,
             artwork: None,
         },
         text("mpris:artUrl").map(str::to_owned),
