@@ -31,3 +31,21 @@ mod tests {
         assert_eq!(format_speed(-1.0), "0 B/s");
     }
 }
+
+#[cfg(target_os = "windows")]
+pub(super) fn power_status() -> Option<super::power::PowerSnapshot> {
+    platform::windows_battery_status()
+}
+
+/// Driver utilities can take seconds. Keep them off the CPU/network/power paths.
+pub(super) fn start_gpu() -> crate::core::latest::LatestReceiver<Option<f32>> {
+    let (tx, rx) = crate::core::latest::channel();
+    std::thread::spawn(move || loop {
+        let start = std::time::Instant::now();
+        if !tx.send(platform::gpu_utilization()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1).saturating_sub(start.elapsed()));
+    });
+    rx
+}

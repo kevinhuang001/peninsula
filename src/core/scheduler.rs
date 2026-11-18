@@ -12,6 +12,10 @@ pub struct Dispatcher {
 }
 
 impl Dispatcher {
+    pub fn next_deadline(&self) -> Option<Instant> {
+        self.deadlines.values().copied().min()
+    }
+
     pub fn take_invalidated(&mut self) -> HashSet<ExtensionId> {
         std::mem::take(&mut self.invalidated)
     }

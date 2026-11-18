@@ -238,6 +238,7 @@ impl IslandApp {
         if output == ExtensionOutput::default() {
             return;
         }
+        let repaint = !output.invalidated.is_empty() || !output.notifications.is_empty();
         for extension_id in output.invalidated {
             self.scheduler.invalidate(&extension_id);
         }
@@ -258,7 +259,9 @@ impl IslandApp {
         if published {
             self.scheduler.on_event(Event::NotificationPublished);
         }
-        context.request_repaint();
+        if repaint {
+            context.request_repaint();
+        }
     }
 
     fn handle_alert_interaction(
@@ -831,7 +834,13 @@ impl eframe::App for IslandApp {
         } else {
             100
         };
-        context.request_repaint_after(Duration::from_millis(interval));
+        let wake = self
+            .scheduler
+            .next_deadline()
+            .map(|at| at.saturating_duration_since(Instant::now()));
+        context.request_repaint_after(wake.map_or(Duration::from_millis(interval), |due| {
+            due.min(Duration::from_millis(interval))
+        }));
     }
 }
 

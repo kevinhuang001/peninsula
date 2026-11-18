@@ -3,6 +3,10 @@ name = "island-lab"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Explicit recording fixture; never enabled in normal builds.
+demo-power = []
+
 [dependencies]
 eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts"] }
 egui_extras = { version = "0.31", features = ["svg"] }

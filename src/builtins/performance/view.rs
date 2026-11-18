@@ -174,7 +174,13 @@ pub(super) fn build(
         if s.battery_percent.is_some() {
             format!(
                 "{} {}",
-                if s.charging { "充电" } else { "电池" },
+                if s.charging {
+                    "充电中"
+                } else if s.external_power == Some(true) {
+                    "已接电"
+                } else {
+                    "电池"
+                },
                 battery_label(s)
             )
         } else {
