@@ -23,7 +23,15 @@ eframe = { version = "0.31", default-features = false, features = ["glow", "defa
 zbus = { version = "5", default-features = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.58", features = ["Foundation", "Foundation_Collections", "Media_Control", "Storage_Streams", "Win32_System_WinRT"] }
+windows = { version = "0.58", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Media_Control",
+    "Storage_Streams",
+    "Win32_Foundation",
+    "Win32_System_Power",
+    "Win32_System_WinRT",
+] }
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 image = { version = "0.25", default-features = false, features = ["jpeg"] }

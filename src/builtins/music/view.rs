@@ -84,6 +84,9 @@ pub(super) fn compact(
         super::super::compact_value(text, false),
         CompactLayout {
             leading_size: [24.0, 24.0],
+            width: Size::Fill(1.0),
+            content_size: SizeSpec::default(),
+            content_align: Align::Center,
             gap: 4.0,
             ..Default::default()
         },
@@ -376,6 +379,8 @@ mod tests {
             let Node::Compact(compact) = node.kind else {
                 panic!("expected compact")
             };
+            assert_eq!(compact.layout.width, Size::Fill(1.0));
+            assert_eq!(compact.layout.content_align, Align::Center);
             let Node::Stack(_, layers) = &compact.leading.kind else {
                 panic!("expected speaker layers")
             };

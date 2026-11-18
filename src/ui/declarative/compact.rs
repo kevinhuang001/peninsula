@@ -18,6 +18,8 @@ pub struct CompactLayout {
     /// Defaults to the remaining width and the intrinsic height.
     pub content_size: SizeSpec,
     pub leading_align: [Align; 2],
+    /// Align Content within the full inner width, constrained to the space after Leading.
+    pub content_align: Align,
     pub gap: f32,
     pub align: Align,
     /// Left, top, right, bottom.
@@ -39,6 +41,7 @@ impl Default for CompactLayout {
                 ..Default::default()
             },
             leading_align: [Align::Center; 2],
+            content_align: Align::Start,
             gap: 4.0,
             align: Align::Center,
             padding: [0.0; 4],

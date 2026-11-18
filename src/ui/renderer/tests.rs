@@ -754,3 +754,73 @@ fn host_svg_style_and_image_fit_render_from_registered_assets() {
         image.pixels.contains(&test_color)
     }));
 }
+
+#[test]
+fn compact_can_anchor_its_leading_and_center_short_content_across_the_chip() {
+    let ctx = egui::Context::default();
+    let icons = Icons::load(&ctx);
+    let rect = Rect::from_min_size(pos2(20.0, 20.0), vec2(360.0, 28.0));
+    let marker = Color32::from_rgb(45, 156, 210);
+    let mut leading = spacer(Size::Fixed(24.0), Size::Fixed(24.0));
+    leading.style.normal.background = Some(ColorSpec::rgb(45, 156, 210));
+    let draw = |text: &str| {
+        let node = ViewNode::compact(
+            leading.clone(),
+            ViewNode::text(text, TextStyle::default()),
+            CompactLayout {
+                width: Size::Fill(1.0),
+                content_size: SizeSpec::default(),
+                content_align: Align::Center,
+                ..Default::default()
+            },
+        );
+        ctx.run(RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                show_compact(
+                    ui,
+                    rect,
+                    &ExtensionId::builtin("test.lyric-alignment"),
+                    &node,
+                    &icons,
+                    1.0,
+                );
+            });
+        })
+    };
+
+    for (lyric, short) in [
+        ("Short lyric".to_owned(), true),
+        ("A longer lyric ".repeat(25), false),
+    ] {
+        let output = draw(&lyric);
+        let icon = output
+            .shapes
+            .iter()
+            .find_map(|item| match &item.shape {
+                egui::Shape::Rect(shape) if shape.fill == marker => Some(shape.rect),
+                _ => None,
+            })
+            .unwrap();
+        let (label, clip) = output
+            .shapes
+            .iter()
+            .find_map(|item| match &item.shape {
+                egui::Shape::Text(shape) if shape.galley.job.text == lyric => {
+                    Some((shape, item.clip_rect))
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(icon.left(), rect.left());
+        assert!(clip.left() >= icon.right() + CompactLayout::default().gap);
+        assert!(clip.right() <= rect.right());
+        if short {
+            let center = label.pos.x + label.galley.rect.center().x;
+            assert!((center - rect.center().x).abs() < 0.5);
+            assert!(!label.galley.elided);
+        } else {
+            assert_eq!(clip.right(), rect.right());
+            assert!(label.galley.elided);
+        }
+    }
+}

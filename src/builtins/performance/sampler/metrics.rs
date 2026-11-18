@@ -94,6 +94,11 @@ fn is_loopback(name: &str) -> bool {
 }
 
 fn battery_status() -> (Option<u8>, bool) {
+    #[cfg(target_os = "windows")]
+    if let Some(status) = platform::windows_battery_status() {
+        return status;
+    }
+
     #[cfg(target_os = "macos")]
     let external_power = mac_external_power_connected().unwrap_or(false);
     #[cfg(not(target_os = "macos"))]

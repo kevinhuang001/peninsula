@@ -102,10 +102,13 @@ impl Renderer<'_> {
             false,
             depth,
         );
+        let content_left =
+            layout::offset(compact.layout.content_align, inner.width() - content_size.x)
+                .max(leading.x + gap);
         let content_rect = Rect::from_min_size(
             inner.min
                 + vec2(
-                    leading.x + gap,
+                    content_left,
                     layout::offset(compact.layout.align, inner.height() - content_size.y),
                 ),
             content_size,
