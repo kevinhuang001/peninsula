@@ -13,10 +13,10 @@ const NETWORK_WIDTH: f32 = 88.0;
 pub fn descriptors() -> Vec<ExtensionDescriptor> {
     vec![
         ExtensionDescriptor::builtin(ID, ExtensionKind::Widget, "性能监控", "activity", true, 1)
-            .with_size_hint(320.0, 76.0)
+            .with_size_hint(440.0, 410.0)
             .with_widget_bounds(WidgetBounds {
-                min: [244.0, 76.0],
-                max: [Some(380.0), Some(150.0)],
+                min: [320.0, 200.0],
+                max: [Some(620.0), Some(520.0)],
                 resizable: true,
                 fit_width: false,
                 fit_height: true,
@@ -76,6 +76,9 @@ pub struct PerformanceExtension {
     snapshot: Snapshot,
     show_download: bool,
     show_upload: bool,
+    sort_memory: bool,
+    cpu_history: Vec<f32>,
+    memory_history: Vec<f32>,
 }
 
 impl crate::extension::NotificationPresentationProvider for PerformanceExtension {}
@@ -87,6 +90,9 @@ impl PerformanceExtension {
             snapshot: Snapshot::default(),
             show_download: true,
             show_upload: true,
+            sort_memory: false,
+            cpu_history: Vec::new(),
+            memory_history: Vec::new(),
         }
     }
 }
@@ -105,6 +111,15 @@ impl RuntimeExtension for PerformanceExtension {
     fn update(&mut self, _now: std::time::Instant) -> ExtensionOutput {
         let mut changed = false;
         while let Ok(snapshot) = self.snapshots.try_recv() {
+            if snapshot.ready {
+                self.cpu_history.push(snapshot.cpu_percent);
+                self.memory_history
+                    .push(super::view::memory_percent(&snapshot));
+                if self.cpu_history.len() > 60 {
+                    self.cpu_history.remove(0);
+                    self.memory_history.remove(0);
+                }
+            }
             self.snapshot = snapshot;
             changed = true;
         }
@@ -121,77 +136,31 @@ impl RuntimeExtension for PerformanceExtension {
         if widget_id.as_str() != ID {
             return None;
         }
-        let metrics = &self.snapshot;
-        let network_color = ColorSpec::Info;
-        let mut network = vec![super::super::compact_text("网络").color(ColorSpec::SecondaryText)];
-        network.extend(self.network_rows(network_color));
-        let network = card(ViewNode::column(
-            network,
-            Flow {
-                gap: Some(2.0),
-                justify: Justify::Center,
-                ..Default::default()
-            },
-        ));
-        let metric = |label: &str, value: String, color| {
-            card(
-                ViewNode::new(Node::Metric {
-                    label: label.into(),
-                    value,
-                    unit: String::new(),
-                })
-                .color(color),
-            )
+        Some(super::view::build(
+            &self.snapshot,
+            self.sort_memory,
+            &self.cpu_history,
+            &self.memory_history,
+            self.show_download,
+            self.show_upload,
+        ))
+    }
+
+    fn on_action(
+        &mut self,
+        action: crate::extension::Action,
+        _now: std::time::Instant,
+    ) -> ExtensionOutput {
+        let next = match action {
+            crate::extension::Action::Select(ref key) if key == "process-cpu" => false,
+            crate::extension::Action::Select(ref key) if key == "process-memory" => true,
+            _ => return ExtensionOutput::default(),
         };
-        let battery = card(ViewNode::column(
-            vec![
-                super::super::compact_text("电池").color(ColorSpec::SecondaryText),
-                super::super::icon_text(
-                    if metrics.charging {
-                        "battery-charging"
-                    } else {
-                        "battery"
-                    },
-                    battery_label(metrics),
-                    battery_color(metrics),
-                    14.0,
-                ),
-            ],
-            Flow {
-                gap: Some(4.0),
-                justify: Justify::Center,
-                ..Default::default()
-            },
-        ));
-        let mut grid = Grid::new(Columns::AutoFit {
-            min_item_width: 65.0,
-            max_columns: 4,
-        });
-        grid.column_gap = Some(6.0);
-        grid.row_gap = Some(6.0);
-        let view = WidgetView::new(
-            ViewNode::new(Node::Grid(
-                grid,
-                vec![
-                    metric(
-                        "CPU",
-                        format!("{:.0}%", metrics.cpu_percent),
-                        ColorSpec::Success,
-                    ),
-                    metric(
-                        "GPU",
-                        metrics
-                            .gpu_percent
-                            .map_or_else(|| "不可用".into(), |value| format!("{value:.0}%")),
-                        ColorSpec::Info,
-                    ),
-                    network,
-                    battery,
-                ],
-            )),
-            [320.0, 76.0],
-        );
-        Some(view)
+        self.sort_memory = next;
+        ExtensionOutput {
+            invalidated: vec![ExtensionId::builtin(ID)],
+            ..Default::default()
+        }
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
@@ -283,28 +252,6 @@ impl RuntimeExtension for PerformanceExtension {
     }
 }
 
-impl PerformanceExtension {
-    fn network_rows(&self, color: ColorSpec) -> Vec<ViewNode> {
-        use super::super::icon_text;
-        [
-            (
-                self.show_download,
-                "arrow-down",
-                self.snapshot.download_bytes_per_second,
-            ),
-            (
-                self.show_upload,
-                "arrow-up",
-                self.snapshot.upload_bytes_per_second,
-            ),
-        ]
-        .into_iter()
-        .filter(|(enabled, _, _)| *enabled)
-        .map(|(_, icon, speed)| icon_text(icon, format_speed(speed), color, 12.0))
-        .collect()
-    }
-}
-
 fn processor_compact(icon: &str, percent: Option<f32>, color: ColorSpec) -> ViewNode {
     let mut pulse = MotionTrack::new(MotionProperty::Scale, &[(0, 1.0), (400, 1.14), (800, 1.0)]);
     pulse.amplitude = Some(ValueMapping {
@@ -391,13 +338,13 @@ fn battery_compact(metrics: &Snapshot) -> ViewNode {
     )
 }
 
-fn battery_label(metrics: &Snapshot) -> String {
+pub(super) fn battery_label(metrics: &Snapshot) -> String {
     metrics
         .battery_percent
         .map_or_else(|| "--".into(), |v| format!("{v}%"))
 }
 
-fn battery_color(metrics: &Snapshot) -> ColorSpec {
+pub(super) fn battery_color(metrics: &Snapshot) -> ColorSpec {
     if metrics.battery_percent.is_some_and(|v| v < 20) {
         ColorSpec::Danger
     } else if metrics.charging {
@@ -405,17 +352,6 @@ fn battery_color(metrics: &Snapshot) -> ColorSpec {
     } else {
         ColorSpec::PrimaryText
     }
-}
-
-fn card(mut node: ViewNode) -> ViewNode {
-    node.style.normal.background = Some(ColorSpec::SurfaceVariant);
-    node.style.normal.corner_radius = Some(10.0);
-    node.style.normal.border_color = Some(ColorSpec::Border);
-    node.style.normal.border_width = Some(1.0);
-    node.style.padding = [4.0, 2.0, 4.0, 2.0];
-    node.size.min_height = Some(58.0);
-    node.clip = true;
-    node
 }
 
 fn compact_view(id: &'static str, content: ViewNode, width: f32) -> CompactView {
@@ -439,5 +375,37 @@ fn format_speed(bytes_per_second: f64) -> String {
         format!("{:.0} KB/s", bytes_per_second / 1_000.0)
     } else {
         format!("{:.0} B/s", bytes_per_second.max(0.0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn switching_process_metric_invalidates_the_view_and_keeps_other_actions_unchanged() {
+        let (_sender, snapshots) = std::sync::mpsc::channel();
+        let mut extension = PerformanceExtension {
+            snapshots,
+            snapshot: Snapshot::default(),
+            show_download: true,
+            show_upload: true,
+            sort_memory: false,
+            cpu_history: vec![],
+            memory_history: vec![],
+        };
+        let now = std::time::Instant::now();
+        let output = extension.on_action(
+            crate::extension::Action::Select("process-memory".into()),
+            now,
+        );
+        assert!(extension.sort_memory);
+        assert_eq!(output.invalidated, vec![ExtensionId::builtin(ID)]);
+        assert!(extension
+            .on_action(crate::extension::Action::Reset, now)
+            .invalidated
+            .is_empty());
+        assert!(extension.sort_memory);
+        extension.on_action(crate::extension::Action::Select("process-cpu".into()), now);
+        assert!(!extension.sort_memory);
     }
 }
