@@ -65,6 +65,21 @@ fn compact_detail(text: impl Into<String>) -> ViewNode {
     .color(ColorSpec::SecondaryText)
 }
 
+fn refresh_button(refreshing: bool) -> ViewNode {
+    use crate::ui::declarative::{Node, Size};
+    let label = if refreshing {
+        "刷新中…"
+    } else {
+        "立即刷新"
+    };
+    let mut button =
+        ViewNode::subtle_button(label, Action::Advance).sized(Size::Fixed(66.0), Size::Fixed(22.0));
+    if let Node::Control { enabled, .. } = &mut button.kind {
+        *enabled = !refreshing;
+    }
+    button
+}
+
 fn icon_text(
     icon: &str,
     text: impl Into<String>,

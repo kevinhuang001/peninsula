@@ -384,10 +384,9 @@ fn watch_media(controls: mpsc::Receiver<ControlRequest>, output: mpsc::Sender<Me
 }
 
 fn fetch_lyrics(requests: mpsc::Receiver<Track>, output: mpsc::Sender<(Track, LyricsResult)>) {
-    let agent = lyrics::agent();
     while let Ok(first) = requests.recv() {
         let track = requests.try_iter().last().unwrap_or(first);
-        let result = lyrics::lookup(&track, &agent).map(|lyrics| lyrics.map(Arc::new));
+        let result = lyrics::lookup(&track).map(|lyrics| lyrics.map(Arc::new));
         if output.send((track, result)).is_err() {
             return;
         }

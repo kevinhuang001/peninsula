@@ -9,9 +9,9 @@ use self::{
 use crate::{
     core::external::opencli::OpenCli,
     extension::{
-        ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput,
-        Notification, NotificationPresentationProvider, NotificationPriority, ReloadPolicy,
-        RuntimeExtension, SettingSchema, SettingValue, Settings, WidgetView,
+        Action, Capability, ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionKind,
+        ExtensionOutput, Notification, NotificationPresentationProvider, NotificationPriority,
+        ReloadPolicy, RuntimeExtension, SettingSchema, SettingValue, Settings, WidgetView,
     },
     ui::declarative::{Overflow, ScrollAxes, WidgetBounds},
 };
@@ -58,6 +58,7 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
                     ),
                 ],
             )
+            .with_capabilities(vec![Capability::Action])
             .with_widget_bounds(WidgetBounds {
                 fit_width: true,
                 fit_height: true,
@@ -350,8 +351,17 @@ impl RuntimeExtension for KuaidiExtension {
         ExtensionOutput::default()
     }
 
+    fn on_action(&mut self, action: Action, now: Instant) -> ExtensionOutput {
+        if action != Action::Advance || self.directory.is_none() || self.refresh.is_some() {
+            return ExtensionOutput::default();
+        }
+        self.begin_refresh(now);
+        invalidated()
+    }
+
     fn widget_view(&self, widget_id: &ExtensionId) -> Option<WidgetView> {
-        (widget_id.as_str() == WIDGET_ID).then(|| widget::build(&self.sources))
+        (widget_id.as_str() == WIDGET_ID)
+            .then(|| widget::build(&self.sources, self.refresh.is_some()))
     }
 }
 
@@ -365,6 +375,31 @@ impl NotificationPresentationProvider for KuaidiExtension {
 mod tests {
     use super::*;
     use crate::core::notifications::NotificationManager;
+
+    #[test]
+    fn refresh_button_recovers_when_the_worker_finishes() {
+        let mut extension = KuaidiExtension::default();
+        let widget = || ExtensionId::builtin(WIDGET_ID);
+        let describe = |extension: &KuaidiExtension| {
+            serde_json::to_string(&extension.widget_view(&widget()).unwrap().root).unwrap()
+        };
+        assert!(describe(&extension).contains("立即刷新"));
+        let (sender, results) = mpsc::channel();
+        extension.refresh = Some(Refresh {
+            results,
+            stop: Arc::new(AtomicBool::new(false)),
+        });
+        let pending = describe(&extension);
+        assert!(pending.contains("刷新中…"));
+        assert!(pending.contains("\"enabled\":false"));
+        assert!(extension
+            .on_action(Action::Advance, Instant::now())
+            .invalidated
+            .is_empty());
+        drop(sender);
+        assert_eq!(extension.update(Instant::now()).invalidated, vec![widget()]);
+        assert!(describe(&extension).contains("立即刷新"));
+    }
 
     fn row(status: &str, time: &str, detail: &str) -> Vec<Parcel> {
         vec![serde_json::from_value(serde_json::json!({
