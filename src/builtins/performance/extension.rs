@@ -338,14 +338,14 @@ fn battery_compact(metrics: &Snapshot) -> ViewNode {
                 })
                 .motion(Motion {
                     trigger: Trigger::While(metrics.charging),
-                    duration_ms: 900,
-                    gap_ms: 150,
+                    duration_ms: 2400,
+                    gap_ms: 500,
                     repeat: Repeat::Infinite,
                     tracks: vec![
-                        MotionTrack::new(MotionProperty::TranslateX, &[(0, -8.0), (900, 8.0)]),
+                        MotionTrack::new(MotionProperty::TranslateX, &[(0, -8.0), (2400, 8.0)]),
                         MotionTrack::new(
                             MotionProperty::Opacity,
-                            &[(0, 0.0), (150, 1.0), (750, 1.0), (900, 0.0)],
+                            &[(0, 0.0), (400, 1.0), (2000, 1.0), (2400, 0.0)],
                         ),
                     ],
                     ..Default::default()

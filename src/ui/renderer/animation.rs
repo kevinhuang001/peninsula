@@ -230,8 +230,8 @@ pub(crate) fn set_reduced_motion(ctx: &egui::Context, reduced: bool) {
     ctx.data_mut(|data| data.insert_temp(Id::new("declarative-reduced-motion"), reduced));
 }
 
-fn reduced_motion(ui: &Ui) -> bool {
-    ui.data(|data| {
+pub(crate) fn reduced_motion(ctx: &egui::Context) -> bool {
+    ctx.data(|data| {
         data.get_temp(Id::new("declarative-reduced-motion"))
             .unwrap_or(false)
     })
@@ -293,7 +293,7 @@ impl Renderer<'_> {
         supports_progress: bool,
     ) -> Effects {
         let mut effects = Effects::default();
-        let reduced = reduced_motion(ui);
+        let reduced = reduced_motion(ui.ctx());
         let transition = spec.transition.filter(|transition| {
             supports_progress || transition.property != MotionProperty::Progress
         });
@@ -388,7 +388,7 @@ impl Renderer<'_> {
 
     pub(super) fn sprite_index(&mut self, ui: &Ui, id: Id, spec: &SpriteSequence) -> usize {
         let frames = &spec.frames[..spec.frames.len().min(MAX_SPRITE_FRAMES)];
-        if frames.len() < 2 || self.animations_remaining == 0 || reduced_motion(ui) {
+        if frames.len() < 2 || self.animations_remaining == 0 || reduced_motion(ui.ctx()) {
             return 0;
         }
         self.animations_remaining -= 1;
@@ -450,7 +450,7 @@ impl Renderer<'_> {
         count: usize,
         frame_ms: u32,
     ) -> usize {
-        if count < 2 || self.animations_remaining == 0 || reduced_motion(ui) {
+        if count < 2 || self.animations_remaining == 0 || reduced_motion(ui.ctx()) {
             return 0;
         }
         self.animations_remaining -= 1;
