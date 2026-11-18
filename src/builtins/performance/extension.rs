@@ -194,7 +194,11 @@ impl RuntimeExtension for PerformanceExtension {
             ),
             compact_view(
                 "builtin.system-monitor/cpu",
-                processor_compact("cpu", Some(metrics.cpu_percent), ColorSpec::Success),
+                processor_compact(
+                    "cpu",
+                    metrics.ready.then_some(metrics.cpu_percent),
+                    ColorSpec::Success,
+                ),
                 56.0,
             ),
             compact_view(
@@ -366,7 +370,7 @@ fn power_label(metrics: &Snapshot) -> &'static str {
     } else if metrics.external_power == Some(true) && metrics.battery_percent.is_none() {
         "已接通电源 · 电池电量未知或无电池"
     } else if metrics.external_power == Some(true) {
-        "已接通电源 · 未充电（已充满或达到充电上限）"
+        "已接通电源 · 未充电"
     } else if metrics.external_power == Some(false) {
         "使用电池供电"
     } else {
