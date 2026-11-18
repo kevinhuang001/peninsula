@@ -12,7 +12,7 @@ use windows::Win32::{
 // SetWindowRgn affects both drawing and native hit testing. Transparent canvas
 // outside the capsule must not intercept clicks or window drags in other apps.
 #[cfg(target_os = "windows")]
-pub(super) fn update_hit_region(
+pub(in crate::app) fn update_hit_region(
     frame: &eframe::Frame,
     rect: Option<Rect>,
     _dragging: bool,
@@ -62,7 +62,7 @@ fn physical_region(rect: Rect, scale: f32) -> [i32; 5] {
 }
 
 #[cfg(target_os = "windows")]
-pub(super) fn pointer_inside(
+pub(in crate::app) fn pointer_inside(
     frame: &eframe::Frame,
     rect: Option<Rect>,
     _pointer: Option<eframe::egui::Pos2>,
