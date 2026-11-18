@@ -28,6 +28,7 @@ mod platform;
 mod settings;
 mod state;
 mod trackpad;
+mod widget_layout;
 mod widgets;
 
 use icons::Icons;
@@ -38,9 +39,9 @@ const WINDOW_TOP_PADDING: f32 = 4.0;
 const SCREEN_FRACTION: f32 = 0.75;
 
 fn minimum_widget_size(screen: Vec2) -> Vec2 {
-    // 360 × 160 at the reference display size of 1440 × 900.
+    // Width grows gently with logical screen resolution; height retains its reference ratio.
     egui::vec2(
-        (screen.x * 0.25).round(),
+        widget_layout::width_range(screen.x, None)[0],
         (screen.y * (160.0 / 900.0)).round(),
     )
 }
@@ -389,7 +390,8 @@ impl eframe::App for IslandApp {
 
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
         let now = Instant::now();
-        let mut widget_limit = widget_limit((self.screen_size() * SCREEN_FRACTION).floor());
+        let surface_limit = widget_limit((self.screen_size() * SCREEN_FRACTION).floor());
+        let mut widget_limit = surface_limit;
         if self
             .last_platform_check
             .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(1))
@@ -487,17 +489,15 @@ impl eframe::App for IslandApp {
         } else {
             self.extensions.widget_view(&self.active_widget, now)
         };
-        // A content-fitted view can explicitly opt into a wider canvas.
-        // Music uses this for single-line lyrics in both presentation modes.
-        if let Some(maximum) = widget_view
-            .as_deref()
-            .filter(|view| view.bounds.fit_width)
-            .and_then(|view| view.bounds.max[0])
-            .filter(|maximum| maximum.is_finite() && *maximum > 0.0)
-        {
-            widget_limit[0] = widget_limit[0].max(maximum);
-        }
-        let minimum = minimum_widget_size(self.screen_size());
+        let widths = widget_layout::width_range(
+            self.screen_size().x,
+            widget_view
+                .as_ref()
+                .and_then(|view| view.bounds.minimum_width_scale),
+        );
+        widget_limit[0] = widget_limit[0].min(widths[1]);
+        let mut minimum = minimum_widget_size(self.screen_size());
+        minimum.x = widths[0];
         // Retain the source Arc so pointer identity cannot be recycled. Measure
         // only on data/layout changes, never on every frame of the capsule spring.
         if let Some(view) = widget_view.as_ref() {
@@ -536,7 +536,7 @@ impl eframe::App for IslandApp {
         );
         let widget_width = widget_width
             .max(minimum.x.min(widget_limit[0]))
-            .max(capsule::navigation_width(context, &widget_titles).min(widget_limit[0]));
+            .min(widget_limit[0]);
         let content_height =
             if let Some(view) = widget_view.as_deref().filter(|view| view.bounds.fit_height) {
                 let body_width = capsule::body_size(widget_width, 0.0).x;
@@ -581,7 +581,7 @@ impl eframe::App for IslandApp {
             }
         }
         let width = if self.settings_open {
-            SettingsView::WIDTH.min(widget_limit[0])
+            SettingsView::WIDTH.min(surface_limit[0])
         } else {
             widget_width
         };
@@ -769,7 +769,7 @@ impl eframe::App for IslandApp {
             if toggle_settings {
                 self.settings_open = !self.settings_open;
                 let width = if self.settings_open {
-                    SettingsView::WIDTH.min(widget_limit[0])
+                    SettingsView::WIDTH.min(surface_limit[0])
                 } else {
                     widget_width
                 };
@@ -880,10 +880,11 @@ impl eframe::App for IslandApp {
         if drag_started {
             self.window_drag.begin(frame, context);
         }
-        if self
-            .state
-            .observe_hover(hovering || dragging || notice.is_some(), dt)
-        {
+        if self.state.observe_interaction(
+            hovering || dragging || notice.is_some(),
+            self.settings_open,
+            dt,
+        ) {
             if self.state.expanded && notice.is_none() {
                 context.send_viewport_cmd(egui::ViewportCommand::Focus);
             }
@@ -960,11 +961,11 @@ mod sizing_tests {
     fn minimum_widget_dimensions_follow_the_screen() {
         assert_eq!(
             minimum_widget_size(egui::vec2(1440.0, 900.0)),
-            egui::vec2(360.0, 160.0)
+            egui::vec2(280.0, 160.0)
         );
         assert_eq!(
             minimum_widget_size(egui::vec2(2160.0, 1350.0)),
-            egui::vec2(540.0, 240.0)
+            egui::vec2(343.0, 240.0)
         );
     }
 }

@@ -162,29 +162,6 @@ pub(in crate::app) fn navigation_rect(rect: Rect) -> Rect {
     )
 }
 
-pub(in crate::app) fn navigation_width(context: &egui::Context, titles: &[String]) -> f32 {
-    context
-        .fonts(|fonts| {
-            titles
-                .iter()
-                .map(String::as_str)
-                .map(|title| {
-                    fonts
-                        .layout_no_wrap(
-                            title.to_owned(),
-                            FontId::proportional(NAVIGATION_FONT),
-                            Color32::WHITE,
-                        )
-                        .size()
-                        .x
-                        + 2.0 * TAB_PADDING
-                })
-                .sum::<f32>()
-                + 32.0
-        })
-        .ceil()
-}
-
 /// Title tabs use the same runtime-visible widget list as swipe/keyboard paging.
 /// Every title has a short line; only the active widget's line is bright.
 pub(super) fn paint_tabs(

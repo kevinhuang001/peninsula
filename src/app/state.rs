@@ -110,6 +110,9 @@ impl IslandState {
         self.shrink_grace_remaining = PAGE_SHRINK_GRACE;
     }
 
+    pub fn observe_interaction(&mut self, hovered: bool, keep_open: bool, dt: f32) -> bool {
+        self.observe_hover(hovered || keep_open, dt)
+    }
     pub fn observe_hover(&mut self, hovered: bool, dt: f32) -> bool {
         self.shrink_grace_remaining = (self.shrink_grace_remaining - dt).max(0.0);
         if self.suppress_hover_until_exit {
@@ -342,5 +345,24 @@ mod tests {
         state.observe_hover(false, 0.01);
         assert!(state.observe_hover(true, 0.2));
         assert!(!state.hides_widget());
+    }
+}
+
+#[cfg(test)]
+mod persistent_surface_tests {
+    use super::*;
+    #[test]
+    fn settings_stay_open_without_pinning_and_closing_restores_hover_collapse() {
+        let mut state = IslandState::default();
+        state.observe_interaction(true, true, 0.2);
+        assert!(state.expanded && !state.is_pinned());
+        for _ in 0..100 {
+            state.observe_interaction(false, true, 0.05);
+        }
+        assert!(state.expanded && !state.is_pinned());
+        for _ in 0..8 {
+            state.observe_interaction(false, false, 0.05);
+        }
+        assert!(!state.expanded);
     }
 }

@@ -7,7 +7,7 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 mod compact;
 mod expanded;
 use crate::ui::renderer;
-pub(super) use expanded::{navigation_rect, navigation_width, NAVIGATION_HEIGHT};
+pub(super) use expanded::{navigation_rect, NAVIGATION_HEIGHT};
 
 use super::{
     compact_layout::{CompactItem, CAPSULE_HEIGHT},

@@ -42,6 +42,8 @@ pub enum RefreshHint {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WidgetBounds {
+    /// Optional reduction of the host's screen-dependent minimum width.
+    pub minimum_width_scale: Option<f32>,
     pub min: [f32; 2],
     pub max: [Option<f32>; 2],
     pub resizable: bool,

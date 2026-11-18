@@ -480,6 +480,10 @@ impl ExtensionManager {
         self.widget_cache
             .get_or_build(id.clone(), now, || {
                 let view = extension.widget_view(id).map(|mut view| {
+                    view.bounds.minimum_width_scale = descriptor
+                        .widget_bounds
+                        .minimum_width_scale
+                        .or(view.bounds.minimum_width_scale);
                     view.bounds.fit_width |= descriptor.widget_bounds.fit_width;
                     view.bounds.fit_height |= descriptor.widget_bounds.fit_height;
                     if view.bounds.overflow == crate::ui::declarative::Overflow::Clip {

@@ -1,3 +1,4 @@
+mod forms;
 mod migration;
 mod model;
 mod preferences;

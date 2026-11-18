@@ -21,7 +21,7 @@ use std::{
 
 const WIDGET_ID: &str = "builtin.music/now-playing";
 const COMPACT_ID: &str = "builtin.music/lyrics";
-const WIDGET_SIZE: [f32; 2] = [368.0, 188.0];
+const WIDGET_SIZE: [f32; 2] = [280.0, 188.0];
 const COMPACT_WIDTH: f32 = 176.0;
 const COMPACT_LYRIC_MIN_WIDTH: f32 = 360.0;
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
@@ -55,7 +55,8 @@ pub(super) fn descriptors() -> Vec<ContributionDescriptor> {
 
 fn widget_bounds() -> WidgetBounds {
     WidgetBounds {
-        min: [WIDGET_SIZE[0], 0.0],
+        min: [240.0, 0.0],
+        minimum_width_scale: Some(0.85),
         max: [Some(MAX_CONTENT_WIDTH), None],
         fit_width: true,
         fit_height: true,
