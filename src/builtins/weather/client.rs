@@ -51,6 +51,21 @@ pub fn fetch(
             .map(location_from_saved)
             .ok_or_else(|| "请先在设置中选择天气城市".to_owned())?
     };
+    let location =
+        if !preferences.auto_locate && location.latitude == 0.0 && location.longitude == 0.0 {
+            let city = search_cities(&location.name)?
+                .into_iter()
+                .next()
+                .ok_or("没有找到天气城市")?;
+            Location {
+                name: format!("{} {}", city.name, city.detail()).trim().into(),
+                latitude: city.latitude,
+                longitude: city.longitude,
+                ..location
+            }
+        } else {
+            location
+        };
     let body = get(&forecast_url(&location))?;
     parse_snapshot(&body, location)
 }

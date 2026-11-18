@@ -66,44 +66,6 @@ pub(super) fn gpu_utilization() -> Option<f32> {
     None
 }
 
-#[cfg(target_os = "windows")]
-pub(super) fn windows_battery_status() -> Option<crate::builtins::performance::power::PowerSnapshot>
-{
-    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
-    let mut status = SYSTEM_POWER_STATUS::default();
-    unsafe { GetSystemPowerStatus(&mut status) }.ok()?;
-    Some(decode_windows_battery_status(
-        status.ACLineStatus,
-        status.BatteryFlag,
-        status.BatteryLifePercent,
-    ))
-}
-
-#[cfg(any(target_os = "windows", test))]
-fn decode_windows_battery_status(
-    ac_line: u8,
-    flags: u8,
-    percent: u8,
-) -> crate::builtins::performance::power::PowerSnapshot {
-    use crate::builtins::performance::power::PowerSnapshot;
-    let external = match ac_line {
-        0 => Some(false),
-        1 => Some(true),
-        _ => None,
-    };
-    if flags != 255 && flags & 128 != 0 {
-        return PowerSnapshot {
-            external,
-            ..Default::default()
-        };
-    }
-    PowerSnapshot {
-        percent: (percent <= 100).then_some(percent),
-        external,
-        charging: flags != 255 && flags & 8 != 0 && external != Some(false),
-    }
-}
-
 #[cfg(any(target_os = "windows", test))]
 fn parse_percent(text: &str) -> Option<f32> {
     let value = text.trim().parse::<f32>().ok()?;
@@ -114,36 +76,6 @@ fn parse_percent(text: &str) -> Option<f32> {
 mod tests {
     #[cfg(target_os = "macos")]
     use super::parse_gpu_utilization;
-
-    #[test]
-    fn windows_distinguishes_charging_full_charge_limit_and_unknown_data() {
-        use crate::builtins::performance::power::PowerSnapshot as Power;
-        let decode = super::decode_windows_battery_status;
-        assert_eq!(
-            decode(1, 8, 60),
-            Power {
-                percent: Some(60),
-                external: Some(true),
-                charging: true
-            }
-        );
-        for percent in [80, 100] {
-            assert_eq!(
-                decode(1, 1, percent),
-                Power {
-                    percent: Some(percent),
-                    external: Some(true),
-                    charging: false
-                }
-            );
-        }
-        assert!(!decode(0, 8, 60).charging);
-        assert!(!decode(1, 255, 60).charging);
-        assert_eq!(decode(1, 0, 255).external, Some(true));
-        assert_eq!(decode(1, 0, 255).percent, None);
-        assert_eq!(decode(255, 255, 255), Power::default());
-        assert_eq!(decode(1, 128, 255).percent, None);
-    }
 
     #[test]
     #[cfg(target_os = "macos")]

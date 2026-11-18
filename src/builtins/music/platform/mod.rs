@@ -26,6 +26,7 @@ pub(super) enum Command {
     Previous,
     Toggle,
     Next,
+    Seek(u64),
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -33,6 +34,7 @@ pub(super) struct Controls {
     pub previous: bool,
     pub toggle: bool,
     pub next: bool,
+    pub seek: bool,
 }
 
 impl Controls {
@@ -41,6 +43,7 @@ impl Controls {
             Command::Previous => self.previous,
             Command::Toggle => self.toggle,
             Command::Next => self.next,
+            Command::Seek(_) => self.seek,
         }
     }
 }

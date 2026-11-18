@@ -1,17 +1,11 @@
 use crate::{
-    extension::{
-        Action, CompactView, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput,
-        RuntimeExtension,
-    },
+    extension::{Action, CompactView, ExtensionId},
     ui::declarative::{
         CompactLayout, Node, Playback, Repeat, Size, SpriteFrame, SpriteSequence, Trigger, ViewNode,
     },
 };
-use std::time::{Duration, Instant};
 
-const ID: &str = "builtin.mascot/face";
-const START_DELAY: Duration = Duration::from_secs(4);
-const IDLE_DELAY: Duration = Duration::from_secs(7);
+const ID: &str = super::MASCOT_SLOT_ID;
 
 const SHEETS: [(&str, &[u8]); 12] = [
     (
@@ -71,32 +65,16 @@ const IDLE_TIMES: [u32; 16] = [
     350, 130, 150, 180, 350, 280, 160, 110, 110, 160, 350, 280, 160, 140, 200, 350,
 ];
 
-pub(super) fn descriptor() -> ExtensionDescriptor {
-    ExtensionDescriptor::builtin(ID, ExtensionKind::Compact, "表情", "mascot", true, 0)
-        .with_size_hint(38.0, 28.0)
-        .with_capabilities(vec![crate::extension::Capability::Action])
-}
-
-pub(crate) fn register_assets(ctx: &eframe::egui::Context) {
+pub fn register_assets(ctx: &eframe::egui::Context) {
     for (asset, bytes) in SHEETS {
         crate::ui::renderer::register_png(ctx, asset, bytes);
     }
 }
 
+#[derive(Default)]
 pub(crate) struct Mascot {
     expression: usize,
-    next_expression_at: Instant,
     revision: u64,
-}
-
-impl Default for Mascot {
-    fn default() -> Self {
-        Self {
-            expression: 0,
-            next_expression_at: Instant::now() + START_DELAY,
-            revision: 0,
-        }
-    }
 }
 
 impl Mascot {
@@ -107,43 +85,18 @@ impl Mascot {
             &EXPRESSION_TIMES
         }
     }
-
-    fn advance(&mut self, now: Instant) -> ExtensionOutput {
-        self.expression = (self.expression + 1) % SHEETS.len();
-        self.revision += 1;
-        let duration_ms = u64::from(self.timings().iter().sum::<u32>());
-        self.next_expression_at = now + Duration::from_millis(duration_ms) + IDLE_DELAY;
-        ExtensionOutput {
-            invalidated: vec![ExtensionId::builtin(ID)],
-            ..Default::default()
-        }
-    }
 }
 
-impl crate::extension::NotificationPresentationProvider for Mascot {}
-
-impl RuntimeExtension for Mascot {
-    fn descriptors(&self) -> Vec<ExtensionDescriptor> {
-        vec![descriptor()]
-    }
-
-    fn update(&mut self, now: Instant) -> ExtensionOutput {
-        if now >= self.next_expression_at {
-            self.advance(now)
-        } else {
-            ExtensionOutput::default()
+impl Mascot {
+    pub fn select(&mut self, expression: usize) {
+        let expression = expression.min(SHEETS.len() - 1);
+        if expression != self.expression {
+            self.expression = expression;
+            self.revision += 1;
         }
     }
 
-    fn on_action(&mut self, action: Action, now: Instant) -> ExtensionOutput {
-        if action == Action::Advance {
-            self.advance(now)
-        } else {
-            ExtensionOutput::default()
-        }
-    }
-
-    fn compact_views(&self) -> Vec<CompactView> {
+    pub fn compact_views(&self) -> Vec<CompactView> {
         let (asset, _) = SHEETS[self.expression];
         let mut frames: Vec<_> = self
             .timings()
@@ -198,35 +151,35 @@ impl RuntimeExtension for Mascot {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use image::GenericImageView;
-
-    #[test]
-    fn clicking_or_reaching_the_idle_deadline_changes_the_declared_sprite() {
-        let mut mascot = Mascot::default();
-        let initial = mascot.compact_views();
-        assert!(mascot
-            .update(mascot.next_expression_at - Duration::from_millis(1))
-            .invalidated
-            .is_empty());
-        assert_eq!(
-            mascot.update(mascot.next_expression_at).invalidated,
-            vec![ExtensionId::builtin(ID)]
-        );
-        assert_ne!(mascot.compact_views(), initial);
-        let before_click = mascot.compact_views();
-        mascot.on_action(Action::Advance, Instant::now());
-        assert_ne!(mascot.compact_views(), before_click);
-    }
-
-    #[test]
-    fn bundled_reference_art_has_sixteen_transparent_animation_frames() {
-        for (_, bytes) in SHEETS {
-            let image = image::load_from_memory(bytes).expect("valid expression PNG");
-            assert_eq!(image.dimensions(), (144, 1440));
-            assert!(image.color().has_alpha());
+pub(super) fn freeze(node: &mut ViewNode) {
+    match &mut node.kind {
+        Node::SpriteSequence(sequence) => {
+            sequence.playback = Playback::Paused;
+            sequence.trigger = Trigger::While(false);
         }
+        Node::Compact(compact) => {
+            freeze(&mut compact.leading);
+            freeze(&mut compact.content);
+        }
+        Node::Motion { child, motion } => {
+            motion.playback = Playback::Paused;
+            freeze(child);
+        }
+        Node::ActionArea { content, .. } | Node::Container(content) | Node::Scroll(_, content) => {
+            freeze(content)
+        }
+        Node::Sprite { frames, .. } => {
+            frames.truncate(1);
+        }
+        Node::Row(_, children)
+        | Node::Column(_, children)
+        | Node::Wrap(_, children)
+        | Node::Stack(_, children)
+        | Node::Grid(_, children) => {
+            for child in children {
+                freeze(child);
+            }
+        }
+        _ => {}
     }
 }

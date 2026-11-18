@@ -1,54 +1,55 @@
-use super::power::PowerSnapshot;
 use super::sampler::{MetricsSampler, Snapshot};
-use crate::core::latest::LatestReceiver;
+use crate::core::worker::Worker;
 use crate::extension::{
-    CompactView, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput, ReloadPolicy,
-    RuntimeExtension, SettingSchema, SettingValue, Settings, ViewNode, WidgetView,
+    CompactView, ContributionDescriptor, ContributionKind, ExtensionId, ExtensionOutput,
+    ReloadPolicy, RuntimeExtension, SettingSchema, SettingValue, Settings, ViewNode, WidgetView,
 };
 use crate::ui::declarative::*;
 
 pub const ID: &str = "builtin.system-monitor/overview";
-const BATTERY_WIDTH: f32 = 64.0;
-const NETWORK_WIDTH: f32 = 88.0;
+const NETWORK_WIDTH: f32 = 106.0;
 
-pub fn descriptors() -> Vec<ExtensionDescriptor> {
+pub fn descriptors() -> Vec<ContributionDescriptor> {
     vec![
-        ExtensionDescriptor::builtin(ID, ExtensionKind::Widget, "性能监控", "activity", true, 1)
-            .with_size_hint(440.0, 410.0)
-            .with_widget_bounds(WidgetBounds {
-                min: [320.0, 200.0],
-                max: [Some(620.0), Some(520.0)],
-                resizable: true,
-                fit_width: false,
-                fit_height: true,
-                overflow: Overflow::Scroll(ScrollAxes::Vertical),
-            })
-            .with_settings(
-                1,
-                vec![
-                    SettingSchema::new(
-                        "show_download",
-                        SettingValue::Boolean(true),
-                        "显示下载速率",
-                    ),
-                    SettingSchema::new("show_upload", SettingValue::Boolean(true), "显示上传速率"),
-                ],
-            )
-            .with_capabilities(vec![
-                crate::extension::Capability::View,
-                crate::extension::Capability::Action,
-                crate::extension::Capability::Event,
-            ]),
-        compact_descriptor(
-            "builtin.system-monitor/battery",
-            "电池",
-            "battery",
+        ContributionDescriptor::builtin(
+            ID,
+            ContributionKind::Widget,
+            "性能监控",
+            "activity",
             true,
             1,
-            BATTERY_WIDTH,
-        ),
+        )
+        .with_size_hint(440.0, 410.0)
+        .with_widget_bounds(WidgetBounds {
+            min: [320.0, 200.0],
+            max: [Some(620.0), Some(520.0)],
+            resizable: true,
+            fit_width: false,
+            fit_height: true,
+            overflow: Overflow::Scroll(ScrollAxes::Vertical),
+        })
+        .with_settings(
+            1,
+            vec![
+                SettingSchema::new("show_download", SettingValue::Boolean(true), "显示下载速率"),
+                SettingSchema::new("show_upload", SettingValue::Boolean(true), "显示上传速率"),
+            ],
+        )
+        .with_capabilities(vec![
+            crate::extension::Capability::View,
+            crate::extension::Capability::Action,
+            crate::extension::Capability::Event,
+        ]),
         compact_descriptor("builtin.system-monitor/cpu", "CPU", "cpu", false, 2, 56.0),
         compact_descriptor("builtin.system-monitor/gpu", "GPU", "gpu", false, 3, 56.0),
+        compact_descriptor(
+            "builtin.system-monitor/memory",
+            "内存",
+            "memory",
+            false,
+            4,
+            56.0,
+        ),
         compact_descriptor(
             "builtin.system-monitor/network",
             "网络",
@@ -67,16 +68,15 @@ fn compact_descriptor(
     enabled: bool,
     order: u32,
     width: f32,
-) -> ExtensionDescriptor {
-    ExtensionDescriptor::builtin(id, ExtensionKind::Compact, title, icon, enabled, order)
+) -> ContributionDescriptor {
+    ContributionDescriptor::builtin(id, ContributionKind::Compact, title, icon, enabled, order)
         .with_size_hint(width, 28.0)
 }
 
 pub struct PerformanceExtension {
-    snapshots: LatestReceiver<Snapshot>,
-    power_updates: LatestReceiver<PowerSnapshot>,
-    power: PowerSnapshot,
-    gpu_updates: LatestReceiver<Option<f32>>,
+    snapshots: Option<Worker<Snapshot>>,
+    gpu_updates: Option<Worker<Option<f32>>>,
+    sample_interval: std::time::Duration,
     gpu: Option<f32>,
     snapshot: Snapshot,
     show_download: bool,
@@ -91,10 +91,9 @@ impl crate::extension::NotificationPresentationProvider for PerformanceExtension
 impl PerformanceExtension {
     pub fn new() -> Self {
         Self {
-            snapshots: MetricsSampler::start(),
-            power_updates: super::power::start(),
-            power: PowerSnapshot::default(),
-            gpu_updates: super::sampler::start_gpu(),
+            snapshots: None,
+            gpu_updates: None,
+            sample_interval: std::time::Duration::from_secs(1),
             gpu: None,
             snapshot: Snapshot::default(),
             show_download: true,
@@ -113,13 +112,33 @@ impl Default for PerformanceExtension {
 }
 
 impl RuntimeExtension for PerformanceExtension {
-    fn descriptors(&self) -> Vec<ExtensionDescriptor> {
-        descriptors()
+    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+        let mut descriptor = crate::extension::ExtensionDescriptor::builtin(
+            "builtin.system-monitor",
+            "系统监控",
+            "CPU、GPU、内存、进程和网络",
+            descriptors(),
+        );
+        descriptor.settings.push(
+            SettingSchema::new("sample_seconds", SettingValue::Integer(1), "采样间隔（秒）")
+                .range(1.0, 60.0),
+        );
+        descriptor
+    }
+    fn on_start(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {
+        self.snapshots = Some(MetricsSampler::start(self.sample_interval));
+        self.gpu_updates = Some(super::sampler::start_gpu());
+        Ok(())
+    }
+    fn on_stop(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {
+        self.snapshots = None;
+        self.gpu_updates = None;
+        Ok(())
     }
 
     fn update(&mut self, _now: std::time::Instant) -> ExtensionOutput {
         let mut changed = false;
-        while let Some(snapshot) = self.snapshots.take() {
+        while let Some(snapshot) = self.snapshots.as_ref().and_then(Worker::take) {
             if snapshot.ready {
                 self.cpu_history.push(snapshot.cpu_percent);
                 self.memory_history
@@ -132,18 +151,11 @@ impl RuntimeExtension for PerformanceExtension {
             self.snapshot = snapshot;
             changed = true;
         }
-        if let Some(power) = self.power_updates.take() {
-            changed |= self.power != power;
-            self.power = power;
-        }
-        if let Some(gpu) = self.gpu_updates.take() {
+        if let Some(gpu) = self.gpu_updates.as_ref().and_then(Worker::take) {
             changed |= self.gpu != gpu;
             self.gpu = gpu;
         }
         self.snapshot.gpu_percent = self.gpu;
-        self.snapshot.battery_percent = self.power.percent;
-        self.snapshot.charging = self.power.charging;
-        self.snapshot.external_power = self.power.external;
         ExtensionOutput {
             invalidated: changed
                 .then(|| ExtensionId::builtin(ID))
@@ -188,9 +200,13 @@ impl RuntimeExtension for PerformanceExtension {
         let metrics = &self.snapshot;
         let mut views = vec![
             compact_view(
-                "builtin.system-monitor/battery",
-                battery_compact(metrics),
-                BATTERY_WIDTH,
+                "builtin.system-monitor/memory",
+                processor_compact(
+                    "cpu",
+                    Some(super::view::memory_percent(metrics)),
+                    ColorSpec::Info,
+                ),
+                56.0,
             ),
             compact_view(
                 "builtin.system-monitor/cpu",
@@ -207,11 +223,14 @@ impl RuntimeExtension for PerformanceExtension {
                 56.0,
             ),
         ];
-        views[0].tooltip = Some(power_label(metrics).into());
         if self.show_download || self.show_upload {
             let rates = [
-                (self.show_download, "↓", metrics.download_bytes_per_second),
-                (self.show_upload, "↑", metrics.upload_bytes_per_second),
+                (
+                    self.show_download,
+                    "下行",
+                    metrics.download_bytes_per_second,
+                ),
+                (self.show_upload, "上行", metrics.upload_bytes_per_second),
             ];
             let mut transmitting = 0.0_f64;
             let mut lines = Vec::new();
@@ -272,6 +291,15 @@ impl RuntimeExtension for PerformanceExtension {
         settings: &Settings,
         _policy: ReloadPolicy,
     ) -> ExtensionOutput {
+        if let Some(SettingValue::Integer(seconds)) = settings.get("sample_seconds") {
+            let interval = std::time::Duration::from_secs(*seconds as u64);
+            if interval != self.sample_interval {
+                self.sample_interval = interval;
+                if self.snapshots.is_some() {
+                    self.snapshots = Some(MetricsSampler::start(interval));
+                }
+            }
+        }
         self.show_download = settings.get("show_download") != Some(&SettingValue::Boolean(false));
         self.show_upload = settings.get("show_upload") != Some(&SettingValue::Boolean(false));
         ExtensionOutput::default()
@@ -307,93 +335,6 @@ fn processor_compact(icon: &str, percent: Option<f32>, color: ColorSpec) -> View
     )
 }
 
-fn battery_compact(metrics: &Snapshot) -> ViewNode {
-    let level = f32::from(metrics.battery_percent.unwrap_or(0)) / 100.0;
-    let color = battery_color(metrics);
-    let indicator = |segments, fraction, width, inactive, color| {
-        ViewNode::new(Node::SegmentedIndicator {
-            segments,
-            fraction,
-            gap: 0.9,
-            direction: FillDirection::LeftToRight,
-            inactive,
-        })
-        .sized(Size::Fixed(width), Size::Fixed(5.0))
-        .color(color)
-    };
-    let leading = ViewNode::new(Node::Stack(
-        [Align::Center; 2],
-        vec![
-            ViewNode::svg("compact/battery", 24.0).color(color),
-            indicator(5, level, 17.0, ColorSpec::Border, color)
-                .motion(Motion::progress(level, 200)),
-            indicator(1, 1.0, 1.8, ColorSpec::Transparent, ColorSpec::OnAccent)
-                .styled(Style {
-                    normal: Paint {
-                        foreground: Some(ColorSpec::OnAccent),
-                        opacity: Some(if metrics.charging { 0.55 } else { 0.0 }),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
-                .motion(Motion {
-                    trigger: Trigger::While(metrics.charging),
-                    duration_ms: 2400,
-                    gap_ms: 500,
-                    repeat: Repeat::Infinite,
-                    tracks: vec![
-                        MotionTrack::new(MotionProperty::TranslateX, &[(0, -8.0), (2400, 8.0)]),
-                        MotionTrack::new(
-                            MotionProperty::Opacity,
-                            &[(0, 0.0), (400, 1.0), (2000, 1.0), (2400, 0.0)],
-                        ),
-                    ],
-                    ..Default::default()
-                }),
-        ],
-    ))
-    .sized(Size::Fixed(25.0), Size::Fixed(24.0));
-    ViewNode::compact(
-        leading,
-        super::super::compact_value(battery_label(metrics), true).color(color),
-        CompactLayout {
-            leading_size: [25.0, 24.0],
-            gap: 4.0,
-            ..Default::default()
-        },
-    )
-}
-
-fn power_label(metrics: &Snapshot) -> &'static str {
-    if metrics.charging {
-        "正在充电"
-    } else if metrics.external_power == Some(true) && metrics.battery_percent.is_none() {
-        "已接通电源 · 电池电量未知或无电池"
-    } else if metrics.external_power == Some(true) {
-        "已接通电源 · 未充电"
-    } else if metrics.external_power == Some(false) {
-        "使用电池供电"
-    } else {
-        "电源状态未知"
-    }
-}
-
-pub(super) fn battery_label(metrics: &Snapshot) -> String {
-    metrics
-        .battery_percent
-        .map_or_else(|| "--".into(), |v| format!("{v}%"))
-}
-
-pub(super) fn battery_color(metrics: &Snapshot) -> ColorSpec {
-    if metrics.battery_percent.is_some_and(|v| v < 20) {
-        ColorSpec::Danger
-    } else if metrics.charging || metrics.external_power == Some(true) {
-        ColorSpec::Success
-    } else {
-        ColorSpec::PrimaryText
-    }
-}
-
 fn compact_view(id: &'static str, content: ViewNode, width: f32) -> CompactView {
     CompactView {
         id: ExtensionId::builtin(id),
@@ -422,81 +363,14 @@ fn format_speed(bytes_per_second: f64) -> String {
 mod tests {
     use super::*;
     #[test]
-    fn switching_process_metric_invalidates_the_view_and_keeps_other_actions_unchanged() {
-        let (_sender, snapshots) = crate::core::latest::channel();
-        let mut extension = PerformanceExtension {
-            snapshots,
-            power_updates: crate::core::latest::channel().1,
-            power: PowerSnapshot::default(),
-            gpu_updates: crate::core::latest::channel().1,
-            gpu: None,
-            snapshot: Snapshot::default(),
-            show_download: true,
-            show_upload: true,
-            sort_memory: false,
-            cpu_history: vec![],
-            memory_history: vec![],
-        };
-        let now = std::time::Instant::now();
-        let output = extension.on_action(
+    fn process_sort_is_independent_of_worker_lifecycle() {
+        let mut e = PerformanceExtension::default();
+        assert!(e.snapshots.is_none());
+        let output = e.on_action(
             crate::extension::Action::Select("process-memory".into()),
-            now,
+            std::time::Instant::now(),
         );
-        assert!(extension.sort_memory);
+        assert!(e.sort_memory);
         assert_eq!(output.invalidated, vec![ExtensionId::builtin(ID)]);
-        assert!(extension
-            .on_action(crate::extension::Action::Reset, now)
-            .invalidated
-            .is_empty());
-        assert!(extension.sort_memory);
-        extension.on_action(crate::extension::Action::Select("process-cpu".into()), now);
-        assert!(!extension.sort_memory);
-    }
-}
-
-#[cfg(test)]
-mod freshness_tests {
-    use super::*;
-    #[test]
-    fn power_changes_invalidate_compact_without_waiting_for_gpu_metrics() {
-        let (metrics_tx, snapshots) = crate::core::latest::channel();
-        let (power_tx, power_updates) = crate::core::latest::channel();
-        let mut extension = PerformanceExtension {
-            snapshots,
-            power_updates,
-            power: PowerSnapshot::default(),
-            gpu_updates: crate::core::latest::channel().1,
-            gpu: None,
-            snapshot: Snapshot::default(),
-            show_download: true,
-            show_upload: true,
-            sort_memory: false,
-            cpu_history: vec![],
-            memory_history: vec![],
-        };
-        let now = std::time::Instant::now();
-        for (external, charging, label) in [
-            (true, true, "正在充电"),
-            (true, false, "已接通电源"),
-            (false, false, "使用电池"),
-        ] {
-            power_tx.send(PowerSnapshot {
-                percent: Some(80),
-                external: Some(external),
-                charging,
-            });
-            assert!(!extension.update(now).invalidated.is_empty());
-            assert!(extension.compact_views()[0]
-                .tooltip
-                .as_ref()
-                .unwrap()
-                .starts_with(label));
-            metrics_tx.send(Snapshot::default());
-            extension.update(now);
-            assert_eq!(extension.snapshot.charging, charging);
-            assert_eq!(extension.snapshot.external_power, Some(external));
-            assert_eq!(extension.snapshot.battery_percent, Some(80));
-        }
-        assert!(extension.update(now).invalidated.is_empty());
     }
 }

@@ -35,6 +35,19 @@ pub struct NotificationManager {
 }
 
 impl NotificationManager {
+    pub fn open(path: std::path::PathBuf) -> Self {
+        // Restored notifications remain in the center, avoiding a popup storm at launch.
+        Self {
+            store: NotificationStore::open(path),
+            ..Default::default()
+        }
+    }
+    pub fn next_deadline(&self) -> Option<Instant> {
+        self.presentation
+            .current
+            .as_ref()
+            .map(|(_, shown)| *shown + self.policy.alert_timeout)
+    }
     pub fn publish(&mut self, notification: Notification) -> bool {
         let key = notification.key();
         if !self.store.insert(notification) {
@@ -283,5 +296,48 @@ mod tests {
             Some("second")
         );
         assert_eq!(manager.pending_count(), 1);
+    }
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+    use crate::extension::{ExtensionId, NotificationPriority};
+    #[test]
+    fn stored_notifications_survive_source_shutdown_restart_and_acknowledgement() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("notifications.json");
+        let notification = Notification {
+            source_id: ExtensionId::builtin("test.stopped/source"),
+            id: "one".into(),
+            title: "Done".into(),
+            body: "Saved".into(),
+            icon: None,
+            priority: NotificationPriority::Normal,
+            actions: vec![],
+            created_at: std::time::SystemTime::now(),
+        };
+        let key = notification.key();
+        {
+            let mut manager = NotificationManager::open(path.clone());
+            assert!(manager.publish(notification.clone()));
+            assert!(!manager.update(Instant::now(), true, true));
+        }
+        let mut manager = NotificationManager::open(path.clone());
+        assert_eq!(manager.pending_count(), 1);
+        assert!(!manager.publish(notification));
+        assert!(manager.current().is_none());
+        manager.acknowledge(&key);
+        drop(manager);
+        assert_eq!(NotificationManager::open(path).pending_count(), 0);
+    }
+    #[test]
+    fn corrupt_history_is_preserved_for_recovery() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("notifications.json");
+        std::fs::write(&path, "broken").unwrap();
+        let mut manager = NotificationManager::open(path.clone());
+        manager.acknowledge_all();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "broken");
     }
 }

@@ -824,3 +824,110 @@ fn compact_can_anchor_its_leading_and_center_short_content_across_the_chip() {
         }
     }
 }
+
+#[test]
+fn progress_slider_previews_drag_and_dispatches_one_bounded_value_on_release() {
+    let ctx = egui::Context::default();
+    let icons = Icons::load(&ctx);
+    let source = ExtensionId::builtin("test.progress");
+    let rect = Rect::from_min_size(pos2(30.0, 30.0), vec2(100.0, 24.0));
+    let frame = |events, enabled| {
+        let mut action = None;
+        let view = WidgetView::new(
+            ViewNode::new(Node::Slider {
+                fraction: 0.2,
+                label: "Progress".into(),
+                action: "seek".into(),
+                enabled,
+            })
+            .sized(Size::Fill(1.0), Size::Fixed(24.0)),
+            [100.0, 24.0],
+        );
+        let _ = ctx.run(
+            RawInput {
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    action = show_widget(ui, rect, &source, &view, &icons, 1.0);
+                });
+            },
+        );
+        action
+    };
+    frame(vec![], true);
+    frame(vec![Event::PointerMoved(pos2(50.0, 42.0))], true);
+    let button = |x, pressed| Event::PointerButton {
+        pos: pos2(x, 42.0),
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    assert!(frame(vec![button(50.0, true)], true).is_none());
+    assert!(frame(vec![Event::PointerMoved(pos2(110.0, 42.0))], true).is_none());
+    let action = frame(vec![button(110.0, false)], true).unwrap();
+    assert_eq!(
+        action.action,
+        Action::SetProgress {
+            key: "seek".into(),
+            basis_points: 8000
+        }
+    );
+    let key_action = frame(
+        vec![Event::Key {
+            key: egui::Key::ArrowRight,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }],
+        true,
+    )
+    .unwrap();
+    assert_eq!(
+        key_action.action,
+        Action::SetProgress {
+            key: "seek".into(),
+            basis_points: 2100
+        }
+    );
+    // The focused slider consumes the arrow so the host cannot also turn pages.
+    assert!(!ctx.input(|input| input.key_pressed(egui::Key::ArrowRight)));
+    frame(vec![], false);
+    frame(vec![button(50.0, true)], false);
+    assert!(frame(vec![button(50.0, false)], false).is_none());
+}
+
+#[test]
+fn small_svg_uses_target_physical_size_and_antialiased_edges_at_fractional_dpi() {
+    let ctx = egui::Context::default();
+    ctx.set_pixels_per_point(1.5);
+    let icons = Icons::load(&ctx);
+    let source = ExtensionId::builtin("test.smooth-clock");
+    let node = ViewNode::svg(
+        r#"inline:<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.3" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 12L12 5M12 12L17 12"/></svg>"#,
+        18.0,
+    );
+    let mut physical_size = 0;
+    let output = ctx.run(RawInput::default(), |ctx| {
+        physical_size = (18.0 * ctx.pixels_per_point()).ceil() as usize;
+        egui::CentralPanel::default().show(ctx, |ui| {
+            show_compact(
+                ui,
+                Rect::from_min_size(pos2(30.0, 30.0), vec2(18.0, 18.0)),
+                &source,
+                &node,
+                &icons,
+                1.0,
+            );
+        });
+    });
+    assert!(output.textures_delta.set.iter().any(|(_, delta)| {
+        let egui::ImageData::Color(image) = &delta.image else {
+            return false;
+        };
+        image.size == [physical_size, physical_size]
+            && image.pixels.iter().any(|p| p.a() > 0 && p.a() < 255)
+    }));
+}

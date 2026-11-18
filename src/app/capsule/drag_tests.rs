@@ -43,7 +43,6 @@ fn dragging_the_page_right_reveals_the_previous_widget_on_release() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
-                                bilibili_status: "",
                             },
                         );
                     });
@@ -105,7 +104,6 @@ fn clicking_widget_body_does_not_change_the_page() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
-                                bilibili_status: "",
                             },
                         );
                     });
@@ -171,7 +169,6 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
-                                bilibili_status: "",
                             },
                         );
                         actions = (result.4, result.8, result.2);
@@ -239,7 +236,6 @@ fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
-                                bilibili_status: "",
                             },
                         );
                         toggled = result.5;
@@ -268,10 +264,15 @@ fn widget_fixture() -> (
     crate::extension::WidgetView,
 ) {
     let widget_ids = crate::builtins::registry()
-        .widget_list()
+        .by_kind(crate::extension::ContributionKind::Widget)
         .into_iter()
         .map(|descriptor| descriptor.id.clone())
-        .collect();
+        .collect::<Vec<_>>();
+    let widget_ids = std::iter::once(crate::extension::ExtensionId::builtin(
+        crate::extension::NOTIFICATION_CENTER_ID,
+    ))
+    .chain(widget_ids)
+    .collect();
     let widget_view = crate::extension::WidgetView::new(
         crate::extension::ViewNode::text("测试", Default::default()),
         [300.0, 76.0],

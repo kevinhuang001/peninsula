@@ -213,10 +213,11 @@ fn progress(playback: &Playback) -> ViewNode {
     let timeline = duration.map_or_else(
         || ViewNode::new(Node::Spacer),
         |duration| {
-            ViewNode::new(Node::ProgressBar {
+            ViewNode::new(Node::Slider {
                 fraction: (position / duration) as f32,
-                label: String::new(),
-                marker: true,
+                label: "播放进度".into(),
+                action: "seek".into(),
+                enabled: playback.controls.seek,
             })
             .styled(Style {
                 normal: Paint {
@@ -230,7 +231,7 @@ fn progress(playback: &Playback) -> ViewNode {
     );
     let row = vec![
         clock(position, false),
-        timeline.sized(Size::Fill(1.0), Size::Fixed(5.0)),
+        timeline.sized(Size::Fill(1.0), Size::Fixed(24.0)),
         duration.map_or_else(
             || ViewNode::new(Node::Spacer),
             |duration| clock(duration - position, true),

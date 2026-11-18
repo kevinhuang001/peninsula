@@ -29,12 +29,18 @@ pub(super) fn show(
         icons,
     } = content;
     let opacity = 1.0 - progress.clamp(0.0, 1.0);
-    let views: Vec<_> = prefs
+    let mut views: Vec<_> = prefs
         .ordered_compact_items()
         .into_iter()
         .filter(|item| prefs.is_enabled(&item.id))
         .filter_map(|item| available_views.iter().find(|view| view.view.id == item.id))
         .collect();
+    if let Some(slot) = available_views
+        .iter()
+        .find(|v| prefs.mascot_enabled && v.view.id.as_str() == crate::core::mascot::MASCOT_SLOT_ID)
+    {
+        views.insert(0, slot);
+    }
     let widths = fitted_widths(&views, rect.width());
     let total = widths.iter().sum::<f32>() + ITEM_GAP * views.len().saturating_sub(1) as f32;
     let mut x = rect.center().x - total * 0.5;

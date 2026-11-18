@@ -8,7 +8,7 @@ pub struct NotificationAction {
     pub data: Option<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Notification {
     pub source_id: ExtensionId,
     pub id: String,
@@ -53,7 +53,7 @@ impl NotificationKey {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum NotificationStatus {
     Pending,
     Acknowledged,
@@ -98,7 +98,18 @@ impl NotificationPresentation {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum NotificationPriority {
     Low,
     #[default]

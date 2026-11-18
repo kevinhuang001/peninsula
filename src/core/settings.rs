@@ -61,6 +61,12 @@ impl SettingsStore {
         migrate: impl FnOnce(u32, &mut Settings) -> Result<(), String>,
     ) -> Result<Settings, String> {
         let stored = self.records.get(descriptor.id.as_str());
+        let mut legacy = legacy;
+        for contribution in &descriptor.contributions {
+            if let Some(record) = self.records.get(contribution.id.as_str()) {
+                legacy.extend(record.values.clone());
+            }
+        }
         let seed = match stored {
             None if !self.writable => return Err("extension settings file is unreadable".into()),
             None => legacy,
@@ -108,6 +114,13 @@ impl SettingsStore {
         Ok(changed)
     }
 
+    pub fn is_current(&self, descriptor: &ExtensionDescriptor) -> bool {
+        self.records.get(descriptor.id.as_str()).is_some_and(|r| {
+            r.version == descriptor.settings_version
+                && Self::normalized(descriptor, r.values.clone())
+                    .is_ok_and(|normalized| normalized == r.values)
+        })
+    }
     pub fn values(&self, id: &ExtensionId) -> Option<&Settings> {
         self.records.get(id.as_str()).map(|record| &record.values)
     }
@@ -140,6 +153,9 @@ impl SettingsStore {
         }
         let mut next = self.records.clone();
         next.insert(id.to_owned(), record);
+        for contribution in &descriptor.contributions {
+            next.remove(contribution.id.as_str());
+        }
         self.write(&next).map_err(|error| error.to_string())?;
         self.records = next;
         Ok(())
@@ -163,25 +179,36 @@ impl SettingsStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::extension::{ExtensionKind, ExtensionRegistry, SettingSchema, SettingValue as V};
+    use crate::extension::{ContributionKind, ExtensionRegistry, SettingSchema, SettingValue as V};
 
     fn descriptor(version: u32, key: &str) -> ExtensionDescriptor {
-        ExtensionDescriptor::builtin("test.settings", ExtensionKind::Widget, "Test", "", true, 0)
-            .with_settings(
-                version,
-                vec![
-                    SettingSchema::new(key, V::Integer(1000), "Interval").range(250.0, 10_000.0),
-                    SettingSchema {
-                        reload_policy: ReloadPolicy::Restart,
-                        ..SettingSchema::new("startup_mode", V::Boolean(false), "Startup mode")
-                    },
-                    SettingSchema {
-                        options: vec!["compact".into(), "detailed".into()],
-                        reload_policy: ReloadPolicy::Reload,
-                        ..SettingSchema::new("mode", V::Enum("compact".into()), "Appearance")
-                    },
-                ],
-            )
+        let contribution = crate::extension::ContributionDescriptor::builtin(
+            "test.settings/widget",
+            ContributionKind::Widget,
+            "Test",
+            "",
+            true,
+            0,
+        )
+        .with_settings(
+            version,
+            vec![
+                SettingSchema::new(key, V::Integer(1000), "Interval").range(250.0, 10_000.0),
+                SettingSchema {
+                    reload_policy: ReloadPolicy::Restart,
+                    ..SettingSchema::new("startup_mode", V::Boolean(false), "Startup mode")
+                },
+                SettingSchema {
+                    options: vec!["compact".into(), "detailed".into()],
+                    reload_policy: ReloadPolicy::Reload,
+                    ..SettingSchema::new("mode", V::Enum("compact".into()), "Appearance")
+                },
+            ],
+        );
+        let mut descriptor =
+            ExtensionDescriptor::builtin("test.settings", "Test", "", vec![contribution]);
+        descriptor.settings_version = version;
+        descriptor
     }
 
     #[test]

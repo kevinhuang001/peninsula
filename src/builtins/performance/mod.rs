@@ -1,8 +1,6 @@
 mod extension;
 pub mod sampler;
 
-pub use extension::{descriptors, PerformanceExtension};
+pub use extension::PerformanceExtension;
 
 mod view;
-
-mod power;

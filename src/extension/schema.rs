@@ -132,7 +132,9 @@ pub fn validate_schema(schema: &[SettingSchema]) -> Result<(), String> {
     let mut keys = HashSet::new();
     for field in schema {
         let invalid = || format!("invalid setting schema: {}", field.key);
-        if field.key.is_empty()
+        if field.key == "enabled"
+            || field.key == "running"
+            || field.key.is_empty()
             || !field
                 .key
                 .bytes()

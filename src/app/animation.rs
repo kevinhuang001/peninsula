@@ -32,6 +32,10 @@ impl Spring {
         self.target
     }
 
+    pub fn finish(&mut self) {
+        self.value = self.target;
+        self.velocity = 0.0;
+    }
     pub fn step(&mut self, dt: f32) {
         let dt = dt.clamp(0.0, 0.1);
         let steps = (dt * 480.0).ceil().max(1.0) as usize;

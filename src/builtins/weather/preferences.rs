@@ -74,6 +74,7 @@ impl WeatherPreferences {
         }
     }
 
+    #[cfg(test)]
     pub fn encode_lines(&self) -> Vec<String> {
         let mut lines = vec![
             format!("weather_auto={}", self.auto_locate),
@@ -120,6 +121,62 @@ fn parse_bool(value: &str) -> Option<bool> {
         "true" | "1" => Some(true),
         "false" | "0" => Some(false),
         _ => None,
+    }
+}
+
+impl WeatherPreferences {
+    pub fn schema() -> Vec<crate::extension::SettingSchema> {
+        use crate::extension::{SettingSchema as S, SettingValue as V};
+        vec![
+            S::new("auto_locate", V::Boolean(true), "自动定位"),
+            S::new("alerts", V::Boolean(true), "天气预警"),
+            S::new("refresh_minutes", V::Integer(10), "刷新间隔（分钟）").range(1.0, 180.0),
+            S::new("location_name", V::String(String::new()), "城市名称"),
+            S::new("latitude", V::Float(0.0), "纬度").range(-90.0, 90.0),
+            S::new("longitude", V::Float(0.0), "经度").range(-180.0, 180.0),
+        ]
+    }
+    pub fn settings(&self) -> crate::extension::Settings {
+        use crate::extension::SettingValue as V;
+        let location = self
+            .location
+            .clone()
+            .unwrap_or_else(|| WeatherLocation::new("", 0.0, 0.0));
+        [
+            ("auto_locate".into(), V::Boolean(self.auto_locate)),
+            ("alerts".into(), V::Boolean(self.alerts_enabled)),
+            (
+                "refresh_minutes".into(),
+                V::Integer(self.refresh_minutes.into()),
+            ),
+            ("location_name".into(), V::String(location.name)),
+            ("latitude".into(), V::Float(location.latitude)),
+            ("longitude".into(), V::Float(location.longitude)),
+        ]
+        .into()
+    }
+    pub fn from_settings(settings: &crate::extension::Settings) -> Self {
+        use crate::extension::SettingValue as V;
+        let mut prefs = Self::default();
+        if let Some(V::Boolean(v)) = settings.get("auto_locate") {
+            prefs.auto_locate = *v;
+        }
+        if let Some(V::Boolean(v)) = settings.get("alerts") {
+            prefs.alerts_enabled = *v;
+        }
+        if let Some(V::Integer(v)) = settings.get("refresh_minutes") {
+            prefs.refresh_minutes = *v as u16;
+        }
+        if let (Some(V::String(name)), Some(V::Float(lat)), Some(V::Float(lon))) = (
+            settings.get("location_name"),
+            settings.get("latitude"),
+            settings.get("longitude"),
+        ) {
+            if !name.is_empty() {
+                prefs.location = Some(WeatherLocation::new(name, *lat, *lon));
+            }
+        }
+        prefs
     }
 }
 
