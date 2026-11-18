@@ -62,15 +62,14 @@ pub struct ActionInvocation {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Event {
-    SnapshotUpdated,
-    TimerElapsed,
-    DownloadCompleted,
     NotificationPublished,
     Custom(String),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ExtensionOutput {
+    pub events: Vec<Event>,
+    pub mascot_events: Vec<String>,
     pub invalidated: Vec<ExtensionId>,
     pub notifications: Vec<Notification>,
     pub schedule: Vec<ScheduledTask>,
@@ -107,7 +106,29 @@ pub trait NotificationPresentationProvider {
 /// In-process extension runtime used by the built-in extensions. Its surface
 /// is data-only so the App can render views without knowing feature IDs.
 pub trait RuntimeExtension: NotificationPresentationProvider {
-    fn descriptors(&self) -> Vec<super::ExtensionDescriptor>;
+    fn descriptor(&self) -> super::ExtensionDescriptor;
+    fn registration_descriptor(&self) -> super::ExtensionDescriptor {
+        let d = self.descriptor();
+        let service = !matches!(
+            d.execution_policy,
+            super::ExecutionPolicy::EventDriven | super::ExecutionPolicy::WhenVisible
+        ) || d
+            .contributions
+            .iter()
+            .any(|c| c.capabilities.contains(&super::Capability::Schedule));
+        let events = d.contributions.iter().any(|c| {
+            c.capabilities.contains(&super::Capability::Event)
+                || c.capabilities.contains(&super::Capability::Schedule)
+        });
+        d.with_runtime_contributions(service, events, &self.mascot_expressions())
+    }
+    fn set_motion_policy(&mut self, _policy: crate::core::mascot::MotionPolicy) {}
+    fn mascot_state(&self) -> std::collections::BTreeMap<String, String> {
+        Default::default()
+    }
+    fn mascot_expressions(&self) -> Vec<crate::core::mascot::MascotExpression> {
+        Vec::new()
+    }
     fn on_install(&mut self, _ctx: &super::ExtensionContext) -> Result<(), String> {
         Ok(())
     }
@@ -179,11 +200,6 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
         None
     }
     fn on_notifications_committed(&mut self, _notifications: &[super::Notification]) {}
-    /// Optional typed access used by the built-in host to push preferences
-    /// into a feature without making the extension contract feature-specific.
-    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
-        None
-    }
 }
 
 pub trait HostScheduler {

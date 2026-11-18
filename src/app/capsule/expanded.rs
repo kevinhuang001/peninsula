@@ -306,7 +306,7 @@ mod navigation_tests {
             ExtensionId::builtin("test/performance"),
         ];
         let titles = ["通知中心".to_owned(), "性能监控".to_owned()];
-        let output = ctx.run(
+        ctx.run(
             RawInput {
                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(440.0, 240.0))),
                 events,
@@ -324,8 +324,7 @@ mod navigation_tests {
                     );
                 });
             },
-        );
-        output
+        )
     }
 
     fn text_center(output: &egui::FullOutput, value: &str) -> Pos2 {

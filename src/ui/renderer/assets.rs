@@ -35,7 +35,13 @@ pub(crate) fn register_svg(ctx: &egui::Context, asset: &str, source: &'static st
 }
 
 pub(super) fn svg(ui: &Ui, theme: &Theme, asset: &str, style: SvgStyle) -> Option<TextureHandle> {
-    let source = ui.data(|data| data.get_temp::<&'static str>(Id::new(("widget-svg", asset))))?;
+    let source = asset
+        .strip_prefix("inline:")
+        .map(str::to_owned)
+        .or_else(|| {
+            ui.data(|data| data.get_temp::<&'static str>(Id::new(("widget-svg", asset))))
+                .map(str::to_owned)
+        })?;
     let fill = style.fill.map(|color| theme.color(ui, color));
     let stroke = style.stroke.map(|color| theme.color(ui, color));
     let width = style

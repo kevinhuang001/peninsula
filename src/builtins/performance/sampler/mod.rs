@@ -15,6 +15,15 @@ pub fn format_speed(bytes_per_second: f64) -> String {
     }
 }
 
+/// Driver queries share the owning extension's stop/join lifecycle.
+pub(super) fn start_gpu() -> crate::core::worker::Worker<Option<f32>> {
+    crate::core::worker::Worker::spawn_latest(
+        "gpu",
+        std::time::Duration::from_secs(1),
+        platform::gpu_utilization,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::format_speed;
@@ -30,22 +39,4 @@ mod tests {
     fn speed_does_not_display_negative_rates() {
         assert_eq!(format_speed(-1.0), "0 B/s");
     }
-}
-
-#[cfg(target_os = "windows")]
-pub(super) fn power_status() -> Option<super::power::PowerSnapshot> {
-    platform::windows_battery_status()
-}
-
-/// Driver utilities can take seconds. Keep them off the CPU/network/power paths.
-pub(super) fn start_gpu() -> crate::core::latest::LatestReceiver<Option<f32>> {
-    let (tx, rx) = crate::core::latest::channel();
-    std::thread::spawn(move || loop {
-        let start = std::time::Instant::now();
-        if !tx.send(platform::gpu_utilization()) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_secs(1).saturating_sub(start.elapsed()));
-    });
-    rx
 }

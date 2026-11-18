@@ -166,6 +166,15 @@ impl IslandState {
         (self.width.value.max(0.0), self.height.value.clamp(0.0, 1.0))
     }
 
+    pub fn finish_motion(&mut self) {
+        self.width.finish();
+        self.height.finish();
+    }
+    pub fn hover_pending(&self) -> bool {
+        (!self.expanded && self.hover_elapsed > 0.0 && self.hover_elapsed < 0.18)
+            || (self.expanded && !self.pinned && self.leave_elapsed > 0.0)
+            || self.shrink_grace_remaining > 0.0
+    }
     pub fn animating(&self) -> bool {
         !self.width.settled() || !self.height.settled()
     }

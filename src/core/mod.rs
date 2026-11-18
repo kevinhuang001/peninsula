@@ -8,3 +8,8 @@ pub mod settings;
 pub mod views;
 
 pub use scheduler::Dispatcher as Scheduler;
+
+pub mod extension_manager;
+pub mod mascot;
+
+pub mod worker;

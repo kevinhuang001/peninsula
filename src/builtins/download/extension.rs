@@ -1,14 +1,13 @@
 use super::monitor::{self, Download, DownloadState, Snapshot};
 use crate::extension::{
-    CompactView, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput, Notification,
-    NotificationAction, NotificationAlertView, NotificationCenterItemView,
+    CompactView, ContributionDescriptor, ContributionKind, ExtensionId, ExtensionOutput,
+    Notification, NotificationAction, NotificationAlertView, NotificationCenterItemView,
     NotificationPresentationProvider, NotificationPriority, ReloadPolicy, RuntimeExtension,
     SettingSchema, SettingValue, Settings, ViewNode,
 };
 use crate::ui::declarative::*;
 use std::{
     path::Path,
-    sync::mpsc::Receiver,
     time::{Duration, Instant, SystemTime},
 };
 
@@ -17,11 +16,11 @@ pub const COMPACT_ID: &str = "builtin.downloads/status";
 const COMPACT_WIDTH: f32 = 124.0;
 const COMPLETION_HOLD: Duration = Duration::from_secs(3);
 
-pub fn descriptors() -> Vec<ExtensionDescriptor> {
+pub fn descriptors() -> Vec<ContributionDescriptor> {
     vec![
-        ExtensionDescriptor::builtin(
+        ContributionDescriptor::builtin(
             COMPACT_ID,
-            ExtensionKind::Compact,
+            ContributionKind::Compact,
             "下载",
             "download",
             false,
@@ -36,9 +35,9 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
                 "在胶囊显示下载速率",
             )],
         ),
-        ExtensionDescriptor::builtin(
+        ContributionDescriptor::builtin(
             NOTIFICATION_ID,
-            ExtensionKind::Notification,
+            ContributionKind::Notification,
             "下载提醒",
             "bell",
             true,
@@ -52,7 +51,7 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
 }
 
 pub struct DownloadExtension {
-    updates: Receiver<Snapshot>,
+    updates: Option<crate::core::worker::Worker<Snapshot>>,
     snapshot: Snapshot,
     show_rate: bool,
     notification_sequence: u64,
@@ -62,7 +61,7 @@ pub struct DownloadExtension {
 impl DownloadExtension {
     pub fn new() -> Self {
         Self {
-            updates: monitor::start(),
+            updates: None,
             snapshot: Snapshot::default(),
             show_rate: true,
             notification_sequence: 0,
@@ -78,10 +77,32 @@ impl Default for DownloadExtension {
 }
 
 impl RuntimeExtension for DownloadExtension {
-    fn descriptors(&self) -> Vec<ExtensionDescriptor> {
-        descriptors()
+    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+        crate::extension::ExtensionDescriptor::builtin(
+            "builtin.downloads",
+            "下载",
+            "Chromium、Firefox、Safari 下载检测",
+            descriptors(),
+        )
     }
 
+    fn mascot_expressions(&self) -> Vec<crate::core::mascot::MascotExpression> {
+        vec![crate::core::mascot::MascotExpression::event(
+            "happy",
+            "download.completed",
+            3,
+        )]
+    }
+    fn on_start(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {
+        self.updates = Some(monitor::start());
+        Ok(())
+    }
+    fn on_stop(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {
+        self.updates = None;
+        self.snapshot = Snapshot::default();
+        self.recent_completion = None;
+        Ok(())
+    }
     fn update(&mut self, now: Instant) -> ExtensionOutput {
         let mut output = ExtensionOutput::default();
         if self
@@ -92,12 +113,13 @@ impl RuntimeExtension for DownloadExtension {
             self.recent_completion = None;
             output.invalidated.push(ExtensionId::builtin(COMPACT_ID));
         }
-        while let Ok(mut snapshot) = self.updates.try_recv() {
+        while let Some(Ok(mut snapshot)) = self.updates.as_ref().map(|w| w.try_recv()) {
             for download in snapshot
                 .completed
                 .drain(..)
                 .filter(|download| download.state == DownloadState::Complete)
             {
+                output.mascot_events.push("download.completed".into());
                 self.notification_sequence += 1;
                 self.recent_completion = Some((download.clone(), now + COMPLETION_HOLD));
                 output
@@ -267,7 +289,13 @@ fn download_notification(download: super::monitor::Download, sequence: u64) -> N
     let path = download.path.to_string_lossy().into_owned();
     Notification {
         source_id: ExtensionId::builtin(NOTIFICATION_ID),
-        id: format!("download-{sequence}"),
+        id: format!(
+            "download-{}-{sequence}",
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ),
         title: "下载完成".into(),
         body: download.filename(),
         icon: Some("download".into()),
@@ -375,7 +403,7 @@ mod compact_tests {
     fn completion_switches_the_descriptor_then_expires() {
         let (sender, updates) = std::sync::mpsc::channel();
         let mut extension = DownloadExtension {
-            updates,
+            updates: Some(crate::core::worker::Worker::from_receiver(updates)),
             snapshot: Snapshot::default(),
             show_rate: true,
             notification_sequence: 0,

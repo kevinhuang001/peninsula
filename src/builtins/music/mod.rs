@@ -4,9 +4,9 @@ mod view;
 
 use crate::{
     extension::{
-        Action, Capability, CompactView, CompactVisibility, ExtensionContext, ExtensionDescriptor,
-        ExtensionId, ExtensionKind, ExtensionOutput, NotificationPresentationProvider,
-        RuntimeExtension, WidgetVisibility,
+        Action, Capability, CompactView, CompactVisibility, ContributionDescriptor,
+        ContributionKind, ExtensionContext, ExtensionId, ExtensionOutput,
+        NotificationPresentationProvider, RuntimeExtension, WidgetVisibility,
     },
     ui::declarative::{Overflow, ScrollAxes, WidgetBounds, WidgetView, MAX_CONTENT_WIDTH},
 };
@@ -28,14 +28,28 @@ const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const IDLE_INTERVAL: Duration = Duration::from_millis(500);
 const DISCONNECTED_AFTER: Duration = Duration::from_secs(4);
 
-pub(super) fn descriptors() -> Vec<ExtensionDescriptor> {
+pub(super) fn descriptors() -> Vec<ContributionDescriptor> {
     vec![
-        ExtensionDescriptor::builtin(WIDGET_ID, ExtensionKind::Widget, "音乐", "music", true, 5)
-            .with_size_hint(WIDGET_SIZE[0], WIDGET_SIZE[1])
-            .with_widget_bounds(widget_bounds())
-            .with_capabilities(vec![Capability::View, Capability::Action]),
-        ExtensionDescriptor::builtin(COMPACT_ID, ExtensionKind::Compact, "歌词", "music", true, 9)
-            .with_size_hint(COMPACT_WIDTH, 28.0),
+        ContributionDescriptor::builtin(
+            WIDGET_ID,
+            ContributionKind::Widget,
+            "音乐",
+            "music",
+            true,
+            5,
+        )
+        .with_size_hint(WIDGET_SIZE[0], WIDGET_SIZE[1])
+        .with_widget_bounds(widget_bounds())
+        .with_capabilities(vec![Capability::View, Capability::Action]),
+        ContributionDescriptor::builtin(
+            COMPACT_ID,
+            ContributionKind::Compact,
+            "歌词",
+            "music",
+            true,
+            9,
+        )
+        .with_size_hint(COMPACT_WIDTH, 28.0),
     ]
 }
 
@@ -60,6 +74,7 @@ type LyricsResult = Result<Option<Arc<Lyrics>>, ()>;
 
 #[derive(Default)]
 pub(super) struct MusicExtension {
+    workers: Vec<std::thread::JoinHandle<()>>,
     playback: Option<Playback>,
     controller: Option<mpsc::Sender<ControlRequest>>,
     media_updates: Option<mpsc::Receiver<MediaUpdate>>,
@@ -75,23 +90,50 @@ pub(super) struct MusicExtension {
 impl NotificationPresentationProvider for MusicExtension {}
 
 impl RuntimeExtension for MusicExtension {
-    fn descriptors(&self) -> Vec<ExtensionDescriptor> {
-        descriptors()
+    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+        crate::extension::ExtensionDescriptor::builtin(
+            "builtin.music",
+            "音乐",
+            "播放控制与同步歌词",
+            descriptors(),
+        )
     }
 
+    fn mascot_state(&self) -> std::collections::BTreeMap<String, String> {
+        [(
+            "playing".into(),
+            self.playback
+                .as_ref()
+                .is_some_and(|p| p.playing)
+                .to_string(),
+        )]
+        .into()
+    }
+    fn mascot_expressions(&self) -> Vec<crate::core::mascot::MascotExpression> {
+        vec![crate::core::mascot::MascotExpression::state(
+            "listening",
+            "playing",
+            "true",
+            7,
+        )]
+    }
     fn on_start(&mut self, _context: &ExtensionContext) -> Result<(), String> {
         let (controller, controls) = mpsc::channel();
         let (media_output, media_updates) = mpsc::channel();
         let (lyric_requests, requests) = mpsc::channel();
         let (lyric_output, lyric_updates) = mpsc::channel();
-        thread::Builder::new()
-            .name("music-session".into())
-            .spawn(move || watch_media(controls, media_output))
-            .map_err(|error| error.to_string())?;
-        thread::Builder::new()
-            .name("music-lyrics".into())
-            .spawn(move || fetch_lyrics(requests, lyric_output))
-            .map_err(|error| error.to_string())?;
+        self.workers.push(
+            thread::Builder::new()
+                .name("music-session".into())
+                .spawn(move || watch_media(controls, media_output))
+                .map_err(|error| error.to_string())?,
+        );
+        self.workers.push(
+            thread::Builder::new()
+                .name("music-lyrics".into())
+                .spawn(move || fetch_lyrics(requests, lyric_output))
+                .map_err(|error| error.to_string())?,
+        );
         self.controller = Some(controller);
         self.media_updates = Some(media_updates);
         self.lyric_requests = Some(lyric_requests);
@@ -104,6 +146,9 @@ impl RuntimeExtension for MusicExtension {
         self.media_updates = None;
         self.lyric_requests = None;
         self.lyric_updates = None;
+        for worker in self.workers.drain(..) {
+            let _ = worker.join();
+        }
         self.set_playback(None);
         Ok(())
     }

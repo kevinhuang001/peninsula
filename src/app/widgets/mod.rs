@@ -59,11 +59,16 @@ mod tests {
     use crate::{builtins, extension::ExtensionId};
 
     fn widget_ids() -> Vec<ExtensionId> {
-        builtins::registry()
-            .widget_list()
-            .into_iter()
-            .map(|descriptor| descriptor.id.clone())
-            .collect()
+        std::iter::once(ExtensionId::builtin(
+            crate::extension::NOTIFICATION_CENTER_ID,
+        ))
+        .chain(
+            builtins::registry()
+                .by_kind(crate::extension::ContributionKind::Widget)
+                .into_iter()
+                .map(|descriptor| descriptor.id.clone()),
+        )
+        .collect()
     }
 
     #[test]

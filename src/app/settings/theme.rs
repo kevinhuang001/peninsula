@@ -4,15 +4,11 @@ use eframe::egui::Color32;
 pub(super) const TEXT: Color32 = TextPalette::DARK.primary;
 pub(super) const SECONDARY_TEXT: Color32 = TextPalette::DARK.secondary;
 pub(in crate::app) const ACCENT: Color32 = palette::SETTINGS_ACCENT_TEXT;
-pub(super) const CHECKBOX_ON: Color32 = Color32::from_rgb(48, 121, 184);
-pub(super) const SWITCH_ON: Color32 = Color32::from_rgb(24, 62, 105);
 pub(super) const ACCENT_SELECTED: Color32 = Color32::from_rgb(42, 76, 111);
-pub(super) const BACKGROUND: Color32 = Color32::from_rgb(23, 25, 30);
 pub(super) const PANEL: Color32 = Color32::from_rgb(27, 29, 34);
 pub(super) const ROW: Color32 = Color32::from_rgb(36, 39, 46);
 pub(super) const ROW_DISABLED: Color32 = Color32::from_rgb(30, 32, 37);
 pub(super) const BORDER: Color32 = Color32::from_rgb(47, 51, 59);
-pub(super) const SWITCH_OFF: Color32 = Color32::from_rgb(75, 81, 92);
 
 pub(super) const DEFAULT_WIDGET_ACCENT: [u8; 3] = [37, 87, 156];
 

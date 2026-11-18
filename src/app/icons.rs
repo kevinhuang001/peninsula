@@ -10,7 +10,6 @@ pub(crate) enum Icon {
     SpeakerPlaying,
     Equalizer,
     EqualizerPlaying,
-    ClockLive,
     MediaPlay,
     MediaPause,
     MediaPrevious,
@@ -79,7 +78,7 @@ impl Icons {
         ] {
             register_svg(context, asset, source);
         }
-        crate::builtins::register_mascot_assets(context);
+        crate::core::mascot::register_assets(context);
         let icons = Self {
             pin: load(
                 context,
@@ -200,7 +199,7 @@ impl Icons {
             let center = rect.center();
             let cell = rect.width().min(rect.height()) * 0.36;
             let offset = cell * 0.68;
-            let stroke = Stroke::new(1.25, color.linear_multiply(opacity));
+            let stroke = Stroke::new(1.25_f32, color.linear_multiply(opacity));
             for y in [-offset, offset] {
                 for x in [-offset, offset] {
                     painter.rect_stroke(
@@ -224,7 +223,7 @@ impl Icons {
         if matches!(icon, Icon::Bell) {
             let c = rect.center();
             let r = rect.width().min(rect.height()) * 0.30;
-            let stroke = Stroke::new(1.2, color.linear_multiply(opacity));
+            let stroke = Stroke::new(1.2_f32, color.linear_multiply(opacity));
             painter.add(eframe::egui::Shape::line(
                 vec![
                     c + Vec2::new(-r * 1.25, r * 0.65),
@@ -258,12 +257,9 @@ impl Icons {
             }
             return;
         }
-        if matches!(icon, Icon::ClockLive) {
-            paint_live_clock(painter, rect, color.linear_multiply(opacity), opacity);
-            return;
-        }
         if matches!(icon, Icon::Speaker | Icon::SpeakerPlaying) {
-            let playing = matches!(icon, Icon::SpeakerPlaying);
+            let playing = matches!(icon, Icon::SpeakerPlaying)
+                && !crate::ui::renderer::reduced_motion(painter.ctx());
             let time = painter.ctx().input(|input| input.time) as f32;
             paint_speaker(
                 painter,
@@ -318,7 +314,6 @@ impl Icons {
             | Icon::SpeakerPlaying
             | Icon::Equalizer
             | Icon::EqualizerPlaying
-            | Icon::ClockLive
             | Icon::MediaPlay
             | Icon::MediaPause
             | Icon::MediaPrevious
@@ -352,61 +347,6 @@ fn paint_equalizer(painter: &Painter, rect: Rect, color: Color32, time: Option<f
             color,
         );
     }
-}
-
-fn clock_angles(hour: u8, minute: u8, second: f32) -> [f32; 3] {
-    let turn = std::f32::consts::TAU;
-    let noon = -std::f32::consts::FRAC_PI_2;
-    [
-        noon + turn * (f32::from(hour % 12) / 12.0 + f32::from(minute) / 720.0 + second / 43_200.0),
-        noon + turn * (f32::from(minute) / 60.0 + second / 3600.0),
-        noon + turn * second / 60.0,
-    ]
-}
-
-fn paint_live_clock(painter: &Painter, rect: Rect, color: Color32, opacity: f32) {
-    let time =
-        time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-    let reduced = crate::ui::renderer::reduced_motion(painter.ctx());
-    let seconds = f32::from(time.second())
-        + if reduced {
-            0.0
-        } else {
-            time.nanosecond() as f32 / 1e9
-        };
-    let angles = clock_angles(time.hour(), time.minute(), seconds);
-    let unit = rect.width().min(rect.height()) / 24.0;
-    let c = rect.center();
-    painter.circle_stroke(c, 10.0 * unit, Stroke::new(1.3 * unit, color));
-    let at = |angle: f32, length: f32| c + Vec2::angled(angle) * length * unit;
-    for quarter in 0..4 {
-        let angle = quarter as f32 * std::f32::consts::FRAC_PI_2;
-        painter.line_segment([at(angle, 8.0), at(angle, 9.0)], Stroke::new(unit, color));
-    }
-    for (angle, length, width) in [(angles[0], 4.8, 1.8), (angles[1], 7.3, 1.3)] {
-        painter.line_segment([c, at(angle, length)], Stroke::new(width * unit, color));
-    }
-    if !reduced {
-        let accent = painter
-            .ctx()
-            .style()
-            .visuals
-            .selection
-            .bg_fill
-            .linear_multiply(opacity);
-        painter.line_segment(
-            [at(angles[2], -1.8), at(angles[2], 8.1)],
-            Stroke::new(0.9 * unit, accent),
-        );
-    }
-    painter.circle_filled(c, 1.2 * unit, color);
-    painter
-        .ctx()
-        .request_repaint_after(std::time::Duration::from_millis(if reduced {
-            1000
-        } else {
-            100
-        }));
 }
 
 /// A speaker cabinet with a pulsing woofer and a small rhythmic shake.
@@ -659,20 +599,7 @@ mod tests {
 #[cfg(test)]
 mod live_indicator_tests {
     use super::*;
-    #[test]
-    fn clock_hands_follow_real_hour_minute_and_second_positions() {
-        let noon = clock_angles(12, 0, 0.0);
-        for a in noon {
-            assert!((a + std::f32::consts::FRAC_PI_2).abs() < 0.00001);
-        }
-        assert!(clock_angles(3, 0, 0.0)[0].abs() < 0.00001);
-        let half_past_three = clock_angles(3, 30, 0.0);
-        assert!((half_past_three[0] - std::f32::consts::PI / 12.0).abs() < 0.00001);
-        assert!((half_past_three[1] - std::f32::consts::FRAC_PI_2).abs() < 0.00001);
-        assert!(clock_angles(0, 0, 15.0)[2].abs() < 0.00001);
-        assert!(clock_angles(3, 30, 30.0)[0] > half_past_three[0]);
-        assert!(clock_angles(3, 30, 30.0)[1] > half_past_three[1]);
-    }
+
     #[test]
     fn equalizer_changes_only_bar_heights_and_stops_with_reduced_motion() {
         use crate::{

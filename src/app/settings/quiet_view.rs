@@ -12,10 +12,6 @@ const ADD_HEIGHT: f32 = 22.0;
 const ADD_GAP: f32 = 6.0;
 pub(super) const DIALOG_MIN_HEIGHT: f32 = 160.0;
 
-pub(super) fn body_height(count: usize) -> f32 {
-    list_height(count) + ADD_GAP + ADD_HEIGHT
-}
-
 fn list_height(count: usize) -> f32 {
     ROW_HEIGHT + ROW_STEP * count.saturating_sub(1) as f32
 }

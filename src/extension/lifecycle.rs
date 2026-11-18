@@ -12,6 +12,8 @@ use super::ExtensionId;
 /// application convenience API, not a permission boundary.
 #[derive(Clone, Debug)]
 pub struct ExtensionContext {
+    owner: Option<ExtensionId>,
+    generation: u64,
     data_dir: PathBuf,
     config_dir: PathBuf,
     scheduled: Arc<Mutex<Vec<(String, Instant)>>>,
@@ -21,6 +23,8 @@ pub struct ExtensionContext {
 impl ExtensionContext {
     pub fn new(data_dir: PathBuf, config_dir: PathBuf) -> Self {
         Self {
+            owner: None,
+            generation: 0,
             data_dir,
             config_dir,
             scheduled: Arc::new(Mutex::new(Vec::new())),
@@ -28,6 +32,22 @@ impl ExtensionContext {
         }
     }
 
+    pub fn scoped(&self, owner: &ExtensionId) -> Self {
+        let mut scoped = self.clone();
+        scoped.owner = Some(owner.clone());
+        scoped
+    }
+    pub fn scoped_at(&self, owner: &ExtensionId, generation: u64) -> Self {
+        let mut context = self.scoped(owner);
+        context.generation = generation;
+        context
+    }
+    fn task_key(&self, task: String) -> String {
+        self.owner.as_ref().map_or_else(
+            || task.clone(),
+            |owner| format!("{owner}::{}::{task}", self.generation),
+        )
+    }
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }
@@ -47,13 +67,13 @@ impl ExtensionContext {
 
     pub fn schedule_at(&self, task_id: impl Into<String>, deadline: Instant) {
         if let Ok(mut scheduled) = self.scheduled.lock() {
-            scheduled.push((task_id.into(), deadline));
+            scheduled.push((self.task_key(task_id.into()), deadline));
         }
     }
 
     pub fn cancel_task(&self, task_id: impl Into<String>) {
         if let Ok(mut canceled) = self.canceled.lock() {
-            canceled.push(task_id.into());
+            canceled.push(self.task_key(task_id.into()));
         }
     }
 

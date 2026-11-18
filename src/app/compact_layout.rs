@@ -59,7 +59,13 @@ pub(super) fn item_widths(
     preferences: &CompactPreferences,
     available: &[CompactItem<'_>],
 ) -> Vec<f32> {
-    let mut widths = Vec::new();
+    let mut widths = available
+        .iter()
+        .filter(|v| {
+            preferences.mascot_enabled && v.view.id.as_str() == crate::core::mascot::MASCOT_SLOT_ID
+        })
+        .map(|v| v.preferred_width)
+        .collect::<Vec<_>>();
     for item in preferences.ordered_compact_items() {
         if preferences.is_enabled(&item.id) {
             if let Some(view) = available.iter().find(|view| view.view.id == item.id) {
@@ -123,12 +129,12 @@ mod tests {
     use crate::{
         app::settings::CompactPreferences,
         builtins,
-        extension::{CompactView, ExtensionId, ExtensionKind, ViewNode},
+        extension::{CompactView, ContributionKind, ExtensionId, ViewNode},
     };
 
     fn available_views() -> Vec<CompactView> {
         builtins::registry()
-            .by_kind(ExtensionKind::Compact)
+            .by_kind(ContributionKind::Compact)
             .into_iter()
             .map(|descriptor| CompactView {
                 id: descriptor.id.clone(),
@@ -248,7 +254,7 @@ mod tests {
     fn compact_item_order_follows_the_saved_preference_order() {
         let mut preferences = CompactPreferences::default();
         let views = available_views();
-        preferences.move_compact_item(&ExtensionId::builtin("builtin.system-monitor/battery"), -1);
+        preferences.move_compact_item(&ExtensionId::builtin("builtin.battery/status"), -1);
         assert_eq!(
             item_widths(
                 &preferences,
@@ -256,7 +262,6 @@ mod tests {
             ),
             [
                 64.0,
-                38.0,
                 88.0,
                 68.0,
                 #[cfg(any(target_os = "linux", target_os = "windows"))]

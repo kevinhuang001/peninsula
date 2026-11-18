@@ -1,6 +1,6 @@
 use crate::extension::{Notification, NotificationKey, NotificationStatus};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NotificationRecord {
     pub notification: Notification,
     pub status: NotificationStatus,
@@ -9,9 +9,51 @@ pub struct NotificationRecord {
 #[derive(Clone, Debug, Default)]
 pub struct NotificationStore {
     records: Vec<NotificationRecord>,
+    path: Option<std::path::PathBuf>,
 }
 
 impl NotificationStore {
+    pub fn open(path: std::path::PathBuf) -> Self {
+        match std::fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice(&bytes) {
+                Ok(records) => Self {
+                    records,
+                    path: Some(path),
+                },
+                Err(error) => {
+                    eprintln!("Unable to read notifications; preserving file: {error}");
+                    Self::default()
+                }
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Self {
+                records: vec![],
+                path: Some(path),
+            },
+            Err(error) => {
+                eprintln!("Unable to read notifications; preserving file: {error}");
+                Self::default()
+            }
+        }
+    }
+    fn save(&self) {
+        let Some(path) = &self.path else {
+            return;
+        };
+        let save = || -> std::io::Result<()> {
+            let parent = path
+                .parent()
+                .ok_or_else(|| std::io::Error::other("missing notification directory"))?;
+            std::fs::create_dir_all(parent)?;
+            let mut file = tempfile::NamedTempFile::new_in(parent)?;
+            serde_json::to_writer(&mut file, &self.records)?;
+            file.as_file().sync_all()?;
+            file.persist(path).map_err(|e| e.error)?;
+            Ok(())
+        };
+        if let Err(error) = save() {
+            eprintln!("Unable to persist notifications: {error}");
+        }
+    }
     pub fn insert(&mut self, notification: Notification) -> bool {
         let key = notification.key();
         if self.get(&key).is_some() {
@@ -21,6 +63,7 @@ impl NotificationStore {
             notification,
             status: NotificationStatus::Pending,
         });
+        self.save();
         true
     }
 
@@ -58,6 +101,7 @@ impl NotificationStore {
             return false;
         }
         record.status = NotificationStatus::Acknowledged;
+        self.save();
         true
     }
 
@@ -68,6 +112,9 @@ impl NotificationStore {
                 record.status = NotificationStatus::Acknowledged;
                 changed += 1;
             }
+        }
+        if changed > 0 {
+            self.save();
         }
         changed
     }

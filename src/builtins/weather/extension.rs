@@ -8,9 +8,9 @@ use super::{
 };
 use crate::{
     extension::{
-        Action, CompactView, ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionKind,
-        ExtensionOutput, Notification, NotificationAlertView, NotificationCenterItemView,
-        NotificationPriority, RuntimeExtension,
+        Action, CompactView, ContributionDescriptor, ContributionKind, ExtensionContext,
+        ExtensionId, ExtensionOutput, Notification, NotificationAlertView,
+        NotificationCenterItemView, NotificationPriority, RuntimeExtension,
     },
     ui::declarative::*,
 };
@@ -31,11 +31,11 @@ const WIDGET_SIZE: [f32; 2] = [506.0, 456.0];
 const COMPACT_WIDTH: f32 = 68.0;
 const HOURLY_COUNT: usize = 5;
 
-pub fn descriptors() -> Vec<ExtensionDescriptor> {
+pub fn descriptors() -> Vec<ContributionDescriptor> {
     vec![
-        ExtensionDescriptor::builtin(
+        ContributionDescriptor::builtin(
             WIDGET_ID,
-            ExtensionKind::Widget,
+            ContributionKind::Widget,
             "天气",
             "cloud-sun",
             true,
@@ -52,18 +52,18 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
             crate::extension::Capability::Action,
             crate::extension::Capability::Event,
         ]),
-        ExtensionDescriptor::builtin(
+        ContributionDescriptor::builtin(
             COMPACT_ID,
-            ExtensionKind::Compact,
+            ContributionKind::Compact,
             "天气",
             "cloud-sun",
             true,
             8,
         )
         .with_size_hint(COMPACT_WIDTH, 28.0),
-        ExtensionDescriptor::builtin(
+        ContributionDescriptor::builtin(
             ALERTS_ID,
-            ExtensionKind::Notification,
+            ContributionKind::Notification,
             "天气风险提示",
             "triangle-alert",
             true,
@@ -81,6 +81,7 @@ pub struct WeatherExtension {
     snapshot: Option<Snapshot>,
     alerts: Vec<WeatherAlert>,
     error: Option<String>,
+    worker: Option<std::thread::JoinHandle<()>>,
     pending: Option<Receiver<Result<Snapshot, String>>>,
     auto_location: Option<Location>,
     published_alerts: HashMap<String, alerts::Severity>,
@@ -98,6 +99,7 @@ impl WeatherExtension {
             alerts: Vec::new(),
             error: None,
             pending: None,
+            worker: None,
             auto_location: None,
             published_alerts: HashMap::new(),
             alert_history_path: None,
@@ -142,10 +144,13 @@ impl WeatherExtension {
         let preferences = self.preferences.clone();
         let cached_auto_location = self.auto_location.clone();
         self.pending = Some(receiver);
-        std::thread::spawn(move || {
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        self.worker = Some(std::thread::spawn(move || {
             let result = client::fetch(&preferences, cached_auto_location.as_ref());
             let _ = sender.send(result);
-        });
+        }));
     }
 
     fn apply_snapshot(&mut self, snapshot: Snapshot, now: Instant, output: &mut ExtensionOutput) {
@@ -249,6 +254,7 @@ impl WeatherExtension {
             alerts,
             error,
             pending: None,
+            worker: None,
             auto_location: None,
             published_alerts: HashMap::new(),
             alert_history_path: None,
@@ -283,10 +289,33 @@ impl crate::extension::NotificationPresentationProvider for WeatherExtension {
 }
 
 impl RuntimeExtension for WeatherExtension {
-    fn descriptors(&self) -> Vec<ExtensionDescriptor> {
-        descriptors()
+    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+        let mut d = crate::extension::ExtensionDescriptor::builtin(
+            "builtin.weather",
+            "天气",
+            "天气、预报和预警",
+            descriptors(),
+        );
+        d.settings = WeatherPreferences::schema();
+        d
     }
 
+    fn on_settings_changed(
+        &mut self,
+        _: &ExtensionContext,
+        _: &ExtensionId,
+        values: &crate::extension::Settings,
+        _: crate::extension::ReloadPolicy,
+    ) -> ExtensionOutput {
+        self.set_preferences(&WeatherPreferences::from_settings(values));
+        ExtensionOutput {
+            invalidated: vec![
+                ExtensionId::builtin(WIDGET_ID),
+                ExtensionId::builtin(COMPACT_ID),
+            ],
+            ..Default::default()
+        }
+    }
     fn on_start(&mut self, context: &ExtensionContext) -> Result<(), String> {
         let path = context
             .extension_data_dir(&ExtensionId::builtin(ALERTS_ID))
@@ -299,6 +328,13 @@ impl RuntimeExtension for WeatherExtension {
         Ok(())
     }
 
+    fn on_stop(&mut self, _: &ExtensionContext) -> Result<(), String> {
+        self.pending = None;
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        Ok(())
+    }
     fn update(&mut self, now: Instant) -> ExtensionOutput {
         let mut output = ExtensionOutput::default();
         let changed = self.poll_fetch(now, &mut output);
@@ -346,10 +382,6 @@ impl RuntimeExtension for WeatherExtension {
             return None;
         }
         Some(WidgetView::new(self.root(), WIDGET_SIZE))
-    }
-
-    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
-        Some(self)
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
@@ -895,18 +927,18 @@ mod tests {
         let descriptors = descriptors();
         assert_eq!(descriptors.len(), 3);
         assert!(descriptors.iter().any(|descriptor| {
-            descriptor.id.as_str() == WIDGET_ID && descriptor.kind == ExtensionKind::Widget
+            descriptor.id.as_str() == WIDGET_ID && descriptor.kind == ContributionKind::Widget
         }));
         assert!(descriptors.iter().any(|descriptor| {
-            descriptor.id.as_str() == COMPACT_ID && descriptor.kind == ExtensionKind::Compact
+            descriptor.id.as_str() == COMPACT_ID && descriptor.kind == ContributionKind::Compact
         }));
         assert!(descriptors.iter().any(|descriptor| {
-            descriptor.id.as_str() == ALERTS_ID && descriptor.kind == ExtensionKind::Notification
+            descriptor.id.as_str() == ALERTS_ID && descriptor.kind == ContributionKind::Notification
         }));
         assert_eq!(lookup_shape(&descriptors, WIDGET_ID), Some(WIDGET_SIZE));
     }
 
-    fn lookup_shape(descriptors: &[ExtensionDescriptor], id: &str) -> Option<[f32; 2]> {
+    fn lookup_shape(descriptors: &[ContributionDescriptor], id: &str) -> Option<[f32; 2]> {
         descriptors
             .iter()
             .find(|descriptor| descriptor.id.as_str() == id)

@@ -68,9 +68,9 @@ mod tests {
     fn invalidation_events_and_deadlines_are_dispatched_once() {
         let now = Instant::now();
         let mut dispatcher = Dispatcher::default();
-        let extension = ExtensionId::builtin("builtin.pomodoro/timer");
+        let extension = ExtensionId::builtin("test.timer");
         dispatcher.invalidate(&extension);
-        dispatcher.on_event(Event::SnapshotUpdated);
+        dispatcher.on_event(Event::Custom("test.snapshot".into()));
         dispatcher.schedule_at("pomodoro", now + Duration::from_secs(1));
         dispatcher.schedule_at("cancelled", now);
         dispatcher.cancel("cancelled");
@@ -82,7 +82,10 @@ mod tests {
         );
         assert_eq!(
             dispatcher.drain_events().collect::<Vec<_>>(),
-            [Event::SnapshotUpdated, Event::Custom("pomodoro".into())]
+            [
+                Event::Custom("test.snapshot".into()),
+                Event::Custom("pomodoro".into())
+            ]
         );
         assert!(dispatcher
             .due_tasks(now + Duration::from_secs(2))

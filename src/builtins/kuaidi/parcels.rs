@@ -117,7 +117,7 @@ impl Snapshot {
                 .iter()
                 .copied()
                 .find(|old| !parcel.tracking_no.is_empty() && parcel.tracking_no == old.tracking_no)
-                .or_else(|| match same_order.as_slice() {
+                .or(match same_order.as_slice() {
                     [old] if parcel.tracking_no.is_empty() || old.tracking_no.is_empty() => {
                         Some(*old)
                     }

@@ -1,7 +1,4 @@
-use super::{
-    extension::{battery_color, battery_label},
-    sampler::Snapshot,
-};
+use super::sampler::Snapshot;
 use crate::{extension::Action, ui::declarative::*};
 
 pub(super) fn memory_percent(s: &Snapshot) -> f32 {
@@ -170,25 +167,6 @@ pub(super) fn build(
             ColorSpec::Info,
         ));
     }
-    system.push(text(
-        if s.battery_percent.is_some() {
-            format!(
-                "{} {}",
-                if s.charging {
-                    "充电中"
-                } else if s.external_power == Some(true) {
-                    "已接电"
-                } else {
-                    "电池"
-                },
-                battery_label(s)
-            )
-        } else {
-            "电池 —".into()
-        },
-        10.0,
-        battery_color(s),
-    ));
     let tab = |label: &str, key: &str, active: bool| {
         let mut button = ViewNode::subtle_button(label, Action::Select(key.into()));
         button.style.normal.corner_radius = Some(7.0);

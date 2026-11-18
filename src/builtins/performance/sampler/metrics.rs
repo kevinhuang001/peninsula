@@ -1,5 +1,5 @@
 use super::network::rate;
-use std::{thread, time::Instant};
+use std::time::Instant;
 use sysinfo::{Networks, ProcessRefreshKind, ProcessesToUpdate, System};
 
 #[derive(Clone, Debug, Default)]
@@ -23,9 +23,6 @@ pub struct Snapshot {
     pub gpu_percent: Option<f32>,
     pub download_bytes_per_second: f64,
     pub upload_bytes_per_second: f64,
-    pub battery_percent: Option<u8>,
-    pub charging: bool,
-    pub external_power: Option<bool>,
 }
 
 pub struct MetricsSampler {
@@ -53,22 +50,12 @@ impl Default for MetricsSampler {
 }
 
 impl MetricsSampler {
-    pub fn start() -> crate::core::latest::LatestReceiver<Snapshot> {
-        let (sender, receiver) = crate::core::latest::channel();
-        thread::spawn(move || {
-            let mut sampler = Self::default();
-            loop {
-                let started = Instant::now();
-                let snapshot = sampler.sample();
-                if !sender.send(snapshot) {
-                    break;
-                }
-                thread::sleep(std::time::Duration::from_secs(1).saturating_sub(started.elapsed()));
-            }
-        });
-        receiver
+    pub fn start(interval: std::time::Duration) -> crate::core::worker::Worker<Snapshot> {
+        let mut sampler = None;
+        crate::core::worker::Worker::spawn_latest("system-monitor", interval, move || {
+            sampler.get_or_insert_with(Self::default).sample()
+        })
     }
-
     fn sample(&mut self) -> Snapshot {
         self.system.refresh_cpu_all();
         self.snapshot.cpu_percent = self.system.global_cpu_usage();
@@ -166,7 +153,6 @@ mod tests {
             .is_none_or(|value| (0.0..=100.0).contains(&value)));
         assert!(snapshot.download_bytes_per_second.is_finite());
         assert!(snapshot.upload_bytes_per_second.is_finite());
-        assert!(snapshot.battery_percent.is_none_or(|value| value <= 100));
     }
 }
 

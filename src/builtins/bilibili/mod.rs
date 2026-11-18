@@ -2,4 +2,4 @@ mod extension;
 mod poller;
 mod state;
 
-pub use extension::{BilibiliExtension, NOTIFICATION_ID};
+pub use extension::BilibiliExtension;

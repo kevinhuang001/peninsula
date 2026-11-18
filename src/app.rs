@@ -1,6 +1,6 @@
 use crate::{
     app::state::IslandState,
-    builtins::BuiltinExtensions,
+    core::extension_manager::ExtensionManager,
     core::{
         actions::ActionDispatcher,
         notifications::{self, NotificationCenterEntry, NotificationManager},
@@ -70,7 +70,8 @@ struct IslandApp {
     notifications: NotificationManager,
     scheduler: Scheduler,
     action_dispatcher: ActionDispatcher,
-    extensions: BuiltinExtensions,
+    extensions: ExtensionManager,
+    mascot: crate::core::mascot::MascotHost,
     state: IslandState,
     icons: Icons,
     preferences: CompactPreferences,
@@ -102,23 +103,28 @@ impl IslandApp {
         preferences
             .widget_theme
             .install(context, preferences.widget_accent);
-        let mut extensions = BuiltinExtensions::new(legacy);
+        let extensions = ExtensionManager::new(
+            crate::builtins::runtimes(),
+            legacy,
+            preferences
+                .pages
+                .iter()
+                .map(|p| (p.descriptor.id.clone(), p.enabled))
+                .collect(),
+        );
         preferences.read_extension_settings(&extensions);
-        extensions.apply_weather_preferences(&preferences.weather);
-        if preferences.bilibili_enabled {
-            if let Err(error) = extensions.set_bilibili_enabled(true) {
-                eprintln!("Unable to start Bilibili extension: {error}");
-            }
-        }
         let active_widget = extensions.widget_ids()[0].clone();
         let window_size = Vec2::from(INITIAL_WINDOW_SIZE);
         let initial_widget_height =
             extensions.widget_size(&active_widget, None, widget_limit(window_size), [None; 2])[1];
+        let notifications =
+            NotificationManager::open(extensions.data_dir().join("notifications.json"));
         Self {
-            notifications: NotificationManager::default(),
+            notifications,
             scheduler: Scheduler::default(),
             action_dispatcher: ActionDispatcher::default(),
             extensions,
+            mascot: Default::default(),
             state: IslandState::default(),
             icons: Icons::load(context),
             preferences,
@@ -238,7 +244,10 @@ impl IslandApp {
         if output == ExtensionOutput::default() {
             return;
         }
-        let repaint = !output.invalidated.is_empty() || !output.notifications.is_empty();
+        let repaint = !output.invalidated.is_empty()
+            || !output.notifications.is_empty()
+            || !output.events.is_empty()
+            || !output.mascot_events.is_empty();
         for extension_id in output.invalidated {
             self.scheduler.invalidate(&extension_id);
         }
@@ -247,6 +256,15 @@ impl IslandApp {
         }
         for task in output.schedule {
             self.scheduler.schedule_at(&task.task_id, task.deadline);
+        }
+        for event in output.events {
+            self.scheduler.on_event(event);
+        }
+        for event in &output.mascot_events {
+            if self.preferences.mascot_enabled {
+                self.mascot
+                    .event(event, &self.extensions.mascot_sources(), Instant::now());
+            }
         }
         let published = !output.notifications.is_empty();
         for notification in output.notifications.iter().cloned() {
@@ -297,6 +315,11 @@ impl IslandApp {
         now: Instant,
         context: &egui::Context,
     ) {
+        if invocation.source_extension_id.as_str() == crate::core::mascot::MASCOT_SLOT_ID {
+            self.mascot.cycle_idle();
+            context.request_repaint();
+            return;
+        }
         if invocation.source_extension_id.as_str() == NOTIFICATION_CENTER_ID {
             let mut opened = false;
             let (dispatcher, notifications) =
@@ -375,10 +398,13 @@ impl eframe::App for IslandApp {
             self.last_platform_check = Some(now);
         }
 
+        self.extensions
+            .set_visible(self.state.expanded && !self.settings_open);
         for output in self.extensions.update(now) {
             self.apply_extension_output(output, context);
         }
-        self.apply_extension_output(self.extensions.drain_context_tasks(), context);
+        let context_tasks = self.extensions.drain_context_tasks();
+        self.apply_extension_output(context_tasks, context);
         self.scheduler.due_tasks(now);
         let events: Vec<_> = self.scheduler.drain_events().collect();
         for event in events {
@@ -387,6 +413,7 @@ impl eframe::App for IslandApp {
             }
         }
 
+        self.preferences.refresh_status(&self.extensions);
         let scheduled_quiet = self.preferences.quiet_hours.is_scheduled_now();
         if !scheduled_quiet {
             self.quiet_bypassed = false;
@@ -428,7 +455,14 @@ impl eframe::App for IslandApp {
             self.alert_surface = None;
         }
 
-        let widget_ids = self.extensions.widget_ids();
+        let mut widget_ids = self.extensions.widget_ids();
+        widget_ids[1..].sort_by_key(|id| {
+            self.preferences
+                .widget_order
+                .iter()
+                .position(|saved| saved == id)
+                .unwrap_or(usize::MAX)
+        });
         let widget_titles: Vec<_> = widget_ids
             .iter()
             .map(|id| self.extensions.widget_title(id))
@@ -564,15 +598,51 @@ impl eframe::App for IslandApp {
             self.last_expanded_width = Some(width);
         }
         let widget_title = self.extensions.widget_title(&self.active_widget);
-        let bilibili_status = self.extensions.bilibili_status();
-        crate::ui::renderer::set_reduced_motion(context, self.preferences.reduced_motion);
-        let available_views = self.extensions.compact_views(now);
+        crate::ui::renderer::set_reduced_motion(
+            context,
+            self.preferences.reduced_motion || self.preferences.motion_off,
+        );
+        self.extensions
+            .set_motion_policy(if self.preferences.motion_off {
+                crate::core::mascot::MotionPolicy::Off
+            } else if self.preferences.reduced_motion {
+                crate::core::mascot::MotionPolicy::Reduced
+            } else {
+                crate::core::mascot::MotionPolicy::Full
+            });
+        let mut available_views = self.extensions.compact_views(now);
+        let sources = self.extensions.mascot_sources();
+        let mascot_visible = self.preferences.mascot_enabled && !self.state.expanded;
+        self.mascot.update(&sources, mascot_visible, now);
+        if self.preferences.mascot_enabled {
+            let policy = if self.preferences.motion_off || self.preferences.mascot_motion == "Off" {
+                crate::core::mascot::MotionPolicy::Off
+            } else if self.preferences.reduced_motion || self.preferences.mascot_motion == "Reduced"
+            {
+                crate::core::mascot::MotionPolicy::Reduced
+            } else {
+                crate::core::mascot::MotionPolicy::Full
+            };
+            available_views.insert(
+                0,
+                Arc::new(
+                    self.mascot
+                        .compact_slot(f32::from(self.preferences.mascot_size), policy),
+                ),
+            );
+        }
+        if mascot_visible {
+            if let Some(wake) = self.mascot.next_wake() {
+                context.request_repaint_after(wake.saturating_duration_since(now));
+            }
+        }
         let compact_views = compact_layout::measure_views(
             context,
-            available_views
-                .iter()
-                .map(Arc::as_ref)
-                .filter(|view| self.preferences.is_enabled(&view.id)),
+            available_views.iter().map(Arc::as_ref).filter(|view| {
+                self.preferences.is_enabled(&view.id)
+                    || (self.preferences.mascot_enabled
+                        && view.id.as_str() == crate::core::mascot::MASCOT_SLOT_ID)
+            }),
             &self.icons,
         );
         let compact_width = compact_layout::width(&self.preferences, &compact_views);
@@ -582,6 +652,9 @@ impl eframe::App for IslandApp {
         );
         self.state.set_compact_width(compact_width);
         let dt = context.input(|input| input.unstable_dt).clamp(0.0, 0.1);
+        if self.preferences.motion_off {
+            self.state.finish_motion();
+        }
         let (pill_width, progress) = self.state.advance(dt);
         self.widget_height
             .target(if let Some((_, surface)) = &self.alert_surface {
@@ -592,19 +665,19 @@ impl eframe::App for IslandApp {
                 0.0
             } else if self.settings_open {
                 self.settings_view
-                    .extra_height(context, &self.preferences, &bilibili_status)
+                    .extra_height(context, &self.preferences)
                     .min(widget_limit[1])
             } else {
                 widget_height
             });
-        self.widget_height.step(dt);
+        if self.preferences.motion_off {
+            self.widget_height.finish();
+        } else {
+            self.widget_height.step(dt);
+        }
         let fallback = widget_view.is_none().then(empty_widget_view);
         let widget_view = widget_view.as_deref().or(fallback.as_ref()).unwrap();
 
-        let old_extension_settings = self
-            .settings_open
-            .then(|| self.preferences.extension_settings());
-        let old_bilibili_enabled = self.preferences.bilibili_enabled;
         let page_before_input = self.active_widget.clone();
         let mut interactive_rect = None;
         let mut drag_started = false;
@@ -647,7 +720,6 @@ impl eframe::App for IslandApp {
                             icons: &self.icons,
                             notification: notice.as_ref(),
                             do_not_disturb,
-                            bilibili_status: &bilibili_status,
                         },
                     );
                     action_result = Some((
@@ -704,43 +776,36 @@ impl eframe::App for IslandApp {
                 self.state.retarget_expanded_width(width);
                 self.widget_height.target(if self.settings_open {
                     self.settings_view
-                        .extra_height(context, &self.preferences, &bilibili_status)
+                        .extra_height(context, &self.preferences)
                         .min(widget_limit[1])
                 } else {
                     widget_height
                 });
             }
             if preferences_changed {
-                for (id, mut values) in self.preferences.extension_settings() {
-                    if let Some(previous) =
-                        old_extension_settings.as_ref().and_then(|all| all.get(&id))
+                context.request_repaint();
+                for page in self.preferences.pages.clone() {
+                    match self
+                        .extensions
+                        .update_settings(&page.descriptor.id, page.values)
                     {
-                        values.retain(|key, value| previous.get(key) != Some(value));
-                    }
-                    if values.is_empty() {
-                        continue;
-                    }
-                    match self.extensions.update_settings(&id, values) {
                         Ok(output) => self.apply_extension_output(output, context),
-                        Err(error) => {
-                            eprintln!("Unable to save extension settings for {id}: {error}")
-                        }
+                        Err(error) => eprintln!("Unable to save extension settings: {error}"),
+                    }
+                    if let Err(error) = self
+                        .extensions
+                        .set_enabled(&page.descriptor.id, page.enabled)
+                    {
+                        eprintln!("Unable to change extension lifecycle: {error}");
                     }
                 }
                 self.preferences.read_extension_settings(&self.extensions);
-                if old_bilibili_enabled != self.preferences.bilibili_enabled {
-                    if let Err(error) = self
-                        .extensions
-                        .set_bilibili_enabled(self.preferences.bilibili_enabled)
-                    {
-                        eprintln!("Unable to update Bilibili extension: {error}");
-                    }
-                }
+                self.preferences
+                    .widget_theme
+                    .install(context, self.preferences.widget_accent);
                 if let Err(error) = self.preferences.save() {
                     eprintln!("Unable to save settings: {error}");
                 }
-                self.extensions
-                    .apply_weather_preferences(&self.preferences.weather);
             }
             if let Some(action) = widget_action {
                 self.dispatch_widget_action(action, now, context);
@@ -827,20 +892,31 @@ impl eframe::App for IslandApp {
         if self.dashboard_open {
             self.show_dashboard(context, &widget_ids, now);
         }
-        // Motion nodes schedule their own frames. Poll asynchronous sources at
-        // 10 Hz while idle, keeping springs and dragging at the display cadence.
-        let interval = if self.state.animating() || !self.widget_height.settled() || dragging {
-            16
-        } else {
-            100
-        };
+        // Active services, visible views and Core deadlines determine the next wake.
+        // With no running source or pending transition, egui can sleep until input.
+        let animated = self.state.animating()
+            || self.state.hover_pending()
+            || !self.widget_height.settled()
+            || dragging;
+        let extension_wake = self.extensions.next_wake(
+            now,
+            !self.state.expanded,
+            (self.state.expanded && !self.settings_open).then_some(&self.active_widget),
+        );
+        let quiet_wake = (!self.preferences.quiet_hours.periods().is_empty())
+            .then_some(now + Duration::from_secs(30));
         let wake = self
             .scheduler
             .next_deadline()
-            .map(|at| at.saturating_duration_since(Instant::now()));
-        context.request_repaint_after(wake.map_or(Duration::from_millis(interval), |due| {
-            due.min(Duration::from_millis(interval))
-        }));
+            .into_iter()
+            .chain(extension_wake)
+            .chain(quiet_wake)
+            .chain(self.notifications.next_deadline())
+            .chain(animated.then_some(now + Duration::from_millis(16)))
+            .min();
+        if let Some(wake) = wake {
+            context.request_repaint_after(wake.saturating_duration_since(Instant::now()));
+        }
     }
 }
 

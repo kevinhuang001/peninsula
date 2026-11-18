@@ -106,7 +106,6 @@ fn named_icon(name: &str) -> Option<Icon> {
         "speaker-playing" => Icon::SpeakerPlaying,
         "equalizer" => Icon::Equalizer,
         "equalizer-playing" => Icon::EqualizerPlaying,
-        "clock-live" => Icon::ClockLive,
         "media-play" => Icon::MediaPlay,
         "media-pause" => Icon::MediaPause,
         "media-previous" => Icon::MediaPrevious,
@@ -348,7 +347,7 @@ impl Renderer<'_> {
             ui.painter().rect_stroke(
                 rect,
                 radius,
-                Stroke::new(1.0, color(ColorSpec::Accent)),
+                Stroke::new(1.0_f32, color(ColorSpec::Accent)),
                 StrokeKind::Inside,
             );
         }
@@ -472,7 +471,7 @@ impl Renderer<'_> {
         let painter = ui.painter().with_clip_rect(rect);
         let color = |spec| self.theme.color(ui, spec).linear_multiply(opacity);
         let surface = color(ColorSpec::SurfaceVariant);
-        let divider = Stroke::new(1.0, color(ColorSpec::Border).gamma_multiply(0.58));
+        let divider = Stroke::new(1.0_f32, color(ColorSpec::Border).gamma_multiply(0.58));
         let header = Rect::from_min_size(rect.min, vec2(rect.width(), TABLE_HEADER_HEIGHT));
         painter.rect_filled(
             header,
@@ -702,7 +701,7 @@ impl Renderer<'_> {
                 } else {
                     [pos2(rect.left(), c.y), pos2(rect.right(), c.y)]
                 };
-                painter.line_segment(line, Stroke::new(1.0, fg));
+                painter.line_segment(line, Stroke::new(1.0_f32, fg));
             }
             Node::ProgressBar {
                 fraction,
@@ -798,7 +797,7 @@ impl Renderer<'_> {
                         radius,
                         pi,
                         pi,
-                        Stroke::new(3.0, color(ColorSpec::Border)),
+                        Stroke::new(3.0_f32, color(ColorSpec::Border)),
                     );
                     arc(
                         &painter,
@@ -806,7 +805,7 @@ impl Renderer<'_> {
                         radius,
                         pi,
                         pi * ratio(effects.progress.unwrap_or(*fraction)),
-                        Stroke::new(3.0, fg),
+                        Stroke::new(3.0_f32, fg),
                     );
                 }
                 text(ui, rect, label, TextStyle::default(), fg);
@@ -993,7 +992,7 @@ fn range_chart(
         painter.hline(
             left..=left + width,
             egui::lerp(top..=bottom, ratio),
-            Stroke::new(1.0, muted.gamma_multiply(0.22)),
+            Stroke::new(1.0_f32, muted.gamma_multiply(0.22)),
         );
     }
     let mut previous: Option<(egui::Pos2, egui::Pos2)> = None;
@@ -1018,8 +1017,8 @@ fn range_chart(
                 cool.gamma_multiply(0.15),
                 Stroke::NONE,
             ));
-            painter.line_segment([previous_high, high_point], Stroke::new(1.8, warm));
-            painter.line_segment([previous_low, low_point], Stroke::new(1.8, cool));
+            painter.line_segment([previous_high, high_point], Stroke::new(1.8_f32, warm));
+            painter.line_segment([previous_low, low_point], Stroke::new(1.8_f32, cool));
         }
         for (point, value, color, offset, alignment) in [
             (high_point, high, warm, -5.0, egui::Align2::CENTER_BOTTOM),
@@ -1040,6 +1039,7 @@ fn range_chart(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Shared chart painter receives layout and visual context.
 fn line_chart(
     ui: &Ui,
     rect: Rect,
@@ -1075,7 +1075,7 @@ fn line_chart(
         painter.hline(
             rect.x_range(),
             egui::lerp(top..=bottom, level),
-            Stroke::new(1.0, muted.gamma_multiply(0.23)),
+            Stroke::new(1.0_f32, muted.gamma_multiply(0.23)),
         );
     }
 
@@ -1097,7 +1097,7 @@ fn line_chart(
                 accent.gamma_multiply(0.13),
                 Stroke::NONE,
             ));
-            painter.line_segment([a, b], Stroke::new(1.8, accent));
+            painter.line_segment([a, b], Stroke::new(1.8_f32, accent));
         }
         previous = position;
         let labels = painter.with_clip_rect(cell);
@@ -1192,7 +1192,7 @@ fn chart(painter: &egui::Painter, rect: Rect, kind: ChartKind, values: &[f32], c
         for (i, value) in data.iter().enumerate() {
             let current = value.map(|v| pos2(rect.left() + i as f32 * spacing, y(v)));
             if let (Some(a), Some(b)) = (previous, current) {
-                painter.line_segment([a, b], Stroke::new(1.5, color));
+                painter.line_segment([a, b], Stroke::new(1.5_f32, color));
             }
             previous = current;
         }
