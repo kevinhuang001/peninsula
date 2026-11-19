@@ -462,4 +462,53 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
     for account in mail
         .accounts
         .iter()
-        .filter(|account| mail.selected.as_ref().is_none_or(|id| id == &account.id))m«ëŒ+Š×®º+º$zzb¥à¢°¢–bÆWB6öÖR†W'&÷"’ÒÖ–À¢æÖ–Æ&÷†W0¢ævWB‚f66÷VçBæ–B¢ææE÷F†Vâ‡Æ&÷…÷Â&÷…òæW'&÷"æ5÷&Vb‚’¢°¢6öçFVçBçW6‚‡FW‡B€¢f÷&ÖB‚'·ŞûÉ§·Ò"Â66÷VçBæVÖ–ÂÂW'&÷"’À¢ãÀ¢6öÆ÷%7V3£¥v&æ–ærÀ¢’“°¢Ğ¢Ğ¢–bÖ–ÂæFF–ær°¢6öçFVçBçW6‚†66÷VçEöf÷&Ò†Ö–Â’“°¢Ğ¢–bÖ–Âæ÷Væ–æræ—5öæöæR‚’ÇÂÖ–ÂæFF–ær°¢ÆWBÆ—7BÒf–WtæöFS£¦æWr„æöFS£¥67&öÆÂ€¢67&öÆÄ†W3£¥fW'F–6ÂÀ¢&÷ƒ£¦æWr†6öÇVÖâ†ÖW76vW2†Ö–Â’ÂRã’’À¢’¢ç6—¦VB…6—¦S£¤f–ÆÂƒã’Â6—¦S£¤f–ÆÂƒã’“°¢6öçFVçBçW6‚†Æ—7B“°¢Ğ¢ÆWBÖ–âÒ6öÇVÖâ‡fV2·F÷Â6öÇVÖâ†6öçFVçBÂrã•ÒÂ‚ã¢ç6—¦VB…6—¦S£¤f–ÆÂƒã’Â6—¦S£¤f–ÆÂƒã’¢ç7G–ÆVB…7G–ÆR°¢FF–æs¢³‚ãÂãÂ‚ãÂ"ãÒÀ¢âäFVfVÇC£¦FVfVÇB‚¢Ò“°¢ÆWB&ö÷BÒf–WtæöFS£§&÷r€¢fV2·6–FV&"†Ö–Â’ÂÖ–åÒÀ¢fÆ÷r°¢v¢6öÖRƒã’À¢Æ–vã¢Æ–vã£¥7G&WF6‚À¢âäFVfVÇC£¦FVfVÇB‚¢ÒÀ¢¢ç6—¦VB…6—¦S£¤f–ÆÂƒã’Â6—¦S£¤f–ÆÂƒã’“°¢ÆWB×WBf–WrÒv–FvWEf–Ws£¦æWr‡&ö÷BÂ³s#ãÂCSãÒ“°¢f–Wræ&÷VæG2Òv–FvWD&÷VæG2°¢Ö–ã¢³SãÂ3ãÒÀ¢Öƒ¢µ6öÖRƒ“ã’Â6öÖRƒs#ã•ÒÀ¢&W6—¦&ÆS¢G'VRÀ¢÷fW&fÆ÷s¢÷fW&fÆ÷s£¥67&öÆÂ…67&öÆÄ†W3£¥fW'F–6Â’À¢âäFVfVÇC£¦FVfVÇB‚¢Ó°¢f–Wp§Ğ
+        .filter(|account| mail.selected.as_ref().is_none_or(|id| id == &account.id))
+    {
+        if let Some(error) = mail
+            .mailboxes
+            .get(&account.id)
+            .and_then(|box_| box_.error.as_ref())
+        {
+            content.push(text(
+                format!("{}ï¼š{}", account.email, error),
+                10.0,
+                ColorSpec::Warning,
+            ));
+        }
+    }
+    if mail.adding {
+        content.push(account_form(mail));
+    }
+    if mail.opening.is_none() || !mail.adding {
+        let list = ViewNode::new(Node::Scroll(
+            ScrollAxes::Vertical,
+            Box::new(column(messages(mail), 5.0)),
+        ))
+        .sized(Size::Fill(1.0), Size::Fill(1.0));
+        content.push(list);
+    }
+    let main = column(vec![top, column(content, 7.0)], 8.0)
+        .sized(Size::Fill(1.0), Size::Fill(1.0))
+        .styled(Style {
+            padding: [8.0, 10.0, 8.0, 2.0],
+            ..Default::default()
+        });
+    let root = ViewNode::row(
+        vec![sidebar(mail), main],
+        Flow {
+            gap: Some(10.0),
+            align: Align::Stretch,
+            ..Default::default()
+        },
+    )
+    .sized(Size::Fill(1.0), Size::Fill(1.0));
+    let mut view = WidgetView::new(root, [720.0, 450.0]);
+    view.bounds = WidgetBounds {
+        min: [500.0, 300.0],
+        max: [Some(900.0), Some(720.0)],
+        resizable: true,
+        overflow: Overflow::Scroll(ScrollAxes::Vertical),
+        ..Default::default()
+    };
+    view
+}

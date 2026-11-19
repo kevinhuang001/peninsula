@@ -411,7 +411,382 @@ impl Renderer<'_> {
             if visible {
                 let child_id = id.with(("motion-child", &child.key));
                 let mut current = self.effects(ui, id, motion, supports_progress(child));
-              m«ëŒ+Š×ž®º+º$zzb¥â7W'&VçBæ6öÆ÷"ÒVffV7G2æ6öÆ÷"æ÷"†7W'&VçBæ6öÆ÷"“°¢7W'&VçBç&öw&W72ÒVffV7G2ç&öw&W72æ÷"†7W'&VçBç&öw&W72“°¢ÆWB6—¦RÒ6VÆbæ–åö6VÆÂ‡V’Â6†–ÆBÂ–ææW"ç6—¦R‚’Â´Æ–vã£¥7G&WF6ƒ²%ÒÂFWF‚²“°¢ÆWB&V7BÒ&V7C£¦g&öÕöÖ–å÷6—¦R†–ææW"æÖ–âÂ6—¦R“°¢ÆWB7F'BÒ7W'&VçBæ†5÷G&ç6f÷&Ò‚’çF†Vâ‡ÇÂ°¢V’æ7G‚‚¢æw&†–75ö×WB‡Æw&†–77Âw&†–72æVçG'’‡V’æÆ–W%ö–B‚’’ææW‡Eö–G‚‚’¢Ò“°¢6VÆbç–çE÷v—F…öVffV7G2€¢V’À¢6†–ÆBÀ¢&V7BÀ¢6†–ÆEö–BÀ¢f÷&Vw&÷VæBÀ¢÷6—G’¢7W'&VçBæ÷6—G’À¢FWF‚²À¢7W'&VçBÀ¢“°¢–bÆWB6öÖR‡7F'B’Ò7F'B°¢7W'&VçBçG&ç6f÷&Õ÷6†W2‡V’Â7F'BÂ&V7Bæ6VçFW"‚’“°¢Ð¢Ð¢&WGW&ã°¢Ð¢–bÆWBæöFS£¥67&öÆÂ††W2Â6†–ÆB’ÒfæöFRæ¶–æB°¢6VÆbç67&öÆÂ‡V’Â–ææW"Â6†–ÆBÂ¦†W2Â–BÂf÷&Vw&÷VæBÂ÷6—G’ÂFWF‚²“°¢&WGW&ã°¢Ð¢–bÆWBæöFS£¥F&ÆR‡F&ÆR’ÒfæöFRæ¶–æB°¢6VÆbç–çE÷F&ÆR‡V’Â–ææW"ÂF&ÆRÂ–BÂf÷&Vw&÷VæBÂ÷6—G’ÂFWF‚²“°¢&WGW&ã°¢Ð¢–bÆWB6öÖR†Æ–÷WB’Ò6VÆbæÆ–÷WB‡V’ÂæöFRÂ–ææW"ç6—¦R‚’ÂFWF‚²’°¢ÆWB6öÖR†6†–ÆG&Vâ’ÒÆ–÷WC£¦6†–ÆG&Vâ†æöFR’VÇ6R°¢&WGW&ã°¢Ó°¢f÷"†–æFW‚Â6VÆÂ’–âÆ–÷WBæ6VÆÇ2°¢ÆWB6†–ÆBÒf6†–ÆG&Vå¶–æFW…Ó°¢ÆWB6†–ÆEö–BÒ6†–Æ@¢æ¶W¢æ5÷&Vb‚¢æÖö÷%öVÇ6R‡ÇÂ–Bçv—F‚†–æFW‚’ÂÆ¶W—Â–Bçv—F‚†¶W’’“°¢6VÆbç–çB€¢V’À¢6†–ÆBÀ¢6VÆÂçG&ç6ÆFR†–ææW"æÖ–âçFõ÷fV3"‚’’À¢6†–ÆEö–BÀ¢f÷&Vw&÷VæBÀ¢÷6—G’À¢FWF‚²À¢“°¢Ð¢&WGW&ã°¢Ð¢6VÆbç–çEöÆVb‡V’Â–ææW"ÂæöFRÂ–BÂf÷&Vw&÷VæBÂ÷6—G’ÂVffV7G2“°¢Ð ¢5¶ÆÆ÷r†6Æ—“£§FöõöÖç•ö&wVÖVçG2•Ð¢fâ–çE÷F&ÆR€¢f×WB6VÆbÀ¢V“¢f×WBV’À¢&V7C¢&V7BÀ¢F&ÆS¢eF&ÆRÀ¢–C¢–BÀ¢f÷&Vw&÷VæC¢6öÆ÷#3"À¢÷6—G“¢c3"À¢FWFƒ¢W6—¦RÀ¢’°¢W6RÆ–÷WC£§µD$ÄUôtÂD$ÄUô„TDU%ô„T”t…BÂD$ÄUõ…õDD”ärÂD$ÄUõ•õDD”äwÓ°¢ÆWBÆ–÷WBÒ6VÆbçF&ÆR‡V’ÂF&ÆRÂ&V7Bçv–GF‚‚’ÂFWF‚“°¢ÆWB–çFW"ÒV’ç–çFW"‚’çv—F…ö6Æ—÷&V7B‡&V7B“°¢ÆWB6öÆ÷"ÒÇ7V7Â6VÆbçF†VÖRæ6öÆ÷"‡V’Â7V2’æÆ–æV%ö×VÇF—Ç’†÷6—G’“°¢ÆWB7W&f6RÒ6öÆ÷"„6öÆ÷%7V3£¥7W&f6Uf&–çB“°¢ÆWBF—f–FW"Ò7G&ö¶S£¦æWrƒãöc3"Â6öÆ÷"„6öÆ÷%7V3£¤&÷&FW"’ævÖÖö×VÇF—Ç’ƒãS‚’“°¢ÆWB†VFW"Ò&V7C£¦g&öÕöÖ–å÷6—¦R‡&V7BæÖ–âÂfV3"‡&V7Bçv–GF‚‚’ÂD$ÄUô„TDU%ô„T”t…B’“°¢–çFW"ç&V7Eöf–ÆÆVB€¢†VFW"À¢VwV“£¤6÷&æW%&F—W2°¢çs¢rÀ¢æS¢rÀ¢âäFVfVÇC£¦FVfVÇB‚¢ÒÀ¢7W&f6RÀ¢“°¢–çFW"æ†Æ–æR††VFW"ç…÷&ævR‚’Â†VFW"æ&÷GFöÒ‚’ÂF—f–FW"“°¢ÆWB×WB‚Ò&V7BæÆVgB‚’²D$ÄUõ…õDD”äs°¢f÷"†6öÇVÖâÂgv–GF‚’–âF&ÆRæ6öÇVÖç2æ—FW"‚’ç¦—‚fÆ–÷WBæ6öÇVÖç2’°¢FW‡B€¢V’À¢&V7C£¦g&öÕöÖ–å÷6—¦R‡÷3"‡‚Â&V7BçF÷‚’’ÂfV3"‡v–GF‚ÂD$ÄUô„TDU%ô„T”t…B’’À¢f6öÇVÖâçF—FÆRÀ¢F&ÆUö†VFW%÷7G–ÆR‚’À¢6öÆ÷"„6öÆ÷%7V3£¥6V6öæF'•FW‡B’À¢“°¢‚³Òv–GF‚²D$ÄUôt°¢Ð¢ÆWB×WB’Ò†VFW"æ&÷GFöÒ‚“°¢f÷"†–æFW‚Â‡&÷rÂ†V–v‡B’’–âF&ÆRç&÷w2æ—FW"‚’ç¦—†Æ–÷WBç&÷w2’æVçVÖW&FR‚’°¢ÆWB&÷u÷&V7BÒ&V7C£¦g&öÕöÖ–å÷6—¦R‡÷3"‡&V7BæÆVgB‚’Â’’ÂfV3"‡&V7Bçv–GF‚‚’Â†V–v‡B’“°¢’³Ò†V–v‡C°¢–b&÷u÷&V7BçF÷‚’ãÒ&V7Bæ&÷GFöÒ‚’°¢'&V³°¢Ð¢–bV’æ6Æ—÷&V7B‚’æ–çFW'6V7G2‡&÷u÷&V7B’°¢6öçF–çVS°¢Ð¢–b–æFW‚R"ÓÒ°¢–çFW"ç&V7Eöf–ÆÆVB‡&÷u÷&V7BÂãÂ7W&f6RævÖÖö×VÇF—Ç’ƒã3b’“°¢Ð¢–bÆWB6öÖR…6öÖR†ÖVçR’’ÒF&ÆRç&÷uöÖVçW2ævWB†–æFW‚’°¢ÆWB&W7öç6RÒV’æ–çFW&7B€¢&÷u÷&V7Bæ–çFW'6V7B‡&V7B’À¢–Bçv—F‚‚‚'&÷rÖÖVçR"ÂfÖVçRæ7F–öâ’’À¢6Vç6S£¦6Æ–6²‚’À¢“°¢7WW#£¦6öçFW‡EöÖVçR‚g&W7öç6RÂÇV—Â°¢V’æÆ&VÂ‚fÖVçRçF—FÆR“°¢ÆWB6Æ–6¶VBÒV’æ'WGFöâ‚fÖVçRæÆ&VÂ’æ6Æ–6¶VB‚“°¢–b6Æ–6¶VB°¢6VÆbæ7F–öâÒ6öÖR†ÖVçRæ7F–öâæ6ÆöæR‚’“°¢Ð¢6Æ–6¶V@¢Ò“°¢Ð¢–çFW"æ†Æ–æR‡&÷u÷&V7Bç…÷&ævR‚’Â&÷u÷&V7Bæ&÷GFöÒ‚’ÂF—f–FW"“°¢ÆWB×WB‚Ò&V7BæÆVgB‚’²D$ÄUõ…õDD”äs°¢f÷"†6öÇVÖâÂ†6VÆÂÂgv–GF‚’’–â&÷ræ—FW"‚’ç¦—‚fÆ–÷WBæ6öÇVÖç2’æVçVÖW&FR‚’°¢ÆWB&÷VæG2Ò&V7C£¦g&öÕöÖ–å÷6—¦R€¢÷3"‡‚Â&÷u÷&V7BçF÷‚’²D$ÄUõ•õDD”är’À¢fV3"‡v–GF‚Â†V–v‡BÒ"ã¢D$ÄUõ•õDD”är’À¢“°¢ÆWB6†–ÆEö–BÒ–Bçv—F‚‚†–æFW‚Â6öÇVÖâÂ6VÆÂæ¶W’æ5öFW&Vb‚’’“°¢ÆWB×WB6†–ÆBÒV’ææWuö6†–ÆB…V”'V–ÆFW#£¦æWr‚’æ–E÷6ÇB†6†–ÆEö–B’æÖ…÷&V7B†&÷VæG2’“°¢6†–ÆBç6WEö6Æ—÷&V7B‡V’æ6Æ—÷&V7B‚’æ–çFW'6V7B‡&V7B’æ–çFW'6V7B†&÷VæG2’“°¢ÆWB6—¦RÒ6VÆbæ–åö6VÆÂ€¢f6†–ÆBÀ¢6VÆÂÀ¢fV3"‡v–GF‚Âã’À¢´Æ–vã£¥7G&WF6‚ÂÆ–vã£¥7F'EÒÀ¢FWF‚À¢“°¢6VÆbç–çB€¢f×WB6†–ÆBÀ¢6VÆÂÀ¢&V7C£¦g&öÕöÖ–å÷6—¦R†æ6†÷"†&÷VæG2Â6—¦RÂ´Æ–vã£¥7F'BÂÆ–vã£¤6VçFW%Ò’Â6—¦R’À¢6†–ÆEö–BÀ¢f÷&Vw&÷VæBÀ¢÷6—G’À¢FWF‚À¢“°¢‚³Òv–GF‚²D$ÄUôt°¢Ð¢Ð¢Ð ¢5¶ÆÆ÷r†6Æ—“£§FöõöÖç•ö&wVÖVçG2•Ð¢fâ–çEöÆVb€¢f×WB6VÆbÀ¢V“¢f×WBV’À¢&V7C¢&V7BÀ¢æöFS¢ef–WtæöFRÀ¢–C¢–BÀ¢f÷&Vw&÷VæC¢6öÆ÷#3"À¢÷6—G“¢c3"À¢VffV7G3¢VffV7G2À¢’°¢ÆWB–çFW"ÒV’ç–çFW"‚’çv—F…ö6Æ—÷&V7B‡&V7B“°¢ÆWBfrÒf÷&Vw&÷VæBæÆ–æV%ö×VÇF—Ç’†÷6—G’“°¢ÆWB6öÆ÷"ÒÆ6öÆ÷'Â6VÆbçF†VÖRæ6öÆ÷"‡V’Â6öÆ÷"’æÆ–æV%ö×VÇF—Ç’†÷6—G’“°¢ÖF6‚fæöFRæ¶–æB°¢æöFS£¥FW‡D–çWB²¶W’ÂfÇVRÂ†–çBÒÓâ°¢ÆWB×WBfÇVRÒfÇVRæ6ÆöæR‚“°¢ÆWB×WB6†–ÆBÒV’ææWuö6†–ÆB…V”'V–ÆFW#£¦æWr‚’æ–E÷6ÇB†–B’æÖ…÷&V7B‡&V7B’“°¢ÆWB&W7öç6RÒ6†–ÆBæFE÷6—¦VB€¢&V7Bç6—¦R‚’À¢VwV“£¥FW‡DVF—C£§6–ævÆVÆ–æR‚f×WBfÇVR¢æ–B†–Bçv—F‚†¶W’’¢æ†–çE÷FW‡B††–çB¢æ6†%öÆ–Ö—Bƒ#C‚’À¢“°¢–b&W7öç6Ræ6†ævVB‚’°¢6VÆbæ7F–öâÒ6öÖR†7&FS£¦W‡FVç6–öã£¤7F–öã£¥6WEFW‡B°¢¶W“¢¶W’æ6ÆöæR‚’À¢fÇVRÀ¢Ò“°¢Ð¢Ð¢æöFS£¥77v÷&D–çWB²¶W’ÂfÇVRÂ†–çBÒÓâ°¢ÆWB×WBfÇVRÒfÇVRæ6ÆöæR‚“°¢ÆWB×WB6†–ÆBÒV’ææWuö6†–ÆB…V”'V–ÆFW#£¦æWr‚’æ–E÷6ÇB†–B’æÖ…÷&V7B‡&V7B’“°¢ÆWB&W7öç6RÒ6†–ÆBæFE÷6—¦VB€¢&V7Bç6—¦R‚’À¢VwV“£¥FW‡DVF—C£§6–ævÆVÆ–æR‚f×WBfÇVR¢æ–B†–Bçv—F‚†¶W’’¢æ†–çE÷FW‡B††–çB¢æ6†%öÆ–Ö—Bƒ#C‚¢ç77v÷&B‡G'VR’À¢“°¢–b&W7öç6Ræ6†ævVB‚’°¢6VÆbæ7F–öâÒ6öÖR†7&FS£¦W‡FVç6–öã£¤7F–öã£¥6WEFW‡B°¢¶W“¢¶W’æ6ÆöæR‚’À¢fÇVRÀ¢Ò“°¢Ð¢Ð¢æöFS£¥FW‡B°¢FW‡C¢fÇVRÀ¢FW‡E÷7G–ÆRÀ¢ÒÓâFW‡B‡V’Â&V7BÂfÇVRÂ§FW‡E÷7G–ÆRÂfr’À¢æöFS£¤–6öâ²æÖRÂ–6öå÷7G–ÆRÒÓâ°¢ÆWB6—¦RÒfV3#£§7ÆB‡ö–çB†–6öå÷7G–ÆRç6—¦R’’æÖ–â‡&V7Bç6—¦R‚’“°¢ÆWB–6öå÷&V7BÒ&V7C£¦g&öÕöÖ–å÷6—¦R†æ6†÷"‡&V7BÂ6—¦RÂ–6öå÷7G–ÆRæÆ–væÖVçB’Â6—¦R“°¢ÆWBF–çBÒ–bVffV7G2æ6öÆ÷"æ—5÷6öÖR‚’°¢fp¢ÒVÇ6R°¢–6öå÷7G–ÆRæ6öÆ÷"æÖö÷"†frÂ6öÆ÷"¢Ó°¢–bÆWB6öÖR†–6öâ’ÒæÖVEö–6öâ†æÖR’°¢6VÆbæ–6öç2ç–çB‚g–çFW"Â–6öâÂ–6öå÷&V7BÂF–çBÂã“°¢ÒVÇ6R–bÆWB6öÖR‡FW‡GW&R’Ò–ÖvR‡V’ÂæÖR’°¢–çFW"æ–ÖvR€¢FW‡GW&Ræ–B‚’À¢–6öå÷&V7BÀ¢&V7C£¦g&öÕöÖ–åöÖ‚†VwV“£¥÷3#£¥¤U$òÂ÷3"ƒãÂã’’À¢F–çBÀ¢“°¢Ð¢Ð¢æöFS£¤–ÖvR²76WBÒÓâ°¢–bÆWB6öÖR‡FW‡GW&R’Ò–ÖvR‡V’Â76WB’°¢76WG3£§–çE÷FW‡GW&R€¢g–çFW"À¢gFW‡GW&RÀ¢&V7BÀ¢76WG3£§We÷&V7B…³ãÂãÂãÂãÒ’À¢æöFRæ–ÖvUöf—BçVçw&ö÷%öFVfVÇB‚’À¢ö–çB†æöFRç7G–ÆRææ÷&ÖÂæ6÷&æW%÷&F—W2çVçw&ö÷"ƒã’’À¢VffV7G0¢æ6öÆ÷ ¢æÖö÷"„6öÆ÷#3#£¥t„•DRÂÅ÷Âf÷&Vw&÷VæB¢æÆ–æV%ö×VÇF—Ç’†÷6—G’’À¢“°¢Ð¢Ð¢æöFS£¥7fr²76WBÂ7fu÷7G–ÆRÒÓâ°¢–bÆWB6öÖR‡FW‡GW&R’Ð¢76WG3£§7fr‡V’Âg6VÆbçF†VÖRÂ76WBÂ§7fu÷7G–ÆRÂ6öÖR‡&V7Bç6—¦R‚’’¢°¢76WG3£§–çE÷FW‡GW&R€¢g–çFW"À¢gFW‡GW&RÀ¢&V7BÀ¢76WG3£§We÷&V7B…³ãÂãÂãÂãÒ’À¢7fu÷7G–ÆRæf—BÀ¢ö–çB†æöFRç7G–ÆRææ÷&ÖÂæ6÷&æW%÷&F—W2çVçw&ö÷"ƒã’’À¢VffV7G0¢æ6öÆ÷ ¢æÖö÷%öVÇ6R‡ÇÂ76WG3£§7fu÷F–çB‚§7fu÷7G–ÆRÂfrÂ÷6—G’’ÂÅ÷Âfr’À¢“°¢Ð¢Ð¢æöFS£¥&7FW$–ÖvR†–ÖvR’Óâ–çE÷&7FW"€¢V’À¢g–çFW"À¢–BÀ¢–ÖvRÀ¢&V7BÀ¢VffV7G0¢æ6öÆ÷ ¢æÖö÷"„6öÆ÷#3#£¥t„•DRÂÅ÷Âf÷&Vw&÷VæB¢æÆ–æV%ö×VÇF—Ç’†÷6—G’’À¢ö–çB†æöFRç7G–ÆRææ÷&ÖÂæ6÷&æW%÷&F—W2çVçw&ö÷"ƒã’’À¢æöFRæ–ÖvUöf—BçVçw&ö÷"„–ÖvTf—C£¥7G&WF6‚’À¢’À¢æöFS£¥7&—FR²g&ÖW2Âg&ÖUö×2ÒÓâ°¢ÆWB–æFW‚Ò6VÆbçVæ–f÷&Õ÷7&—FUö–æFW‚‡V’Â–BÂg&ÖW2æÆVâ‚’Â¦g&ÖUö×2“°¢–bÆWB6öÖR†76WB’Òg&ÖW2ævWB†–æFW‚’°¢–çEö–ÖvR‡V’Âg–çFW"Â76WBÂ&V7BÂ÷6—G’“°¢Ð¢Ð¢æöFS£¥7&—FU6WVVæ6R‡7V2’Óâ°¢ÆWB–æFW‚Ò6VÆbç7&—FUö–æFW‚‡V’Â–BÂ7V2“°¢–bÆWB6öÖR†g&ÖR’Ò7V2æg&ÖW2ævWB†–æFW‚’°¢–bÆWB6öÖR‡FW‡GW&R’Ò–ÖvR‡V’Âfg&ÖRæ76WB’°¢76WG3£§–çE÷FW‡GW&R€¢g–çFW"À¢gFW‡GW&RÀ¢&V7BÀ¢76WG3£§We÷&V7B†g&ÖRçWb’À¢æöFRæ–ÖvUöf—BçVçw&ö÷%öFVfVÇB‚’À¢ö–çB†æöFRç7G–ÆRææ÷&ÖÂæ6÷&æW%÷&F—W2çVçw&ö÷"ƒã’’À¢VffV7G0¢æ6öÆ÷ ¢æÖö÷"„6öÆ÷#3#£¥t„•DRÂÅ÷Âf÷&Vw&÷VæB¢æÆ–æV%ö×VÇF—Ç’†÷6—G’’À¢“°¢Ð¢Ð¢Ð¢æöFS£¥6VvÖVçFVD–æF–6F÷"°¢6VvÖVçG2À¢g&7F–öâÀ¢vÀ¢F—&V7F–öâÀ¢–æ7F—fRÀ¢ÒÓâ°¢6VvÖVçG5÷–çB€¢g–çFW"À¢&V7BÀ¢§6VvÖVçG2À¢&F–ò†VffV7G2ç&öw&W72çVçw&ö÷"‚¦g&7F–öâ’’À¢¦vÀ¢¦F—&V7F–öâÀ¢frÀ¢6öÆ÷"‚¦–æ7F—fR’À¢“°¢Ð¢æöFS£¤ÖWG&–2²Æ&VÂÂfÇVRÂVæ—BÒÓâ°¢ÆWBÖ–BÒ&V7BçF÷‚’²&V7Bæ†V–v‡B‚’¢ãC#°¢FW‡B€¢V’À¢&V7C£¦g&öÕöÖ–åöÖ‚‡&V7BæÖ–âÂ÷3"‡&V7Bç&–v‡B‚’ÂÖ–B’’À¢Æ&VÂÀ¢FW‡E7G–ÆR°¢föçE÷6—¦S¢föçE6—¦S£¥6ÖÆÂÀ¢âäFVfVÇC£¦FVfVÇB‚¢ÒÀ¢6öÆ÷"„6öÆ÷%7V3£¥6V6öæF'•FW‡B’À¢“°¢ÆWBfÇVRÒf÷&ÖB‚'·fÇVW×·Væ—GÒ"“°¢FW‡B€¢V’À¢&V7C£¦g&öÕöÖ–åöÖ‚‡÷3"‡&V7BæÆVgB‚’ÂÖ–B’Â&V7BæÖ‚’À¢gfÇVRÀ¢FW‡E7G–ÆR°¢föçE÷6—¦S¢föçE6—¦S£¥F—FÆRÀ¢âäFVfVÇC£¦FVfVÇB‚¢ÒÀ¢frÀ¢“°¢Ð¢æöFS£¤&FvR†Æ&VÂ’ÓâFW‡B€¢V’À¢&V7Bç6‡&–æ³"‡fV3"ƒRãÂã’’À¢Æ&VÂÀ¢FW‡E7G–ÆS£¦FVfVÇB‚’À¢frÀ¢’À¢æöFS£¤F—f–FW"²fW'F–6ÂÒÓâ°¢ÆWB2Ò&V7Bæ6VçFW"‚“°¢ÆWBÆ–æRÒ–b§fW'F–6Â°¢·÷3"†2ç‚Â&V7BçF÷‚’’Â÷3"†2ç‚Â&V7Bæ&÷GFöÒ‚’•Ð¢ÒVÇ6R°¢·÷3"‡&V7BæÆVgB‚’Â2ç’’Â÷3"‡&V7Bç&–v‡B‚’Â2ç’•Ð¢Ó°¢–çFW"æÆ–æU÷6VvÖVçB†Æ–æRÂ7G&ö¶S£¦æWrƒãöc3"Âfr’“°¢Ð¢æöFS£¥6Æ–FW"°¢g&7F–öâÀ¢Æ&VÂÀ¢7F–öâÀ¢Væ&ÆVBÀ¢ÒÓâ°¢ÆWBVæ&ÆVBÒ¦Væ&ÆVBbbV’æ—5öVæ&ÆVB‚“°¢ÆWB&W7öç6RÒV’æ7G‚‚’ç&VE÷&W7öç6R†–B“°¢ÆWB×WBfÇVRÒ&F–ò‚¦g&7F–öâ“°¢–bÆWB6öÖR‡&W7öç6R’Òg&W7öç6R°¢–bVæ&ÆVBbb‡&W7öç6RæG&u÷7F'FVB‚’ÇÂ&W7öç6Ræ6Æ–6¶VB‚’’°¢&W7öç6Rç&WVW7Eöfö7W2‚“°¢Ð¢&W7öç6Rçv–FvWEö–æfò‡ÇÂ°¢VwV“£¥v–FvWD–æfó£¦Æ&VÆVB†VwV“£¥v–FvWEG—S£¥6Æ–FW"ÂVæ&ÆVBÂÆ&VÂ¢Ò“°¢ÆWB&Wf–Wuö–BÒ–Bçv—F‚‚'6Æ–FW"×&Wf–Wr"“°¢–bVæ&ÆV@¢bb‡&W7öç6RæG&vvVB‚’ÇÂ&W7öç6RæFÚ±î¸Â¸­yêë¢°k¢G§¦*^rag_stopped() || response.clicked())
+                current.color = effects.color.or(current.color);
+                current.progress = effects.progress.or(current.progress);
+                let size = self.in_cell(ui, child, inner.size(), [Align::Stretch; 2], depth + 1);
+                let rect = Rect::from_min_size(inner.min, size);
+                let start = current.has_transform().then(|| {
+                    ui.ctx()
+                        .graphics_mut(|graphics| graphics.entry(ui.layer_id()).next_idx())
+                });
+                self.paint_with_effects(
+                    ui,
+                    child,
+                    rect,
+                    child_id,
+                    foreground,
+                    opacity * current.opacity,
+                    depth + 1,
+                    current,
+                );
+                if let Some(start) = start {
+                    current.transform_shapes(ui, start, rect.center());
+                }
+            }
+            return;
+        }
+        if let Node::Scroll(axes, child) = &node.kind {
+            self.scroll(ui, inner, child, *axes, id, foreground, opacity, depth + 1);
+            return;
+        }
+        if let Node::Table(table) = &node.kind {
+            self.paint_table(ui, inner, table, id, foreground, opacity, depth + 1);
+            return;
+        }
+        if let Some(layout) = self.layout(ui, node, inner.size(), depth + 1) {
+            let Some(children) = layout::children(node) else {
+                return;
+            };
+            for (index, cell) in layout.cells {
+                let child = &children[index];
+                let child_id = child
+                    .key
+                    .as_ref()
+                    .map_or_else(|| id.with(index), |key| id.with(key));
+                self.paint(
+                    ui,
+                    child,
+                    cell.translate(inner.min.to_vec2()),
+                    child_id,
+                    foreground,
+                    opacity,
+                    depth + 1,
+                );
+            }
+            return;
+        }
+        self.paint_leaf(ui, inner, node, id, foreground, opacity, effects);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn paint_table(
+        &mut self,
+        ui: &mut Ui,
+        rect: Rect,
+        table: &Table,
+        id: Id,
+        foreground: Color32,
+        opacity: f32,
+        depth: usize,
+    ) {
+        use layout::{TABLE_GAP, TABLE_HEADER_HEIGHT, TABLE_X_PADDING, TABLE_Y_PADDING};
+        let layout = self.table(ui, table, rect.width(), depth);
+        let painter = ui.painter().with_clip_rect(rect);
+        let color = |spec| self.theme.color(ui, spec).linear_multiply(opacity);
+        let surface = color(ColorSpec::SurfaceVariant);
+        let divider = Stroke::new(1.0_f32, color(ColorSpec::Border).gamma_multiply(0.58));
+        let header = Rect::from_min_size(rect.min, vec2(rect.width(), TABLE_HEADER_HEIGHT));
+        painter.rect_filled(
+            header,
+            egui::CornerRadius {
+                nw: 7,
+                ne: 7,
+                ..Default::default()
+            },
+            surface,
+        );
+        painter.hline(header.x_range(), header.bottom(), divider);
+        let mut x = rect.left() + TABLE_X_PADDING;
+        for (column, &width) in table.columns.iter().zip(&layout.columns) {
+            text(
+                ui,
+                Rect::from_min_size(pos2(x, rect.top()), vec2(width, TABLE_HEADER_HEIGHT)),
+                &column.title,
+                table_header_style(),
+                color(ColorSpec::SecondaryText),
+            );
+            x += width + TABLE_GAP;
+        }
+        let mut y = header.bottom();
+        for (index, (row, height)) in table.rows.iter().zip(layout.rows).enumerate() {
+            let row_rect = Rect::from_min_size(pos2(rect.left(), y), vec2(rect.width(), height));
+            y += height;
+            if row_rect.top() >= rect.bottom() {
+                break;
+            }
+            if !ui.clip_rect().intersects(row_rect) {
+                continue;
+            }
+            if index % 2 == 0 {
+                painter.rect_filled(row_rect, 0.0, surface.gamma_multiply(0.36));
+            }
+            if let Some(Some(menu)) = table.row_menus.get(index) {
+                let response = ui.interact(
+                    row_rect.intersect(rect),
+                    id.with(("row-menu", &menu.action)),
+                    Sense::click(),
+                );
+                super::context_menu(&response, |ui| {
+                    ui.label(&menu.title);
+                    let clicked = ui.button(&menu.label).clicked();
+                    if clicked {
+                        self.action = Some(menu.action.clone());
+                    }
+                    clicked
+                });
+            }
+            painter.hline(row_rect.x_range(), row_rect.bottom(), divider);
+            let mut x = rect.left() + TABLE_X_PADDING;
+            for (column, (cell, &width)) in row.iter().zip(&layout.columns).enumerate() {
+                let bounds = Rect::from_min_size(
+                    pos2(x, row_rect.top() + TABLE_Y_PADDING),
+                    vec2(width, height - 2.0 * TABLE_Y_PADDING),
+                );
+                let child_id = id.with((index, column, cell.key.as_deref()));
+                let mut child = ui.new_child(UiBuilder::new().id_salt(child_id).max_rect(bounds));
+                child.set_clip_rect(ui.clip_rect().intersect(rect).intersect(bounds));
+                let size = self.in_cell(
+                    &child,
+                    cell,
+                    vec2(width, 0.0),
+                    [Align::Stretch, Align::Start],
+                    depth,
+                );
+                self.paint(
+                    &mut child,
+                    cell,
+                    Rect::from_min_size(anchor(bounds, size, [Align::Start, Align::Center]), size),
+                    child_id,
+                    foreground,
+                    opacity,
+                    depth,
+                );
+                x += width + TABLE_GAP;
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn paint_leaf(
+        &mut self,
+        ui: &mut Ui,
+        rect: Rect,
+        node: &ViewNode,
+        id: Id,
+        foreground: Color32,
+        opacity: f32,
+        effects: Effects,
+    ) {
+        let painter = ui.painter().with_clip_rect(rect);
+        let fg = foreground.linear_multiply(opacity);
+        let color = |color| self.theme.color(ui, color).linear_multiply(opacity);
+        match &node.kind {
+            Node::TextInput { key, value, hint } => {
+                let mut value = value.clone();
+                let mut child = ui.new_child(UiBuilder::new().id_salt(id).max_rect(rect));
+                let response = child.add_sized(
+                    rect.size(),
+                    egui::TextEdit::singleline(&mut value)
+                        .id(id.with(key))
+                        .hint_text(hint)
+                        .char_limit(2048),
+                );
+                if response.changed() {
+                    self.action = Some(crate::extension::Action::SetText {
+                        key: key.clone(),
+                        value,
+                    });
+                }
+            }
+            Node::PasswordInput { key, value, hint } => {
+                let mut value = value.clone();
+                let mut child = ui.new_child(UiBuilder::new().id_salt(id).max_rect(rect));
+                let response = child.add_sized(
+                    rect.size(),
+                    egui::TextEdit::singleline(&mut value)
+                        .id(id.with(key))
+                        .hint_text(hint)
+                        .char_limit(2048)
+                        .password(true),
+                );
+                if response.changed() {
+                    self.action = Some(crate::extension::Action::SetText {
+                        key: key.clone(),
+                        value,
+                    });
+                }
+            }
+            Node::Text {
+                text: value,
+                text_style,
+            } => text(ui, rect, value, *text_style, fg),
+            Node::Icon { name, icon_style } => {
+                let size = Vec2::splat(point(icon_style.size)).min(rect.size());
+                let icon_rect = Rect::from_min_size(anchor(rect, size, icon_style.alignment), size);
+                let tint = if effects.color.is_some() {
+                    fg
+                } else {
+                    icon_style.color.map_or(fg, color)
+                };
+                if let Some(icon) = named_icon(name) {
+                    self.icons.paint(&painter, icon, icon_rect, tint, 1.0);
+                } else if let Some(texture) = image(ui, name) {
+                    painter.image(
+                        texture.id(),
+                        icon_rect,
+                        Rect::from_min_max(egui::Pos2::ZERO, pos2(1.0, 1.0)),
+                        tint,
+                    );
+                }
+            }
+            Node::Image { asset } => {
+                if let Some(texture) = image(ui, asset) {
+                    assets::paint_texture(
+                        &painter,
+                        &texture,
+                        rect,
+                        assets::uv_rect([0.0, 0.0, 1.0, 1.0]),
+                        node.image_fit.unwrap_or_default(),
+                        point(node.style.normal.corner_radius.unwrap_or(0.0)),
+                        effects
+                            .color
+                            .map_or(Color32::WHITE, |_| foreground)
+                            .linear_multiply(opacity),
+                    );
+                }
+            }
+            Node::Svg { asset, svg_style } => {
+                if let Some(texture) =
+                    assets::svg(ui, &self.theme, asset, *svg_style, Some(rect.size()))
+                {
+                    assets::paint_texture(
+                        &painter,
+                        &texture,
+                        rect,
+                        assets::uv_rect([0.0, 0.0, 1.0, 1.0]),
+                        svg_style.fit,
+                        point(node.style.normal.corner_radius.unwrap_or(0.0)),
+                        effects
+                            .color
+                            .map_or_else(|| assets::svg_tint(*svg_style, fg, opacity), |_| fg),
+                    );
+                }
+            }
+            Node::RasterImage(image) => paint_raster(
+                ui,
+                &painter,
+                id,
+                image,
+                rect,
+                effects
+                    .color
+                    .map_or(Color32::WHITE, |_| foreground)
+                    .linear_multiply(opacity),
+                point(node.style.normal.corner_radius.unwrap_or(0.0)),
+                node.image_fit.unwrap_or(ImageFit::Stretch),
+            ),
+            Node::Sprite { frames, frame_ms } => {
+                let index = self.uniform_sprite_index(ui, id, frames.len(), *frame_ms);
+                if let Some(asset) = frames.get(index) {
+                    paint_image(ui, &painter, asset, rect, opacity);
+                }
+            }
+            Node::SpriteSequence(spec) => {
+                let index = self.sprite_index(ui, id, spec);
+                if let Some(frame) = spec.frames.get(index) {
+                    if let Some(texture) = image(ui, &frame.asset) {
+                        assets::paint_texture(
+                            &painter,
+                            &texture,
+                            rect,
+                            assets::uv_rect(frame.uv),
+                            node.image_fit.unwrap_or_default(),
+                            point(node.style.normal.corner_radius.unwrap_or(0.0)),
+                            effects
+                                .color
+                                .map_or(Color32::WHITE, |_| foreground)
+                                .linear_multiply(opacity),
+                        );
+                    }
+                }
+            }
+            Node::SegmentedIndicator {
+                segments,
+                fraction,
+                gap,
+                direction,
+                inactive,
+            } => {
+                segments_paint(
+                    &painter,
+                    rect,
+                    *segments,
+                    ratio(effects.progress.unwrap_or(*fraction)),
+                    *gap,
+                    *direction,
+                    fg,
+                    color(*inactive),
+                );
+            }
+            Node::Metric { label, value, unit } => {
+                let mid = rect.top() + rect.height() * 0.42;
+                text(
+                    ui,
+                    Rect::from_min_max(rect.min, pos2(rect.right(), mid)),
+                    label,
+                    TextStyle {
+                        font_size: FontSize::Small,
+                        ..Default::default()
+                    },
+                    color(ColorSpec::SecondaryText),
+                );
+                let value = format!("{value}{unit}");
+                text(
+                    ui,
+                    Rect::from_min_max(pos2(rect.left(), mid), rect.max),
+                    &value,
+                    TextStyle {
+                        font_size: FontSize::Title,
+                        ..Default::default()
+                    },
+                    fg,
+                );
+            }
+            Node::Badge(label) => text(
+                ui,
+                rect.shrink2(vec2(5.0, 1.0)),
+                label,
+                TextStyle::default(),
+                fg,
+            ),
+            Node::Divider { vertical } => {
+                let c = rect.center();
+                let line = if *vertical {
+                    [pos2(c.x, rect.top()), pos2(c.x, rect.bottom())]
+                } else {
+                    [pos2(rect.left(), c.y), pos2(rect.right(), c.y)]
+                };
+                painter.line_segment(line, Stroke::new(1.0_f32, fg));
+            }
+            Node::Slider {
+                fraction,
+                label,
+                action,
+                enabled,
+            } => {
+                let enabled = *enabled && ui.is_enabled();
+                let response = ui.ctx().read_response(id);
+                let mut value = ratio(*fraction);
+                if let Some(response) = &response {
+                    if enabled && (response.drag_started() || response.clicked()) {
+                        response.request_focus();
+                    }
+                    response.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Slider, enabled, label)
+                    });
+                    let preview_id = id.with("slider-preview");
+                    if enabled
+                        && (response.dragged() || response.drag_stopped() || response.clicked())
                     {
                         if let Some(position) = response.interact_pointer_pos() {
                             value = ((position.x - rect.left()) / rect.width().max(1.0))
