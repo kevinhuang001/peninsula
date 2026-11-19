@@ -2,11 +2,13 @@ mod battery;
 pub mod bilibili;
 mod clock;
 pub mod download;
+mod health;
 pub mod kuaidi;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 mod music;
 pub mod performance;
 pub mod pomodoro;
+mod rss;
 pub mod weather;
 use crate::extension::{Action, ExtensionRegistry, RuntimeExtension};
 use crate::ui::declarative::ViewNode;
@@ -57,6 +59,8 @@ pub fn runtimes() -> Vec<Box<dyn RuntimeExtension>> {
         Box::new(performance::PerformanceExtension::default()),
         Box::new(download::DownloadExtension::default()),
         Box::new(pomodoro::PomodoroExtension::default()),
+        Box::new(health::HealthExtension::default()),
+        Box::new(rss::RssExtension::default()),
         Box::new(bilibili::BilibiliExtension::default()),
         Box::new(kuaidi::KuaidiExtension::default()),
         Box::new(weather::WeatherExtension::new(

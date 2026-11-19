@@ -9,15 +9,15 @@ pub(super) struct IconCache {
     images: HashMap<PathBuf, Option<RasterImage>>,
 }
 impl IconCache {
-    pub fn get(&mut self, executable: &Path) -> Option<RasterImage> {
-        if !self.images.contains_key(executable) {
+    pub fn get(&mut self, path: &Path) -> Option<RasterImage> {
+        if !self.images.contains_key(path) {
             // Bound memory even on hosts with a frequently changing process list.
             if self.images.len() >= 128 {
                 self.images.clear();
             }
-            self.images.insert(executable.to_owned(), load(executable));
+            self.images.insert(path.to_owned(), load(path));
         }
-        self.images.get(executable).cloned().flatten()
+        self.images.get(path).cloned().flatten()
     }
 }
 
@@ -26,7 +26,7 @@ mod windows;
 #[cfg(target_os = "windows")]
 use windows::load;
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn decode(path: &Path) -> Option<RasterImage> {
     let bytes = std::fs::read(path).ok()?;
     if bytes.len() > 2 * 1024 * 1024 {
@@ -118,30 +118,36 @@ fn load(executable: &Path) -> Option<RasterImage> {
 }
 
 #[cfg(target_os = "macos")]
-fn load(executable: &Path) -> Option<RasterImage> {
-    let bundle = executable
-        .ancestors()
-        .find(|p| p.extension().is_some_and(|v| v == "app"))?;
-    let info = plist::Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
-    let name = info.as_dictionary()?.get("CFBundleIconFile")?.as_string()?;
-    let mut icon = bundle.join("Contents/Resources").join(name);
-    if icon.extension().is_none() {
-        icon.set_extension("icns");
+fn load(path: &Path) -> Option<RasterImage> {
+    use objc2::rc::autoreleasepool;
+    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSWorkspace};
+    use objc2_foundation::{NSDictionary, NSString};
+
+    if !path.extension().is_some_and(|extension| extension == "app") || !path.is_dir() {
+        return None;
     }
-    if icon.extension().is_some_and(|v| v != "icns") {
-        return decode(&icon);
-    }
-    let output = tempfile::Builder::new().suffix(".png").tempfile().ok()?;
-    let status = std::process::Command::new("/usr/bin/sips")
-        .args(["-s", "format", "png"])
-        .arg(icon)
-        .arg("--out")
-        .arg(output.path())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .ok()?;
-    status.success().then(|| decode(output.path())).flatten()
+    autoreleasepool(|_| {
+        let path = NSString::from_str(path.to_str()?);
+        // iconForFile can run on the sampler thread. Keep all image objects
+        // created by this lookup in its autorelease pool.
+        let image = unsafe {
+            let icon = NSWorkspace::sharedWorkspace().iconForFile(&path);
+            let tiff = icon.TIFFRepresentation()?;
+            let bitmap = NSBitmapImageRep::imageRepWithData(&tiff)?;
+            let png = bitmap.representationUsingType_properties(
+                NSBitmapImageFileType::PNG,
+                &NSDictionary::new(),
+            )?;
+            image::load_from_memory_with_format(png.bytes(), image::ImageFormat::Png).ok()?
+        };
+        let rgba = image
+            .resize_exact(32, 32, image::imageops::FilterType::Triangle)
+            .into_rgba8();
+        Some(RasterImage {
+            size: [32, 32],
+            rgba: rgba.into_raw(),
+        })
+    })
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]

@@ -50,14 +50,7 @@ fn panel(mut node: ViewNode) -> ViewNode {
     node.clip = true;
     node
 }
-fn metric(
-    label: &str,
-    value: String,
-    detail: String,
-    percent: f32,
-    history: &[f32],
-    color: ColorSpec,
-) -> ViewNode {
+fn metric(label: &str, value: String, history: &[f32], color: ColorSpec) -> ViewNode {
     panel(column(
         vec![
             row(
@@ -73,14 +66,6 @@ fn metric(
             })
             .sized(Size::Fill(1.0), Size::Fixed(24.0))
             .color(color),
-            ViewNode::new(Node::ProgressBar {
-                fraction: percent / 100.0,
-                label: String::new(),
-                marker: false,
-            })
-            .sized(Size::Fill(1.0), Size::Fixed(3.0))
-            .color(color),
-            text(detail, 9.0, ColorSpec::SecondaryText),
         ],
         4.0,
     ))
@@ -100,6 +85,7 @@ pub(super) fn build(
     memory_history: &[f32],
     download: bool,
     upload: bool,
+    termination_error: Option<&str>,
 ) -> WidgetView {
     let cpu_color = ColorSpec::Success;
     let memory_color = ColorSpec::Info;
@@ -118,8 +104,6 @@ pub(super) fn build(
                 } else {
                     "—".into()
                 },
-                "最近 60 次采样 · 整机占用".into(),
-                s.cpu_percent,
                 cpu_history,
                 cpu_color,
             ),
@@ -130,8 +114,6 @@ pub(super) fn build(
                 } else {
                     "—".into()
                 },
-                format!("{} / {}", bytes(s.memory_used), bytes(s.memory_total)),
-                memory_percent(s),
                 memory_history,
                 memory_color,
             ),
@@ -200,6 +182,21 @@ pub(super) fn build(
             TableColumn::new(if memory { "CPU" } else { "CPU ↓" }, 1.0),
             TableColumn::new(if memory { "内存 ↓" } else { "内存" }, 1.0),
         ],
+        row_menus: processes
+            .iter()
+            .map(|app| {
+                Some(TableRowMenu {
+                    title: app.name.clone(),
+                    label: if cfg!(target_os = "macos") {
+                        "强制退出"
+                    } else {
+                        "结束程序"
+                    }
+                    .into(),
+                    action: Action::Custom(app.termination_key()?),
+                })
+            })
+            .collect(),
         rows: processes
             .iter()
             .enumerate()
@@ -218,7 +215,7 @@ pub(super) fn build(
                                 },
                             ),
                             text(
-                                format!("{:02}  {} · {} 进程", index + 1, p.name, p.process_count),
+                                format!("{:02}  {} · {} 进程", index + 1, p.name, p.process_count()),
                                 10.0,
                                 ColorSpec::PrimaryText,
                             ),
@@ -255,25 +252,14 @@ pub(super) fn build(
             .collect(),
     };
     let mut content = vec![metrics, system, heading];
+    if let Some(error) = termination_error {
+        content.push(text(error, 10.0, ColorSpec::Danger));
+    }
     if processes.is_empty() {
         content.push(text("正在读取应用…", 11.0, ColorSpec::SecondaryText));
     } else {
         content.push(ViewNode::new(Node::Table(table)).sized(Size::Fill(1.0), Size::Auto));
     }
-    content.push(row(
-        vec![
-            text(
-                format!(
-                    "{} 个应用 · {} 个进程",
-                    s.application_count, s.process_count
-                ),
-                9.0,
-                ColorSpec::MutedText,
-            ),
-            text("CPU 按整机 100% 计", 9.0, ColorSpec::MutedText),
-        ],
-        6.0,
-    ));
     WidgetView::new(column(content, 8.0), [440.0, 410.0])
 }
 
@@ -286,19 +272,16 @@ mod tests {
             size: [1, 1],
             rgba: vec![255, 100, 0, 255],
         };
-        let process = super::super::sampler::ApplicationSnapshot {
-            pid: 42,
-            name: "Example".into(),
-            icon: Some(icon),
-            ..Default::default()
-        };
+        let mut process = super::super::sampler::ApplicationSnapshot::default();
+        process.name = "Example".into();
+        process.icon = Some(icon);
         let snapshot = Snapshot {
             top_cpu: vec![process.clone()],
             top_memory: vec![process],
             ..Default::default()
         };
         for memory in [false, true] {
-            let view = build(&snapshot, memory, &[], &[], true, true);
+            let view = build(&snapshot, memory, &[], &[], true, true, None);
             let Node::Column(_, children) = &view.root.kind else {
                 panic!("expected overview column")
             };

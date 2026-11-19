@@ -154,6 +154,7 @@ impl Renderer<'_> {
             }
             Node::ProgressBar { .. } => vec2(100.0, 16.0),
             Node::Slider { .. } => vec2(100.0, 24.0),
+            Node::TextInput { .. } => vec2(180.0, 30.0),
             Node::ProgressRing { .. } | Node::Gauge { .. } => Vec2::splat(60.0),
             Node::Chart { .. } | Node::Sparkline(_) | Node::RangeChart { .. } => vec2(100.0, 36.0),
             Node::LineChart { .. } => vec2(120.0, 104.0),
@@ -518,6 +519,21 @@ impl Renderer<'_> {
             if index % 2 == 0 {
                 painter.rect_filled(row_rect, 0.0, surface.gamma_multiply(0.36));
             }
+            if let Some(Some(menu)) = table.row_menus.get(index) {
+                let response = ui.interact(
+                    row_rect.intersect(rect),
+                    id.with(("row-menu", &menu.action)),
+                    Sense::click(),
+                );
+                super::context_menu(&response, |ui| {
+                    ui.label(&menu.title);
+                    let clicked = ui.button(&menu.label).clicked();
+                    if clicked {
+                        self.action = Some(menu.action.clone());
+                    }
+                    clicked
+                });
+            }
             painter.hline(row_rect.x_range(), row_rect.bottom(), divider);
             let mut x = rect.left() + TABLE_X_PADDING;
             for (column, (cell, &width)) in row.iter().zip(&layout.columns).enumerate() {
@@ -564,6 +580,23 @@ impl Renderer<'_> {
         let fg = foreground.linear_multiply(opacity);
         let color = |color| self.theme.color(ui, color).linear_multiply(opacity);
         match &node.kind {
+            Node::TextInput { key, value, hint } => {
+                let mut value = value.clone();
+                let mut child = ui.new_child(UiBuilder::new().id_salt(id).max_rect(rect));
+                let response = child.add_sized(
+                    rect.size(),
+                    egui::TextEdit::singleline(&mut value)
+                        .id(id.with(key))
+                        .hint_text(hint)
+                        .char_limit(2048),
+                );
+                if response.changed() {
+                    self.action = Some(crate::extension::Action::SetText {
+                        key: key.clone(),
+                        value,
+                    });
+                }
+            }
             Node::Text {
                 text: value,
                 text_style,
@@ -843,11 +876,15 @@ impl Renderer<'_> {
                 text_style,
                 ring_style,
             } => {
-                let radius = (rect.width().min(rect.height()) - point(*stroke)) * 0.5;
+                let radius = (rect.width().min(rect.height()) - point(*stroke)) * 0.5
+                    - 0.5 / ui.ctx().pixels_per_point();
                 if radius > 0.0 {
-                    painter.circle_stroke(
+                    arc(
+                        &painter,
                         rect.center(),
                         radius,
+                        0.0,
+                        std::f32::consts::TAU,
                         Stroke::new(point(*stroke), color(ring_style.track)),
                     );
                     arc(
@@ -1007,17 +1044,30 @@ fn arc(
     sweep: f32,
     stroke: Stroke,
 ) {
-    if sweep.abs() <= 0.0 {
+    if sweep.abs() <= 0.0 || radius <= 0.0 {
         return;
     }
-    let segments = (sweep.abs() * 8.0).ceil().max(2.0) as usize;
-    let points = (0..=segments)
+    // Keep adjacent vertices within two physical pixels, including on Retina.
+    let segments = (sweep.abs() * radius * painter.ctx().pixels_per_point() / 2.0)
+        .ceil()
+        .clamp(2.0, 4096.0) as usize;
+    let closed = sweep.abs() >= std::f32::consts::TAU - 0.0001;
+    let points: Vec<_> = (0..=segments)
+        .take(if closed { segments } else { segments + 1 })
         .map(|i| {
             let angle = start + sweep * i as f32 / segments as f32;
             center + vec2(angle.cos(), angle.sin()) * radius
         })
         .collect();
-    painter.add(egui::Shape::line(points, stroke));
+    if closed {
+        painter.add(egui::Shape::closed_line(points, stroke));
+    } else {
+        let first = points[0];
+        let last = *points.last().unwrap();
+        painter.add(egui::Shape::line(points, stroke));
+        painter.circle_filled(first, stroke.width * 0.5, stroke.color);
+        painter.circle_filled(last, stroke.width * 0.5, stroke.color);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

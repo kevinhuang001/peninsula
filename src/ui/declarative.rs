@@ -176,6 +176,16 @@ pub struct Table {
     pub columns: Vec<TableColumn>,
     /// Cells follow column order. An omitted cell is empty.
     pub rows: Vec<Vec<ViewNode>>,
+    /// Optional right-click action for each row, in the same order as the cells.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub row_menus: Vec<Option<TableRowMenu>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TableRowMenu {
+    pub title: String,
+    pub label: String,
+    pub action: Action,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -459,6 +469,11 @@ pub enum Node {
         vertical: bool,
     },
     Spacer,
+    TextInput {
+        key: String,
+        value: String,
+        hint: String,
+    },
     Slider {
         fraction: f32,
         label: String,

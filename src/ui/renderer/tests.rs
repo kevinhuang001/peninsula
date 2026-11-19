@@ -17,10 +17,109 @@ fn spacer(width: Size, height: Size) -> ViewNode {
 }
 
 #[test]
+fn text_input_routes_edits_to_its_extension_and_retains_keyboard_focus() {
+    let ctx = egui::Context::default();
+    let icons = Icons::load(&ctx);
+    let source = ExtensionId::builtin("test.text-input");
+    let rect = Rect::from_min_size(pos2(20.0, 20.0), vec2(260.0, 30.0));
+    let view = WidgetView::new(
+        ViewNode::new(Node::TextInput {
+            key: "feed-url".into(),
+            value: String::new(),
+            hint: "RSS URL".into(),
+        })
+        .sized(Size::Fill(1.0), Size::Fixed(30.0)),
+        [260.0, 30.0],
+    );
+    let frame = |events| {
+        let mut result = None;
+        let _ = ctx.run(
+            RawInput {
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    result = show_widget(ui, rect, &source, &view, &icons, 1.0);
+                });
+            },
+        );
+        result
+    };
+    frame(vec![]);
+    frame(vec![Event::PointerMoved(rect.center())]);
+    for pressed in [true, false] {
+        frame(vec![Event::PointerButton {
+            pos: rect.center(),
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        }]);
+    }
+    let result = frame(vec![Event::Text("https://example.com/rss".into())]).unwrap();
+    assert_eq!(result.source_extension_id, source);
+    assert_eq!(
+        result.action,
+        Action::SetText {
+            key: "feed-url".into(),
+            value: "https://example.com/rss".into()
+        }
+    );
+    assert!(ctx.wants_keyboard_input());
+}
+
+#[test]
+fn progress_ring_strokes_fit_their_clip_bounds_at_each_display_scale() {
+    for scale in [1.0, 1.5, 2.0] {
+        let ctx = egui::Context::default();
+        ctx.set_pixels_per_point(scale);
+        let icons = Icons::load(&ctx);
+        let rect = Rect::from_min_size(pos2(20.0, 20.0), Vec2::splat(70.0));
+        let view = WidgetView::new(ViewNode::ring(0.82, "", 70.0, 4.0, 14.0), [70.0; 2]);
+        let output = ctx.run(RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                show_widget(
+                    ui,
+                    rect,
+                    &ExtensionId::builtin("test.ring"),
+                    &view,
+                    &icons,
+                    1.0,
+                );
+            });
+        });
+        let paths: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Path(path) => Some(path),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(paths.len(), 2);
+        assert!(paths[0].closed);
+        assert!(!paths[1].closed);
+        for path in paths {
+            for point in &path.points {
+                let outer_radius = point.distance(rect.center())
+                    + path.stroke.width * 0.5
+                    + 0.5 / ctx.pixels_per_point();
+                assert!(outer_radius <= rect.width() * 0.5 + 0.001);
+            }
+            assert!(path
+                .points
+                .windows(2)
+                .all(|points| points[0].distance(points[1]) * ctx.pixels_per_point() <= 2.01));
+        }
+    }
+}
+
+#[test]
 fn table_shares_column_widths_and_wraps_rows_inside_the_viewport() {
     with_ui(|ui, icons| {
         let details = "The parcel has arrived at the local sorting facility. ".repeat(5);
         let table = Table {
+            row_menus: Vec::new(),
             columns: vec![
                 TableColumn::new("Status", 1.0),
                 TableColumn::new("Details", 3.0),
@@ -49,6 +148,7 @@ fn table_shares_column_widths_and_wraps_rows_inside_the_viewport() {
         let node = ViewNode::new(Node::Table(table));
         assert_eq!(content_width(ui.ctx(), &node, 400.0, icons), 400.0);
         let short_table = ViewNode::new(Node::Table(Table {
+            row_menus: Vec::new(),
             columns: vec![TableColumn::new("Status", 1.0)],
             rows: vec![vec![ViewNode::text("Ready", TextStyle::default())]],
         }));
@@ -66,6 +166,81 @@ fn table_shares_column_widths_and_wraps_rows_inside_the_viewport() {
             layout::TABLE_HEADER_HEIGHT + narrow.rows.iter().sum::<f32>()
         );
     });
+}
+
+#[test]
+fn table_context_menu_keeps_its_target_when_rows_are_reordered() {
+    let context = egui::Context::default();
+    let icons = Icons::load(&context);
+    let source = ExtensionId::builtin("test.widget");
+    let rect = Rect::from_min_size(pos2(30.0, 30.0), vec2(180.0, 100.0));
+    let frame = |events, names: [&str; 2]| {
+        let table = Table {
+            columns: vec![TableColumn::new("Application", 1.0)],
+            rows: names
+                .iter()
+                .map(|name| vec![ViewNode::text(*name, TextStyle::default())])
+                .collect(),
+            row_menus: names
+                .iter()
+                .map(|name| {
+                    Some(TableRowMenu {
+                        title: (*name).into(),
+                        label: "End program".into(),
+                        action: Action::Custom((*name).into()),
+                    })
+                })
+                .collect(),
+        };
+        let view = WidgetView::new(ViewNode::new(Node::Table(table)), [180.0, 100.0]);
+        let mut result = None;
+        let _ = context.run(
+            RawInput {
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let capsule =
+                        ui.interact(rect.expand(4.0), Id::new("capsule"), egui::Sense::click());
+                    let action = show_widget(ui, rect, &source, &view, &icons, 1.0);
+                    context_menu(&capsule, |ui| {
+                        ui.label("Exit capsule");
+                        false
+                    });
+                    result = Some((action.map(|action| action.action), context_menu_rect(ctx)));
+                });
+            },
+        );
+        result.unwrap()
+    };
+
+    let click = |pos, button, pressed| Event::PointerButton {
+        pos,
+        button,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    let row = pos2(
+        rect.left() + 12.0,
+        rect.top() + layout::TABLE_HEADER_HEIGHT + 8.0,
+    );
+    let order = ["Firefox", "Code"];
+    assert_eq!(frame(vec![Event::PointerMoved(row)], order), (None, None));
+    frame(vec![click(row, PointerButton::Secondary, true)], order);
+    assert_eq!(
+        frame(vec![click(row, PointerButton::Secondary, false)], order).0,
+        None
+    );
+    let reversed = ["Code", "Firefox"];
+    let menu = frame(vec![], reversed).1.unwrap();
+    let button = pos2(menu.center().x, menu.bottom() - 12.0);
+    frame(vec![Event::PointerMoved(button)], reversed);
+    frame(vec![click(button, PointerButton::Primary, true)], reversed);
+    assert_eq!(
+        frame(vec![click(button, PointerButton::Primary, false)], reversed),
+        (Some(Action::Custom("Firefox".into())), None)
+    );
 }
 
 #[test]
@@ -503,12 +678,14 @@ fn compact_preserves_independent_regions_and_draws_a_center_overlay() {
     let ring_center = output.shapes[..label_index]
         .iter()
         .find_map(|shape| match &shape.shape {
-            egui::Shape::Circle(circle) => Some(circle.center),
+            egui::Shape::Path(path) if path.closed => {
+                Some(Rect::from_points(&path.points).center())
+            }
             _ => None,
         })
         .unwrap();
     assert!((center - ring_center).length() < 1.0);
-    assert_eq!(ring_center.y, rect.center().y);
+    assert!((ring_center.y - rect.center().y).abs() < 0.1);
     assert!(leading_clip.right() + 5.0 <= content_clip.left());
     assert!(content_clip.right() <= rect.right() - 4.0);
     assert!(title.galley.elided);

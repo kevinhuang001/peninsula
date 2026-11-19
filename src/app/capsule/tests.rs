@@ -181,6 +181,7 @@ fn table_text_keeps_its_destination_wrap_width_during_expansion() {
         "A long parcel description that wraps across several lines at the destination width";
     let view = WidgetView::new(
         ViewNode::new(Node::Table(Table {
+            row_menus: Vec::new(),
             columns: vec![TableColumn::new("Parcel", 1.0)],
             rows: vec![vec![ViewNode::text(
                 label,

@@ -1,14 +1,30 @@
 use super::icons::IconCache;
 use super::network::rate;
-use std::{collections::HashMap, path::PathBuf, time::Instant};
-use sysinfo::{Networks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    time::Instant,
+};
+use sysinfo::{Networks, Pid, ProcessRefreshKind, ProcessesToUpdate, Signal, System, UpdateKind};
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct ProcessIdentity {
+    pid: Pid,
+    started_at: u64,
+}
+
+impl ProcessIdentity {
+    fn can_terminate(self) -> bool {
+        let pid = self.pid.as_u32();
+        pid > 1 && pid != std::process::id() && self.started_at != 0
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct ApplicationSnapshot {
-    pub pid: u32,
     pub name: String,
-    pub executable: Option<PathBuf>,
-    pub process_count: usize,
+    path: Option<PathBuf>,
+    processes: Vec<ProcessIdentity>,
     pub icon: Option<crate::ui::declarative::RasterImage>,
     /// Percentage of the whole machine, matching the overview CPU meter.
     pub cpu_percent: f32,
@@ -20,8 +36,6 @@ pub struct Snapshot {
     pub cpu_percent: f32,
     pub memory_used: u64,
     pub memory_total: u64,
-    pub process_count: usize,
-    pub application_count: usize,
     pub top_cpu: Vec<ApplicationSnapshot>,
     pub top_memory: Vec<ApplicationSnapshot>,
     pub ready: bool,
@@ -86,10 +100,12 @@ impl MetricsSampler {
             // with the parent; listing them would duplicate memory and CPU.
             .filter(|(_, process)| process.thread_kind().is_none())
             .map(|(pid, process)| ApplicationSnapshot {
-                pid: pid.as_u32(),
                 name: process.name().to_string_lossy().into_owned(),
-                executable: process.exe().map(PathBuf::from),
-                process_count: 1,
+                path: process.exe().map(PathBuf::from),
+                processes: vec![ProcessIdentity {
+                    pid: *pid,
+                    started_at: process.start_time(),
+                }],
                 icon: None,
                 cpu_percent: if self.sampled_once {
                     (process.cpu_usage() / cores).clamp(0.0, 100.0)
@@ -99,9 +115,7 @@ impl MetricsSampler {
                 memory_bytes: process.memory(),
             })
             .collect();
-        self.snapshot.process_count = processes.len();
         let applications = aggregate_applications(processes);
-        self.snapshot.application_count = applications.len();
         self.snapshot.top_cpu = ranked(applications.clone(), true);
         self.snapshot.top_memory = ranked(applications, false);
         for process in self
@@ -110,7 +124,7 @@ impl MetricsSampler {
             .iter_mut()
             .chain(self.snapshot.top_memory.iter_mut())
         {
-            if let Some(exe) = process.executable.as_deref() {
+            if let Some(exe) = process.path.as_deref() {
                 process.icon = self.icons.get(exe);
             }
         }
@@ -141,47 +155,113 @@ impl MetricsSampler {
     }
 }
 
-fn application_key(process: &ApplicationSnapshot) -> String {
-    if let Some(executable) = &process.executable {
-        // macOS helpers have distinct executable names inside one app bundle.
-        let path = executable
-            .ancestors()
-            .filter(|p| p.extension().is_some_and(|e| e == "app"))
-            .last()
-            .unwrap_or(executable);
-        let key = path.to_string_lossy().into_owned();
-        #[cfg(target_os = "windows")]
-        return key.to_lowercase();
-        #[cfg(not(target_os = "windows"))]
-        return key;
+impl ApplicationSnapshot {
+    pub fn process_count(&self) -> usize {
+        self.processes.len()
     }
-    format!("unknown:{}", process.name)
+
+    pub fn termination_key(&self) -> Option<String> {
+        if self.processes.iter().any(|target| !target.can_terminate()) {
+            return None;
+        }
+        let first = self.processes.first()?;
+        let application = self
+            .path
+            .as_deref()
+            .map_or_else(|| self.name.as_str().into(), path_key);
+        Some(format!(
+            "terminate:{}:{}:{application}",
+            first.pid, first.started_at
+        ))
+    }
+
+    /// Recheck the sampled identities before signalling any of the app's processes.
+    pub fn terminate(&self) -> bool {
+        let pids: Vec<_> = self.processes.iter().map(|target| target.pid).collect();
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&pids),
+            true,
+            ProcessRefreshKind::nothing().with_exe(UpdateKind::Always),
+        );
+        let mut success = true;
+        for target in self
+            .processes
+            .iter()
+            .filter(|target| target.can_terminate())
+        {
+            let Some(process) = system.process(target.pid) else {
+                continue;
+            };
+            let expected = self.path.as_deref();
+            let actual = process.exe().map(application_path);
+            let same_application = match (expected, actual) {
+                (Some(expected), Some(actual)) => path_key(expected) == path_key(actual),
+                (None, _) => process.name() == self.name.as_str(),
+                _ => false,
+            };
+            if process.start_time() == target.started_at && same_application {
+                success &= if cfg!(any(target_os = "macos", target_os = "windows")) {
+                    process.kill()
+                } else {
+                    process.kill_with(Signal::Term).unwrap_or(false)
+                };
+            }
+        }
+        success
+    }
+}
+
+fn application_path(executable: &Path) -> &Path {
+    // A helper can have its own nested bundle. Keep the outer app for both
+    // aggregation and icon lookup.
+    executable
+        .ancestors()
+        .filter(|path| path.extension().is_some_and(|extension| extension == "app"))
+        .last()
+        .unwrap_or(executable)
+}
+
+fn path_key(path: &Path) -> std::borrow::Cow<'_, str> {
+    let key = path.to_string_lossy();
+    if cfg!(target_os = "windows") {
+        key.to_lowercase().into()
+    } else {
+        key
+    }
 }
 
 fn aggregate_applications(processes: Vec<ApplicationSnapshot>) -> Vec<ApplicationSnapshot> {
     let mut groups: HashMap<String, ApplicationSnapshot> = HashMap::new();
     for mut process in processes {
-        let key = application_key(&process);
+        if let Some(path) = &mut process.path {
+            let bundle = application_path(path);
+            if bundle != path {
+                *path = bundle.to_owned();
+            }
+            if let Some(name) = path.file_stem().and_then(|name| name.to_str()) {
+                process.name = name.to_owned();
+            }
+        }
+        let key = match &process.path {
+            Some(path) => path_key(path).into_owned(),
+            None => format!("unknown:{}", process.name),
+        };
         if let Some(app) = groups.get_mut(&key) {
             app.cpu_percent = (app.cpu_percent + process.cpu_percent).min(100.0);
             app.memory_bytes = app.memory_bytes.saturating_add(process.memory_bytes);
-            app.process_count += process.process_count;
-            app.pid = app.pid.min(process.pid);
+            app.processes.append(&mut process.processes);
         } else {
-            if let Some(exe) = &process.executable {
-                let path = exe
-                    .ancestors()
-                    .filter(|p| p.extension().is_some_and(|e| e == "app"))
-                    .last()
-                    .unwrap_or(exe);
-                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    process.name = name.to_owned();
-                }
-            }
             groups.insert(key, process);
         }
     }
-    groups.into_values().collect()
+    groups
+        .into_values()
+        .map(|mut app| {
+            app.processes.sort_unstable();
+            app
+        })
+        .collect()
 }
 
 pub(super) fn ranked(
@@ -194,7 +274,7 @@ pub(super) fn ranked(
         } else {
             b.memory_bytes.cmp(&a.memory_bytes)
         };
-        order.then_with(|| a.pid.cmp(&b.pid))
+        order.then_with(|| a.processes.first().cmp(&b.processes.first()))
     });
     processes.truncate(10);
     processes
@@ -234,27 +314,28 @@ mod process_tests {
     fn process_rankings_are_independent_bounded_and_stable_for_ties() {
         let data: Vec<_> = (1..=24)
             .map(|pid| ApplicationSnapshot {
-                pid,
                 name: format!("process-{pid}"),
-                executable: None,
-                process_count: 1,
-                icon: None,
+                processes: vec![ProcessIdentity {
+                    pid: Pid::from_u32(pid),
+                    started_at: 1,
+                }],
                 cpu_percent: (pid / 2) as f32,
                 memory_bytes: u64::from(25 - pid) * 1024,
+                ..Default::default()
             })
             .collect();
         let cpu = ranked(data.clone(), true);
         let memory = ranked(data, false);
         assert_eq!(cpu.len(), 10);
         assert_eq!(memory.len(), 10);
-        assert_eq!(cpu[0].pid, 24);
-        assert_eq!(memory[0].pid, 1);
+        assert_eq!(cpu[0].processes[0].pid.as_u32(), 24);
+        assert_eq!(memory[0].processes[0].pid.as_u32(), 1);
         assert!(cpu.windows(2).all(|p| p[0].cpu_percent >= p[1].cpu_percent));
         assert!(memory
             .windows(2)
             .all(|p| p[0].memory_bytes >= p[1].memory_bytes));
-        assert_eq!(cpu[1].pid, 22);
-        assert_eq!(cpu[2].pid, 23);
+        assert_eq!(cpu[1].processes[0].pid.as_u32(), 22);
+        assert_eq!(cpu[2].processes[0].pid.as_u32(), 23);
     }
     #[test]
     fn first_sample_reads_memory_and_waits_for_cpu_baseline() {
@@ -264,10 +345,12 @@ mod process_tests {
         assert!(first.top_cpu.iter().all(|p| p.cpu_percent == 0.0));
         assert!(first.memory_total > 0);
         assert!(first.memory_used <= first.memory_total);
-        assert!(first.process_count > 0);
+        assert!(!first.top_memory.is_empty());
         #[cfg(target_os = "linux")]
         for p in first.top_memory.iter().chain(&first.top_cpu) {
-            if let Ok(status) = std::fs::read_to_string(format!("/proc/{}/status", p.pid)) {
+            if let Ok(status) =
+                std::fs::read_to_string(format!("/proc/{}/status", p.processes[0].pid))
+            {
                 let tgid = status
                     .lines()
                     .find_map(|line| line.strip_prefix("Tgid:"))
@@ -276,7 +359,8 @@ mod process_tests {
                     .parse::<u32>()
                     .unwrap();
                 assert_eq!(
-                    p.pid, tgid,
+                    p.processes[0].pid.as_u32(),
+                    tgid,
                     "individual threads must not duplicate process RSS"
                 );
             }
@@ -290,10 +374,12 @@ mod application_tests {
     #[test]
     fn same_executable_is_aggregated_before_ranking_but_same_name_at_other_paths_is_separate() {
         let sample = |pid, path: &str, cpu| ApplicationSnapshot {
-            pid,
             name: "browser".into(),
-            executable: Some(path.into()),
-            process_count: 1,
+            path: Some(path.into()),
+            processes: vec![ProcessIdentity {
+                pid: Pid::from_u32(pid),
+                started_at: 1,
+            }],
             cpu_percent: cpu,
             memory_bytes: 1024,
             ..Default::default()
@@ -307,8 +393,8 @@ mod application_tests {
         let ranked = ranked(applications, true);
         assert_eq!(ranked[0].cpu_percent, 50.0);
         assert_eq!(ranked[0].memory_bytes, 2048);
-        assert_eq!(ranked[0].process_count, 2);
-        assert_eq!(ranked[1].process_count, 1);
+        assert_eq!(ranked[0].process_count(), 2);
+        assert_eq!(ranked[1].process_count(), 1);
     }
     #[test]
     fn macos_bundle_helpers_are_one_application() {
@@ -319,16 +405,110 @@ mod application_tests {
         .into_iter()
         .enumerate()
         .map(|(pid, path)| ApplicationSnapshot {
-            pid: pid as u32,
             name: path.into(),
-            executable: Some(path.into()),
-            process_count: 1,
+            path: Some(path.into()),
+            processes: vec![ProcessIdentity {
+                pid: Pid::from_u32(pid as u32 + 2),
+                started_at: 1,
+            }],
             ..Default::default()
         })
         .collect();
         let applications = aggregate_applications(samples);
         assert_eq!(applications.len(), 1);
-        assert_eq!(applications[0].process_count, 2);
+        assert_eq!(applications[0].process_count(), 2);
         assert_eq!(applications[0].name, "Browser");
+        assert_eq!(
+            applications[0].path.as_deref(),
+            Some(Path::new("/Applications/Browser.app"))
+        );
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_nested_helper_uses_the_system_icon_for_its_outer_bundle() {
+        let bundle = Path::new("/System/Library/CoreServices/Finder.app");
+        let helper = bundle.join("Contents/Helpers/Helper.app/Contents/MacOS/Helper");
+        let mut cache = IconCache::default();
+        let icon = cache.get(application_path(&helper)).unwrap();
+        assert_eq!(icon.size, [32, 32]);
+        assert!(icon.rgba.chunks_exact(4).any(|pixel| pixel[3] == 255));
+        assert_eq!(cache.get(bundle), Some(icon));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn terminating_a_group_skips_a_process_whose_start_time_changed() {
+        use std::process::{Child, Command};
+        use std::time::Duration;
+
+        struct TestProcess(Child);
+        impl Drop for TestProcess {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let spawn = || {
+            let mut command = Command::new("/bin/sleep");
+            command.arg("30");
+            #[cfg(target_os = "macos")]
+            {
+                use std::os::unix::process::CommandExt;
+
+                // exec preserves ignored signals set in the child.
+                unsafe {
+                    command.pre_exec(|| {
+                        if libc::signal(libc::SIGTERM, libc::SIG_IGN) == libc::SIG_ERR {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                        Ok(())
+                    });
+                }
+            }
+            TestProcess(command.spawn().unwrap())
+        };
+        let mut original = spawn();
+        let mut stale = spawn();
+        let original_pid = Pid::from_u32(original.0.id());
+        let stale_pid = Pid::from_u32(stale.0.id());
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[original_pid, stale_pid]),
+            true,
+            ProcessRefreshKind::nothing().with_exe(UpdateKind::Always),
+        );
+        let process = system.process(original_pid).unwrap();
+        let app = ApplicationSnapshot {
+            path: process.exe().map(PathBuf::from),
+            name: process.name().to_string_lossy().into_owned(),
+            processes: vec![
+                ProcessIdentity {
+                    pid: original_pid,
+                    started_at: process.start_time(),
+                },
+                ProcessIdentity {
+                    pid: stale_pid,
+                    started_at: system.process(stale_pid).unwrap().start_time() + 1,
+                },
+            ],
+            ..Default::default()
+        };
+        assert!(app.terminate());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Some(status) = original.0.try_wait().unwrap() {
+                #[cfg(target_os = "macos")]
+                {
+                    use std::os::unix::process::ExitStatusExt;
+
+                    assert_eq!(status.signal(), Some(libc::SIGKILL));
+                }
+                assert!(!status.success());
+                break;
+            }
+            assert!(Instant::now() < deadline, "target process did not exit");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(stale.0.try_wait().unwrap().is_none());
     }
 }

@@ -249,6 +249,7 @@ impl IslandApp {
         }
         let repaint = !output.invalidated.is_empty()
             || !output.notifications.is_empty()
+            || !output.resolved_notifications.is_empty()
             || !output.events.is_empty()
             || !output.mascot_events.is_empty();
         for extension_id in output.invalidated {
@@ -270,6 +271,9 @@ impl IslandApp {
             }
         }
         let published = !output.notifications.is_empty();
+        for key in &output.resolved_notifications {
+            self.notifications.acknowledge(key);
+        }
         for notification in output.notifications.iter().cloned() {
             self.notifications.publish(notification);
         }
@@ -828,7 +832,12 @@ impl eframe::App for IslandApp {
             }
             None => interactive_rect,
         };
-        platform::update_hit_region(frame, swipe_region, dragging, context.pixels_per_point());
+        let menu_rect = crate::ui::renderer::context_menu_rect(context);
+        let hit_region = match (swipe_region, menu_rect) {
+            (Some(rect), Some(menu)) => Some(rect.union(menu)),
+            (rect, menu) => rect.or(menu),
+        };
+        platform::update_hit_region(frame, hit_region, dragging, context.pixels_per_point());
 
         let hovering =
             platform::pointer_inside(frame, interactive_rect, pointer, context.pixels_per_point());
@@ -871,7 +880,10 @@ impl eframe::App for IslandApp {
             directions.extend(self.trackpad_swipe.update(scroll, time, eligible));
         }
         if can_turn_page && self.active_widget == page_before_input {
-            if let Some(direction) = context.input(widgets::key_direction) {
+            if let Some(direction) = context
+                .input(widgets::key_direction)
+                .filter(|_| !context.wants_keyboard_input())
+            {
                 directions.clear();
                 directions.push(direction);
             }
@@ -888,7 +900,7 @@ impl eframe::App for IslandApp {
             self.window_drag.begin(frame, context);
         }
         if self.state.observe_interaction(
-            hovering || dragging || notice.is_some(),
+            hovering || dragging || notice.is_some() || menu_rect.is_some(),
             self.settings_open,
             dt,
         ) {

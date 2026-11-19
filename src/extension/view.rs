@@ -37,12 +37,16 @@ pub struct CompactView {
     pub tooltip: Option<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Action {
     Toggle,
     Advance,
     Reset,
     Select(String),
+    SetText {
+        key: String,
+        value: String,
+    },
     /// Normalized slider position, from 0 to 10,000 basis points.
     SetProgress {
         key: String,
@@ -77,6 +81,7 @@ pub struct ExtensionOutput {
     pub mascot_events: Vec<String>,
     pub invalidated: Vec<ExtensionId>,
     pub notifications: Vec<Notification>,
+    pub resolved_notifications: Vec<super::NotificationKey>,
     pub schedule: Vec<ScheduledTask>,
     pub cancel_tasks: Vec<String>,
 }

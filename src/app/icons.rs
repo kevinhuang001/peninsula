@@ -144,6 +144,18 @@ impl Icons {
                 include_bytes!("../../assets/icons/lucide/droplet.svg").as_slice(),
             ),
             (
+                "health/stand",
+                br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4" r="2"/><path d="M7 10l5-2 5 2M12 8v7m0 0-4 6m4-6 4 6"/></svg>"#.as_slice(),
+            ),
+            (
+                "rss",
+                br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="19" r="1" fill="currentColor"/><path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/></svg>"#.as_slice(),
+            ),
+            (
+                "health/heart",
+                br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/><path d="M5 12h4l2-3 2 6 2-3h4"/></svg>"#.as_slice(),
+            ),
+            (
                 "eye",
                 include_bytes!("../../assets/icons/lucide/eye.svg").as_slice(),
             ),

@@ -23,6 +23,77 @@ pub(crate) fn register_image(context: &egui::Context, asset: &str, texture: egui
     context.data_mut(|data| data.insert_temp(assets::image_id(asset), texture));
 }
 
+#[derive(Clone, Copy)]
+struct ContextMenu {
+    owner: Id,
+    position: egui::Pos2,
+    rect: Rect,
+    pass: u64,
+}
+
+fn context_menu_id(ctx: &egui::Context) -> Id {
+    Id::new(("widget-context-menu", ctx.viewport_id()))
+}
+
+pub(crate) fn context_menu(response: &egui::Response, content: impl FnOnce(&mut Ui) -> bool) {
+    let ctx = &response.ctx;
+    let id = context_menu_id(ctx);
+    let pass = ctx.cumulative_pass_nr();
+    let previous = ctx
+        .data(|data| data.get_temp::<ContextMenu>(id))
+        .filter(|menu| menu.owner == response.id && menu.pass.saturating_add(1) >= pass);
+    let opened_at = response
+        .secondary_clicked()
+        .then_some(response.interact_pointer_pos())
+        .flatten();
+    let position = match (opened_at, previous) {
+        (Some(position), _) => position,
+        (None, Some(menu)) => {
+            let dismissed = ctx.input(|input| {
+                input.key_pressed(egui::Key::Escape)
+                    || (input.pointer.any_pressed()
+                        && !input
+                            .pointer
+                            .interact_pos()
+                            .is_some_and(|p| menu.rect.contains(p)))
+            });
+            if dismissed {
+                ctx.data_mut(|data| data.remove::<ContextMenu>(id));
+                return;
+            }
+            menu.position
+        }
+        (None, None) => return,
+    };
+
+    let popup = egui::Area::new(response.id.with("context-menu"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(position)
+        .show(ctx, |ui| {
+            egui::Frame::menu(ui.style()).show(ui, content).inner
+        });
+    ctx.data_mut(|data| {
+        if popup.inner {
+            data.remove::<ContextMenu>(id);
+        } else {
+            data.insert_temp(
+                id,
+                ContextMenu {
+                    owner: response.id,
+                    position,
+                    rect: popup.response.rect,
+                    pass,
+                },
+            );
+        }
+    });
+}
+
+pub(crate) fn context_menu_rect(ctx: &egui::Context) -> Option<Rect> {
+    let menu = ctx.data(|data| data.get_temp::<ContextMenu>(context_menu_id(ctx)))?;
+    (menu.pass == ctx.cumulative_pass_nr()).then_some(menu.rect)
+}
+
 pub fn show_widget(
     ui: &mut Ui,
     rect: Rect,

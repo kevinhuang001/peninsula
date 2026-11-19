@@ -66,6 +66,7 @@ pub(super) fn build(sources: &[Source; 2], refreshing: bool) -> WidgetView {
         .map(|(title, width)| TableColumn::new(title, width))
         .collect();
         let table = Table {
+            row_menus: Vec::new(),
             columns,
             rows: parcels.into_iter().map(parcel_row).collect(),
         };

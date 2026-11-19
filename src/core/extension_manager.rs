@@ -558,6 +558,11 @@ impl ExtensionManager {
                     .is_some_and(|d| d.id == id)
                 && self.extensions[owner].handles_notification(&n.source_id)
         });
+        output.resolved_notifications.retain(|key| {
+            self.registry
+                .owner(&key.source_extension_id)
+                .is_some_and(|descriptor| descriptor.id == id)
+        });
         output
     }
     pub fn update(&mut self, now: Instant) -> Vec<ExtensionOutput> {
@@ -690,15 +695,15 @@ impl ExtensionManager {
         notification: &Notification,
         action: &NotificationAction,
     ) -> Result<(), String> {
-        let Some(extension) = self
+        let Some(owner) = self
             .extensions
-            .iter_mut()
+            .iter()
             .enumerate()
             .filter(|(i, _)| self.states[*i] == LifecycleState::Running)
-            .map(|(_, e)| e)
-            .find(|extension| {
-                self.registry.get(&notification.source_id).is_some()
-                    && extension.handles_notification(&notification.source_id)
+            .find_map(|(owner, extension)| {
+                (self.registry.get(&notification.source_id).is_some()
+                    && extension.handles_notification(&notification.source_id))
+                .then_some(owner)
             })
         else {
             return Err(format!(
@@ -706,7 +711,12 @@ impl ExtensionManager {
                 notification.source_id
             ));
         };
-        extension.on_notification_action(notification, action)
+        let result = self.extensions[owner].on_notification_action(notification, action);
+        for contribution in &self.registry.extensions()[owner].contributions {
+            self.widget_cache.invalidate(&contribution.id);
+        }
+        self.compact_cache.invalidate(&owner);
+        result
     }
 }
 

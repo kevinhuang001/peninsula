@@ -172,16 +172,17 @@ pub(super) fn show(
         dashboard_requested = dashboard;
         (settings, pin_toggled)
     };
-    capsule.context_menu(|ui| {
-        if ui
+    renderer::context_menu(&capsule, |ui| {
+        let clicked = ui
             .add(
                 egui::Button::new(egui::RichText::new("退出灵动岛").color(egui::Color32::WHITE))
                     .fill(ui.visuals().selection.bg_fill),
             )
-            .clicked()
-        {
+            .clicked();
+        if clicked {
             context.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+        clicked
     });
     if let Some(direction) = page_swipe {
         *content.active_widget =

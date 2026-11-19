@@ -19,12 +19,8 @@ pub fn format_speed(bytes_per_second: f64) -> String {
 }
 
 /// Driver queries share the owning extension's stop/join lifecycle.
-pub(super) fn start_gpu() -> crate::core::worker::Worker<Option<f32>> {
-    crate::core::worker::Worker::spawn_latest(
-        "gpu",
-        std::time::Duration::from_secs(1),
-        platform::gpu_utilization,
-    )
+pub(super) fn start_gpu(interval: std::time::Duration) -> crate::core::worker::Worker<Option<f32>> {
+    crate::core::worker::Worker::spawn_latest("gpu", interval, platform::gpu_utilization)
 }
 
 #[cfg(test)]

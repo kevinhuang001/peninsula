@@ -1,7 +1,7 @@
 use super::sampler::{MetricsSampler, Snapshot};
 use crate::core::worker::Worker;
 use crate::extension::{
-    CompactView, ContributionDescriptor, ContributionKind, ExtensionId, ExtensionOutput,
+    Action, CompactView, ContributionDescriptor, ContributionKind, ExtensionId, ExtensionOutput,
     ReloadPolicy, RuntimeExtension, SettingSchema, SettingValue, Settings, ViewNode, WidgetView,
 };
 use crate::ui::declarative::*;
@@ -82,6 +82,7 @@ pub struct PerformanceExtension {
     show_download: bool,
     show_upload: bool,
     sort_memory: bool,
+    termination_error: Option<String>,
     cpu_history: Vec<f32>,
     memory_history: Vec<f32>,
 }
@@ -99,6 +100,7 @@ impl PerformanceExtension {
             show_download: true,
             show_upload: true,
             sort_memory: false,
+            termination_error: None,
             cpu_history: Vec::new(),
             memory_history: Vec::new(),
         }
@@ -123,11 +125,23 @@ impl RuntimeExtension for PerformanceExtension {
             SettingSchema::new("sample_seconds", SettingValue::Integer(1), "采样间隔（秒）")
                 .range(1.0, 60.0),
         );
+        descriptor.settings_version = 3;
         descriptor
+    }
+    fn migrate_settings(
+        &self,
+        _id: &ExtensionId,
+        from_version: u32,
+        settings: &mut Settings,
+    ) -> Result<(), String> {
+        if from_version < 3 && settings.get("sample_seconds") == Some(&SettingValue::Integer(3)) {
+            settings.insert("sample_seconds".into(), SettingValue::Integer(1));
+        }
+        Ok(())
     }
     fn on_start(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {
         self.snapshots = Some(MetricsSampler::start(self.sample_interval));
-        self.gpu_updates = Some(super::sampler::start_gpu());
+        self.gpu_updates = Some(super::sampler::start_gpu(self.sample_interval));
         Ok(())
     }
     fn on_stop(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {
@@ -176,20 +190,27 @@ impl RuntimeExtension for PerformanceExtension {
             &self.memory_history,
             self.show_download,
             self.show_upload,
+            self.termination_error.as_deref(),
         ))
     }
 
-    fn on_action(
-        &mut self,
-        action: crate::extension::Action,
-        _now: std::time::Instant,
-    ) -> ExtensionOutput {
-        let next = match action {
-            crate::extension::Action::Select(ref key) if key == "process-cpu" => false,
-            crate::extension::Action::Select(ref key) if key == "process-memory" => true,
+    fn on_action(&mut self, action: Action, _now: std::time::Instant) -> ExtensionOutput {
+        match action {
+            Action::Select(key) if key == "process-cpu" => self.sort_memory = false,
+            Action::Select(key) if key == "process-memory" => self.sort_memory = true,
+            Action::Custom(key) if key.starts_with("terminate:") => {
+                let target = self
+                    .snapshot
+                    .top_cpu
+                    .iter()
+                    .chain(&self.snapshot.top_memory)
+                    .find(|app| app.termination_key().as_deref() == Some(key.as_str()));
+                self.termination_error = target
+                    .filter(|app| !app.terminate())
+                    .map(|app| format!("无法结束 {} 的部分或全部进程", app.name));
+            }
             _ => return ExtensionOutput::default(),
-        };
-        self.sort_memory = next;
+        }
         ExtensionOutput {
             invalidated: vec![ExtensionId::builtin(ID)],
             ..Default::default()
@@ -296,7 +317,12 @@ impl RuntimeExtension for PerformanceExtension {
             if interval != self.sample_interval {
                 self.sample_interval = interval;
                 if self.snapshots.is_some() {
+                    self.snapshots = None;
                     self.snapshots = Some(MetricsSampler::start(interval));
+                }
+                if self.gpu_updates.is_some() {
+                    self.gpu_updates = None;
+                    self.gpu_updates = Some(super::sampler::start_gpu(interval));
                 }
             }
         }
@@ -346,6 +372,30 @@ fn compact_view(id: &'static str, content: ViewNode, width: f32) -> CompactView 
         fit_width: false,
         priority: 0,
         tooltip: None,
+    }
+}
+
+#[cfg(test)]
+mod sampling_tests {
+    use super::*;
+
+    #[test]
+    fn default_and_previous_three_second_sampling_become_one_second() {
+        let extension = PerformanceExtension::default();
+        let descriptor = extension.descriptor();
+        assert_eq!(extension.sample_interval.as_secs(), 1);
+        let mut settings = crate::core::settings::SettingsStore::defaults(&descriptor);
+        assert_eq!(settings["sample_seconds"], SettingValue::Integer(1));
+        settings.insert("sample_seconds".into(), SettingValue::Integer(3));
+        extension
+            .migrate_settings(&descriptor.id, 2, &mut settings)
+            .unwrap();
+        assert_eq!(settings["sample_seconds"], SettingValue::Integer(1));
+        settings.insert("sample_seconds".into(), SettingValue::Integer(10));
+        extension
+            .migrate_settings(&descriptor.id, 1, &mut settings)
+            .unwrap();
+        assert_eq!(settings["sample_seconds"], SettingValue::Integer(10));
     }
 }
 
