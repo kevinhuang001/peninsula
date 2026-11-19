@@ -100,6 +100,27 @@ pub struct Prompt {
     pub duration: std::time::Duration,
     pub min_width: f32,
     pub preferred_width: f32,
+    /// Independently positioned content on the whole capsule surface. An empty
+    /// list keeps the original centered `content` presentation.
+    #[serde(default)]
+    pub layers: Vec<PromptLayer>,
+    /// Optional color for the host's animated ambient light and outline.
+    #[serde(default)]
+    pub accent: Option<[u8; 3]>,
+}
+
+/// A Prompt layer occupies a fractional rectangle of the capsule, including
+/// its end caps. Motion on the layer's ViewNode is independent of its position.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PromptLayer {
+    pub frame: [f32; 4], // left, top, width, height; each in 0..=1
+    pub content: super::ViewNode,
+}
+
+impl PromptLayer {
+    pub fn new(frame: [f32; 4], content: super::ViewNode) -> Self {
+        Self { frame, content }
+    }
 }
 
 impl Prompt {
@@ -116,12 +137,24 @@ impl Prompt {
             duration,
             min_width: 112.0,
             preferred_width: 152.0,
+            layers: Vec::new(),
+            accent: None,
         }
     }
 
     pub fn with_width(mut self, min_width: f32, preferred_width: f32) -> Self {
         self.min_width = min_width.max(1.0);
         self.preferred_width = preferred_width.max(self.min_width);
+        self
+    }
+
+    pub fn with_layers(mut self, layers: Vec<PromptLayer>) -> Self {
+        self.layers = layers;
+        self
+    }
+
+    pub fn with_accent(mut self, accent: [u8; 3]) -> Self {
+        self.accent = Some(accent);
         self
     }
 

@@ -11,6 +11,7 @@ mod music;
 pub mod performance;
 pub mod pomodoro;
 mod rss;
+mod usb;
 pub mod weather;
 use crate::extension::{Action, ExtensionRegistry, RuntimeExtension};
 use crate::ui::declarative::ViewNode;
@@ -74,6 +75,7 @@ pub fn runtimes() -> Vec<Box<dyn RuntimeExtension>> {
         Box::new(music::MusicExtension::default()),
         Box::new(clock::ClockExtension::default()),
         Box::new(battery::BatteryExtension::default()),
+        Box::new(usb::UsbExtension::default()),
     ]
 }
 pub fn registry() -> ExtensionRegistry {

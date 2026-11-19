@@ -40,7 +40,11 @@ Every extension page includes a Doctor section. A check has a stable ID, title, 
 
 ## Prompt contributions
 
-Prompt is a one-shot exclusive Compact contribution. It contains a declarative view and a display duration. The host accepts it only from its registered running owner, then appends it to one FIFO queue; there is no priority field or persistent `while` trigger. While a Prompt is visible it replaces all ordinary Compact items, including the Mascot slot. Its duration pauses while Compact is hidden by an expanded Widget, settings or a notification alert. When the queue drains, normal Compact composition resumes. Prompt animations use the same `ViewNode` and Motion renderer as other surfaces.
+Prompt is a one-shot exclusive capsule presentation with its own layout contract, separate from Compact items. It contains a declarative fallback view and a display duration. Optional `layers` position any number of `ViewNode`s in fractional rectangles across the entire capsule (left, top, width, height, each from 0 to 1); each layer can use the full Motion renderer independently. The optional `accent` colors the host's animated ambient light and outline. With no layers, the fallback view stays centered. Prompt content is painted directly on the capsule shell without an inner chip or a prescribed icon/text arrangement. Reduced Motion and Motion Off freeze the host lighting and declarative motion.
+
+The host accepts a Prompt only from its registered running owner, then appends it to one FIFO queue; there is no priority field or persistent `while` trigger. While a Prompt is visible it replaces all ordinary Compact items, including the Mascot slot. Its duration pauses while the capsule is hidden by an expanded Widget, settings or a notification alert. When the queue drains, normal Compact composition resumes.
+
+Every Prompt receives the host entrance fade and moving ambient highlight, including extensions that only supply the fallback view. The battery and USB built-ins add their own independently animated layers. USB samples the platform's device inventory off the UI thread (Linux sysfs, macOS System Profiler, Windows PnP), establishes a silent initial baseline, and queues a Prompt only for later insertions and removals.
 
 Prompt presentation is separate from notification policy. Do Not Disturb suppresses notification popups only; it does not pause, suppress or reorder Prompts. Notifications and Prompts keep independent queues and lifetimes.
 

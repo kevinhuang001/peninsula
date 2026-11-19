@@ -622,7 +622,7 @@ impl eframe::App for IslandApp {
             !self.state.expanded && !self.settings_open && notice.is_none(),
         );
         let prompt_active = active_prompt.is_some();
-        let mut available_views = active_prompt.map_or_else(
+        let mut available_views = active_prompt.as_ref().map_or_else(
             || self.extensions.compact_views(now),
             |prompt| vec![Arc::new(prompt.compact_view())],
         );
@@ -665,6 +665,7 @@ impl eframe::App for IslandApp {
         if prompt_active {
             for view in &mut compact_views {
                 view.exclusive = true;
+                view.prompt = active_prompt.clone();
             }
         }
         let compact_width = compact_layout::width(&self.preferences, &compact_views);

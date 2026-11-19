@@ -125,34 +125,88 @@ pub(super) fn value(ui: &mut egui::Ui, label: &str, text: &str) {
 
 pub(super) fn doctor(ui: &mut egui::Ui, checks: &[crate::extension::DiagnosticCheck]) {
     if checks.is_empty() {
-        value(ui, "自检结果", "扩展没有报告检查项");
+        egui::Frame::new()
+            .fill(ROW)
+            .stroke(Stroke::new(1.0_f32, BORDER))
+            .corner_radius(9.0)
+            .inner_margin(egui::Margin::symmetric(12, 11))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("暂无检查项").size(11.5).color(TEXT));
+                ui.label(
+                    egui::RichText::new("此扩展尚未提供诊断结果")
+                        .size(10.5)
+                        .color(SECONDARY_TEXT),
+                );
+            });
         return;
     }
+    let passed = checks
+        .iter()
+        .filter(|check| check.status == crate::extension::DiagnosticStatus::Passed)
+        .count();
+    ui.label(
+        egui::RichText::new(format!("{passed} / {} 项检查通过", checks.len()))
+            .size(10.5)
+            .color(SECONDARY_TEXT),
+    );
+    ui.add_space(3.0);
     for check in checks {
-        let (status, color) = match check.status {
-            crate::extension::DiagnosticStatus::Passed => ("正常", Color32::LIGHT_GREEN),
-            crate::extension::DiagnosticStatus::Warning => ("注意", Color32::YELLOW),
-            crate::extension::DiagnosticStatus::Failed => ("异常", Color32::LIGHT_RED),
-            crate::extension::DiagnosticStatus::Unknown => ("待检查", SECONDARY_TEXT),
+        let (symbol, status, color) = match check.status {
+            crate::extension::DiagnosticStatus::Passed => {
+                ("✓", "正常", Color32::from_rgb(105, 207, 161))
+            }
+            crate::extension::DiagnosticStatus::Warning => {
+                ("!", "注意", Color32::from_rgb(245, 188, 95))
+            }
+            crate::extension::DiagnosticStatus::Failed => {
+                ("×", "异常", Color32::from_rgb(245, 130, 132))
+            }
+            crate::extension::DiagnosticStatus::Unknown => ("·", "待检查", SECONDARY_TEXT),
         };
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(&check.title).size(11.0).color(TEXT));
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new(status).size(10.5).strong().color(color));
-        });
-        ui.label(
-            egui::RichText::new(&check.detail)
-                .size(10.5)
-                .color(SECONDARY_TEXT),
-        );
-        if let Some(remediation) = &check.remediation {
-            ui.label(
-                egui::RichText::new(format!("处理：{remediation}"))
-                    .size(10.5)
-                    .color(SECONDARY_TEXT),
-            );
-        }
-        ui.add_space(4.0);
+        egui::Frame::new()
+            .fill(ROW.lerp_to_gamma(color, 0.035))
+            .stroke(Stroke::new(1.0_f32, BORDER.lerp_to_gamma(color, 0.22)))
+            .corner_radius(9.0)
+            .inner_margin(egui::Margin::symmetric(11, 9))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    egui::Frame::new()
+                        .fill(color.gamma_multiply(0.16))
+                        .corner_radius(6.0)
+                        .inner_margin(egui::Margin::symmetric(7, 2))
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(symbol).size(12.0).strong().color(color));
+                        });
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(&check.title)
+                                .size(11.5)
+                                .strong()
+                                .color(TEXT),
+                        )
+                        .truncate(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(status).size(10.0).strong().color(color));
+                    });
+                });
+                ui.add_space(3.0);
+                ui.label(
+                    egui::RichText::new(&check.detail)
+                        .size(10.5)
+                        .color(SECONDARY_TEXT),
+                );
+                if let Some(remediation) = &check.remediation {
+                    ui.add_space(5.0);
+                    ui.label(
+                        egui::RichText::new(format!("建议 · {remediation}"))
+                            .size(10.5)
+                            .color(color),
+                    );
+                }
+            });
+        ui.add_space(5.0);
     }
 }
 

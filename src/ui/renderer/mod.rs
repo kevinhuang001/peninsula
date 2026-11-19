@@ -205,12 +205,37 @@ pub fn show_compact(
     icons: &Icons,
     opacity: f32,
 ) -> Option<crate::extension::Action> {
+    show_compact_in_clip(ui, rect, rect, id, node, icons, opacity)
+}
+
+/// Paint a positioned Prompt layer while allowing motion across the capsule.
+pub fn show_prompt_layer(
+    ui: &mut Ui,
+    rect: Rect,
+    capsule: Rect,
+    id: &ExtensionId,
+    node: &ViewNode,
+    icons: &Icons,
+    opacity: f32,
+) -> Option<crate::extension::Action> {
+    show_compact_in_clip(ui, rect, capsule, id, node, icons, opacity)
+}
+
+fn show_compact_in_clip(
+    ui: &mut Ui,
+    rect: Rect,
+    clip: Rect,
+    id: &ExtensionId,
+    node: &ViewNode,
+    icons: &Icons,
+    opacity: f32,
+) -> Option<crate::extension::Action> {
     if !rect.is_positive() || opacity <= 0.0 || !ui.is_rect_visible(rect) {
         return None;
     }
     let mut renderer = Renderer::new(ui, icons);
     let mut surface = ui.new_child(UiBuilder::new().id_salt(("compact", id)).max_rect(rect));
-    surface.set_clip_rect(ui.clip_rect().intersect(rect));
+    surface.set_clip_rect(ui.clip_rect().intersect(clip));
     // The chip keeps its allocation while shorter content sits in its center.
     let measured = renderer.in_cell(&surface, node, rect.size(), [Align::Start; 2], 0);
     let size = vec2(measured.x.ceil(), measured.y).min(rect.size());

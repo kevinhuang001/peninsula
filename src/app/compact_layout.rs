@@ -1,5 +1,5 @@
 use super::{icons::Icons, settings::CompactPreferences};
-use crate::extension::CompactView;
+use crate::extension::{CompactView, Prompt};
 use crate::ui::{declarative::MAX_CONTENT_WIDTH, renderer};
 use eframe::egui;
 
@@ -16,6 +16,7 @@ pub(super) struct CompactItem<'a> {
     preferred_width: f32,
     min_width: f32,
     pub exclusive: bool,
+    pub prompt: Option<Prompt>,
 }
 
 impl<'a> From<&'a CompactView> for CompactItem<'a> {
@@ -25,6 +26,7 @@ impl<'a> From<&'a CompactView> for CompactItem<'a> {
             preferred_width: view.preferred_width,
             min_width: view.min_width,
             exclusive: false,
+            prompt: None,
         }
     }
 }
@@ -86,6 +88,9 @@ pub(super) fn item_widths(
 }
 
 pub(super) fn width(preferences: &CompactPreferences, available: &[CompactItem<'_>]) -> f32 {
+    if let Some(prompt) = available.iter().find_map(|item| item.prompt.as_ref()) {
+        return prompt.preferred_width.clamp(MIN_WIDTH, MAX_WIDTH);
+    }
     let widths = item_widths(preferences, available);
     if widths.is_empty() {
         return MIN_WIDTH;
@@ -177,6 +182,33 @@ mod tests {
         );
         assert_eq!(HORIZONTAL_PADDING / 2.0, 8.0);
         assert_eq!(CAPSULE_HEIGHT - CHIP_HEIGHT, 16.0);
+    }
+
+    #[test]
+    fn prompt_owns_the_whole_capsule_width_without_compact_chip_padding() {
+        let view = CompactView {
+            id: ExtensionId::builtin("builtin.usb/prompt"),
+            source_extension_id: ExtensionId::builtin("builtin.usb"),
+            content: ViewNode::text("USB", Default::default()),
+            visibility: Default::default(),
+            min_width: 230.0,
+            preferred_width: 266.0,
+            fit_width: false,
+            priority: 0,
+            tooltip: None,
+        };
+        let mut item = CompactItem::from(&view);
+        item.exclusive = true;
+        item.prompt = Some(
+            crate::extension::Prompt::new(
+                view.source_extension_id.clone(),
+                view.id.clone(),
+                view.content.clone(),
+                std::time::Duration::from_secs(4),
+            )
+            .with_width(230.0, 266.0),
+        );
+        assert_eq!(width(&CompactPreferences::default(), &[item]), 266.0);
     }
 
     #[test]
