@@ -1,10 +1,11 @@
 use super::parcels::Parcel;
-use crate::core::external::opencli::OpenCli;
+use crate::sdk::process::{ProcessExecutor, ProcessSpec};
 use serde_json::Value;
-use std::{collections::HashSet, time::Duration};
+use std::{collections::HashSet, path::Path, time::Duration};
 
 pub(super) const PLUGIN_INSTALL: &str =
     "opencli plugin install github:kevinhuang001/opencli-kuaidi";
+const OUTPUT_LIMIT: usize = 2 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Platform {
@@ -29,26 +30,28 @@ impl Platform {
         }
     }
 
-    pub fn collect(self, cli: &OpenCli) -> Result<Vec<Parcel>, SyncError> {
-        let result = cli
-            .run_browser(
-                &[
-                    "kuaidi",
-                    self.command(),
-                    "--max-pages",
-                    "0",
-                    "--window",
-                    "background",
-                    "--trace",
-                    "off",
-                    "-f",
-                    "json",
-                ],
-                Duration::from_secs(240),
+    pub fn collect(self, program: &Path) -> Result<Vec<Parcel>, SyncError> {
+        let result = ProcessExecutor
+            .run(
+                ProcessSpec::new(program)
+                    .args([
+                        "kuaidi",
+                        self.command(),
+                        "--max-pages",
+                        "0",
+                        "--window",
+                        "background",
+                        "--trace",
+                        "off",
+                        "-f",
+                        "json",
+                    ])
+                    .timeout(Duration::from_secs(240))
+                    .max_output_bytes(OUTPUT_LIMIT),
             )
             .map_err(|_| SyncError::Query)?;
-        let value = serde_json::from_str(&result.stdout).ok();
-        if result.status != 0
+        let value: Option<Value> = serde_json::from_slice(&result.stdout).ok();
+        if !result.success()
             || value.as_ref().and_then(|v: &Value| v["ok"].as_bool()) == Some(false)
         {
             let code = value.as_ref().and_then(|v| v["error"]["code"].as_str());
@@ -96,14 +99,18 @@ fn parse_rows(mut value: Value) -> Result<Vec<Parcel>, SyncError> {
     Ok(parcels)
 }
 
-pub(super) fn check_plugin(cli: &OpenCli) -> Result<(), SyncError> {
-    let output = cli
-        .run(&["plugin", "list"], Duration::from_secs(20))
+pub(super) fn check_plugin(program: &Path) -> Result<(), SyncError> {
+    let output = ProcessExecutor
+        .run(
+            ProcessSpec::new(program)
+                .args(["plugin", "list"])
+                .timeout(Duration::from_secs(20)),
+        )
         .map_err(|_| SyncError::OpenCli)?;
-    if output.status != 0 {
+    if !output.success() {
         return Err(SyncError::OpenCli);
     }
-    let value: Value = serde_json::from_str(&output.stdout).map_err(|_| SyncError::OpenCli)?;
+    let value: Value = serde_json::from_slice(&output.stdout).map_err(|_| SyncError::OpenCli)?;
     let plugins = value
         .as_array()
         .or_else(|| value["data"].as_array())
