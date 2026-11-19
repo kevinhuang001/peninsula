@@ -133,8 +133,8 @@ fn item(entry: &NotificationCenterEntry) -> ViewNode {
 fn empty_state() -> ViewNode {
     ViewNode::column(
         vec![
-            ViewNode::icon("bell", 19.0)
-                .sized(Size::Fixed(34.0), Size::Fixed(32.0))
+            ViewNode::icon("bell", 28.0)
+                .sized(Size::Fixed(54.0), Size::Fixed(52.0))
                 .styled(Style {
                     normal: Paint {
                         foreground: Some(ColorSpec::Info),
