@@ -105,7 +105,7 @@ pub(super) fn normalize_url(value: &str) -> Result<String, String> {
 }
 
 pub(super) fn fetch(url: &str) -> Result<Feed, String> {
-    let client = crate::core::http::client(
+    let client = crate::sdk::http::client(
         Duration::from_secs(5),
         Duration::from_secs(15),
         "Peninsula/0.1 RSS",

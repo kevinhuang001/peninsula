@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, io, path::Path, time::SystemTime};
+use std::{collections::HashMap, time::SystemTime};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Parcel {
@@ -81,22 +81,6 @@ pub(super) struct Snapshot {
 }
 
 impl Snapshot {
-    pub fn load(path: &Path) -> Option<Self> {
-        let file = fs::File::open(path).ok()?;
-        serde_json::from_reader(io::BufReader::new(file)).ok()
-    }
-
-    pub fn save(&self, path: &Path) -> io::Result<()> {
-        let parent = path
-            .parent()
-            .expect("snapshot belongs to an extension directory");
-        fs::create_dir_all(parent)?;
-        let file = tempfile::NamedTempFile::new_in(parent)?;
-        serde_json::to_writer(file.as_file(), self)?;
-        file.persist(path)?;
-        Ok(())
-    }
-
     pub fn changes(&mut self, previous: Option<&Self>) -> Vec<ShipmentChange> {
         let Some(previous) = previous else {
             return vec![];
@@ -167,6 +151,7 @@ impl Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sdk::storage::{AreaKind, StorageArea};
 
     fn parcel(status: &str, time: &str, detail: &str) -> Parcel {
         Parcel {
@@ -191,11 +176,11 @@ mod tests {
     #[test]
     fn compares_saved_logistics_and_detects_a_new_node_in_the_same_status() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("taobao.json");
+        let storage = StorageArea::from_root(AreaKind::Data, dir.path());
         let mut first = snapshot(vec![parcel("运输中", "10:00", "已离开网点")]);
         assert!(first.changes(None).is_empty());
-        first.save(&path).unwrap();
-        let previous = Snapshot::load(&path).unwrap();
+        storage.write_json("taobao.json", &first).unwrap();
+        let previous: Snapshot = storage.read_json("taobao.json").unwrap().unwrap();
         assert!(first.changes(Some(&previous)).is_empty());
         let mut renamed = first.clone();
         renamed.parcels[0].product_name = "新名称".into();

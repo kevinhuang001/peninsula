@@ -68,7 +68,7 @@ pub(super) fn lookup(track: &Track) -> Result<Option<Lyrics>, ()> {
     }
 
     let timeout = Duration::from_secs(3);
-    let client = crate::core::http::client(
+    let client = crate::sdk::http::client(
         timeout,
         timeout,
         concat!("Peninsula/", env!("CARGO_PKG_VERSION"), " (lyrics)"),

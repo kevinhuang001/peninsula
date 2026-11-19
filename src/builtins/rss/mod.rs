@@ -8,19 +8,13 @@ use crate::extension::{
     NotificationPresentationProvider, NotificationPriority, ReloadPolicy, RuntimeExtension,
     SettingSchema, SettingValue, Settings, WidgetView,
 };
+use crate::sdk::{storage::StorageArea, tasks::TaskScope};
 use feed::{Article, Feed};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     hash::{DefaultHasher, Hash, Hasher},
-    io::Write,
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, Sender},
-        Arc,
-    },
-    thread::{self, JoinHandle},
+    sync::mpsc::{self, Receiver, Sender},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -44,53 +38,39 @@ fn notification_id(url: &str, article_id: &str) -> String {
 struct Fetcher {
     requests: Sender<Option<String>>,
     results: Receiver<(String, Result<Feed, String>)>,
-    stopped: Arc<AtomicBool>,
-    worker: Option<JoinHandle<()>>,
 }
 
 impl Fetcher {
-    fn start() -> Result<Self, String> {
+    fn start(tasks: TaskScope) -> Result<Self, String> {
         let (requests, input) = mpsc::channel::<Option<String>>();
         let (output, results) = mpsc::channel();
-        let stopped = Arc::new(AtomicBool::new(false));
-        let cancelled = stopped.clone();
-        let worker = thread::Builder::new()
-            .name("rss-fetch".into())
-            .spawn(move || {
+        tasks
+            .spawn("rss-fetch", move |cancelled| {
                 while let Ok(Some(url)) = input.recv() {
-                    if cancelled.load(Ordering::Relaxed) {
+                    if cancelled.is_cancelled() {
                         break;
                     }
                     let result = feed::fetch(&url);
-                    if cancelled.load(Ordering::Relaxed) || output.send((url, result)).is_err() {
+                    if cancelled.is_cancelled() || output.send((url, result)).is_err() {
                         break;
                     }
                 }
             })
             .map_err(|error| error.to_string())?;
-        Ok(Self {
-            requests,
-            results,
-            stopped,
-            worker: Some(worker),
-        })
+        Ok(Self { requests, results })
     }
 }
 
 impl Drop for Fetcher {
     fn drop(&mut self) {
-        self.stopped.store(true, Ordering::Relaxed);
         let _ = self.requests.send(None);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
     }
 }
 
 pub struct RssExtension {
     feeds: Vec<Feed>,
     selected: Option<String>,
-    directory: Option<PathBuf>,
+    storage: Option<StorageArea>,
     fetcher: Option<Fetcher>,
     pending: HashSet<String>,
     errors: HashMap<String, String>,
@@ -107,7 +87,7 @@ impl Default for RssExtension {
         Self {
             feeds: Vec::new(),
             selected: None,
-            directory: None,
+            storage: None,
             fetcher: None,
             pending: HashSet::new(),
             errors: HashMap::new(),
@@ -246,18 +226,11 @@ impl RssExtension {
     }
 
     fn save(&self) -> Result<(), String> {
-        let directory = self.directory.as_ref().ok_or("RSS 尚未启动")?;
-        std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-        let mut file =
-            tempfile::NamedTempFile::new_in(directory).map_err(|error| error.to_string())?;
-        serde_json::to_writer(&mut file, &self.feeds).map_err(|error| error.to_string())?;
-        file.flush().map_err(|error| error.to_string())?;
-        file.as_file()
-            .sync_all()
-            .map_err(|error| error.to_string())?;
-        file.persist(directory.join("subscriptions.json"))
-            .map_err(|error| error.to_string())?;
-        Ok(())
+        self.storage
+            .as_ref()
+            .ok_or("RSS 尚未启动")?
+            .write_json("subscriptions.json", &self.feeds)
+            .map_err(|error| error.to_string())
     }
 
     fn request(&mut self, url: String) {
@@ -358,15 +331,14 @@ impl RuntimeExtension for RssExtension {
     }
 
     fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
-        let directory = ctx.extension_data_dir(&ExtensionId::builtin(ID));
-        self.feeds = match std::fs::File::open(directory.join("subscriptions.json")) {
-            Ok(file) => serde_json::from_reader(file).map_err(|error| error.to_string())?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(error) => return Err(error.to_string()),
-        };
+        let storage = ctx.sdk().storage().data().clone();
+        self.feeds = storage
+            .read_json("subscriptions.json")
+            .map_err(|error| error.to_string())?
+            .unwrap_or_default();
         self.selected = self.feeds.first().map(|feed| feed.url.clone());
-        self.directory = Some(directory);
-        self.fetcher = Some(Fetcher::start()?);
+        self.storage = Some(storage);
+        self.fetcher = Some(Fetcher::start(ctx.sdk().tasks())?);
         self.next_refresh = Instant::now();
         Ok(())
     }
@@ -518,6 +490,7 @@ impl RuntimeExtension for RssExtension {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{io::Write, path::PathBuf, thread};
 
     fn incoming(count: usize) -> Feed {
         let items = (0..count).rev().map(|index| format!(
@@ -533,7 +506,10 @@ mod tests {
         RssExtension {
             selected: Some(feed.url.clone()),
             feeds: vec![feed],
-            directory: Some(directory),
+            storage: Some(StorageArea::from_root(
+                crate::sdk::storage::AreaKind::Data,
+                directory,
+            )),
             ..Default::default()
         }
     }
@@ -553,8 +529,13 @@ mod tests {
         assert_eq!(target.article.id, "16");
         assert_eq!(target.url, extension.feeds[0].url);
         assert!(extension.receive_feed(0, incoming(17)).unwrap().is_none());
-        let stored = std::fs::File::open(root.path().join("subscriptions.json")).unwrap();
-        extension.feeds = serde_json::from_reader(stored).unwrap();
+        extension.feeds = extension
+            .storage
+            .as_ref()
+            .unwrap()
+            .read_json("subscriptions.json")
+            .unwrap()
+            .unwrap();
         assert!(extension.receive_feed(0, incoming(17)).unwrap().is_none());
     }
 
@@ -567,10 +548,13 @@ mod tests {
         let output = extension.on_action(Action::Custom("read:1".into()), Instant::now());
         assert_eq!(output.resolved_notifications, [notification.key()]);
         assert_eq!(extension.feeds[0].unread_count(), 1);
-        let stored: Vec<Feed> = serde_json::from_reader(
-            std::fs::File::open(root.path().join("subscriptions.json")).unwrap(),
-        )
-        .unwrap();
+        let stored: Vec<Feed> = extension
+            .storage
+            .as_ref()
+            .unwrap()
+            .read_json("subscriptions.json")
+            .unwrap()
+            .unwrap();
         assert!(stored[0].read_ids.contains("1"));
         extension.on_action(Action::Custom("read:1".into()), Instant::now());
         assert_eq!(extension.feeds[0].unread_count(), 2);
@@ -583,11 +567,17 @@ mod tests {
         let mut extension = with_empty_feed(directory.path().to_owned());
         extension.receive_feed(0, incoming(2)).unwrap();
         let invalid_directory = tempfile::NamedTempFile::new().unwrap();
-        extension.directory = Some(invalid_directory.path().to_owned());
+        extension.storage = Some(StorageArea::from_root(
+            crate::sdk::storage::AreaKind::Data,
+            invalid_directory.path(),
+        ));
         assert!(extension.receive_feed(0, incoming(3)).is_err());
         assert_eq!(extension.feeds[0].articles.len(), 2);
         assert!(!extension.feeds[0].seen_ids.contains("2"));
-        extension.directory = Some(directory.path().to_owned());
+        extension.storage = Some(StorageArea::from_root(
+            crate::sdk::storage::AreaKind::Data,
+            directory.path(),
+        ));
         assert!(extension.receive_feed(0, incoming(3)).unwrap().is_some());
     }
 

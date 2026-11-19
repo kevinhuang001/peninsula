@@ -14,16 +14,11 @@ use crate::{
         NotificationPriority, ReloadPolicy, RuntimeExtension, SettingSchema, SettingValue,
         Settings, WidgetView,
     },
+    sdk::{storage::StorageArea, tasks::TaskScope},
     ui::declarative::{Overflow, ScrollAxes, WidgetBounds},
 };
 use std::{
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, TryRecvError},
-        Arc,
-    },
-    thread,
+    sync::mpsc::{self, Receiver, TryRecvError},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -92,21 +87,11 @@ struct Source {
 
 struct Refresh {
     results: Receiver<(Platform, Result<Vec<Parcel>, SyncError>)>,
-    stop: Arc<AtomicBool>,
-    worker: Option<std::thread::JoinHandle<()>>,
-}
-
-impl Drop for Refresh {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-    }
 }
 
 pub struct KuaidiExtension {
-    directory: Option<PathBuf>,
+    storage: Option<StorageArea>,
+    tasks: Option<TaskScope>,
     sources: [Source; 2],
     refresh: Option<Refresh>,
     last_poll: Option<Instant>,
@@ -119,7 +104,8 @@ pub struct KuaidiExtension {
 impl Default for KuaidiExtension {
     fn default() -> Self {
         Self {
-            directory: None,
+            storage: None,
+            tasks: None,
             sources: Default::default(),
             refresh: None,
             last_poll: None,
@@ -133,38 +119,33 @@ impl Default for KuaidiExtension {
 
 impl KuaidiExtension {
     fn begin_refresh(&mut self, now: Instant) {
+        let Some(tasks) = self.tasks.as_ref() else {
+            return;
+        };
         let (sender, results) = mpsc::channel();
-        let stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = stop.clone();
-        let worker = thread::Builder::new()
-            .name("kuaidi-sync".into())
-            .spawn(move || {
-                let cli = OpenCli::resolve(None)
-                    .map_err(|_| SyncError::OpenCli)
-                    .and_then(|cli| {
-                        poller::check_plugin(&cli)?;
-                        Ok(cli)
-                    });
+        let worker = tasks.spawn("kuaidi-sync", move |cancel| {
+            let cli = OpenCli::resolve(None)
+                .map_err(|_| SyncError::OpenCli)
+                .and_then(|cli| {
+                    poller::check_plugin(&cli)?;
+                    Ok(cli)
+                });
 
-                for platform in Platform::ALL {
-                    if worker_stop.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    let result = match &cli {
-                        Ok(cli) => platform.collect(cli),
-                        Err(error) => Err(*error),
-                    };
-                    if sender.send((platform, result)).is_err() {
-                        break;
-                    }
+            for platform in Platform::ALL {
+                if cancel.is_cancelled() {
+                    break;
                 }
-            });
-        if let Ok(worker) = worker {
-            self.refresh = Some(Refresh {
-                results,
-                stop,
-                worker: Some(worker),
-            });
+                let result = match &cli {
+                    Ok(cli) => platform.collect(cli),
+                    Err(error) => Err(*error),
+                };
+                if sender.send((platform, result)).is_err() {
+                    break;
+                }
+            }
+        });
+        if worker.is_ok() {
+            self.refresh = Some(Refresh { results });
         } else {
             for source in &mut self.sources {
                 source.error = Some(SyncError::Query);
@@ -192,9 +173,12 @@ impl KuaidiExtension {
             parcels,
         };
         let changes = snapshot.changes(source.snapshot.as_ref());
-        if let Some(directory) = &self.directory {
-            let file = directory.join(format!("{}.json", platform.command()));
-            source.error = snapshot.save(&file).err().map(|_| SyncError::Save);
+        if let Some(storage) = &self.storage {
+            let file = format!("{}.json", platform.command());
+            source.error = storage
+                .write_json(file, &snapshot)
+                .err()
+                .map(|_| SyncError::Save);
         }
         for change in changes {
             let (index, pickup) = match change {
@@ -304,27 +288,29 @@ impl RuntimeExtension for KuaidiExtension {
     }
 
     fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
-        let directory = ctx.extension_data_dir(&ExtensionId::builtin(WIDGET_ID));
+        let storage = ctx.sdk().storage().data().clone();
+        self.tasks = Some(ctx.sdk().tasks());
         for platform in Platform::ALL {
-            let file = directory.join(format!("{}.json", platform.command()));
-            self.sources[platform as usize].snapshot = Snapshot::load(&file);
+            let name = format!("{}.json", platform.command());
+            self.sources[platform as usize].snapshot = storage
+                .read_json(&name)
+                .map_err(|error| error.to_string())?;
         }
-        self.directory = Some(directory);
+        self.storage = Some(storage);
         self.last_poll = None;
         Ok(())
     }
 
     fn on_stop(&mut self, _ctx: &ExtensionContext) -> Result<(), String> {
-        if let Some(refresh) = self.refresh.take() {
-            refresh.stop.store(true, Ordering::Relaxed);
-        }
-        self.directory = None;
+        self.refresh = None;
+        self.storage = None;
+        self.tasks = None;
         Ok(())
     }
 
     fn update(&mut self, now: Instant) -> ExtensionOutput {
         let mut output = ExtensionOutput::default();
-        if self.directory.is_some()
+        if self.storage.is_some()
             && self.refresh.is_none()
             && self
                 .last_poll
@@ -376,7 +362,7 @@ impl RuntimeExtension for KuaidiExtension {
     }
 
     fn on_action(&mut self, action: Action, now: Instant) -> ExtensionOutput {
-        if action != Action::Advance || self.directory.is_none() || self.refresh.is_some() {
+        if action != Action::Advance || self.storage.is_none() || self.refresh.is_some() {
             return ExtensionOutput::default();
         }
         self.begin_refresh(now);
@@ -409,11 +395,7 @@ mod tests {
         };
         assert!(describe(&extension).contains("立即刷新"));
         let (sender, results) = mpsc::channel();
-        extension.refresh = Some(Refresh {
-            results,
-            stop: Arc::new(AtomicBool::new(false)),
-            worker: None,
-        });
+        extension.refresh = Some(Refresh { results });
         let pending = describe(&extension);
         assert!(pending.contains("刷新中…"));
         assert!(pending.contains("\"enabled\":false"));

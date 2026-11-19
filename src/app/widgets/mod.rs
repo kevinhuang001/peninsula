@@ -88,6 +88,7 @@ mod tests {
                 "builtin.market/overview",
                 "builtin.health/overview",
                 "builtin.rss/reader",
+                "builtin.mail/inbox",
             ]
         );
     }

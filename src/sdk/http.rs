@@ -1,8 +1,30 @@
+//! Shared blocking HTTP client policy for extension workers.
 use reqwest::blocking::Client;
 use std::time::Duration;
 
-/// Pick up the OS proxy and environment overrides each time a fetch starts.
-pub(crate) fn client(
+#[derive(Clone)]
+pub struct HttpClient(Client);
+
+impl HttpClient {
+    pub fn new(
+        connect_timeout: Duration,
+        timeout: Duration,
+        user_agent: &str,
+    ) -> Result<Self, reqwest::Error> {
+        client(connect_timeout, timeout, user_agent).map(Self)
+    }
+    pub fn get(&self, url: &str) -> reqwest::blocking::RequestBuilder {
+        self.0.get(url)
+    }
+    pub fn post(&self, url: &str) -> reqwest::blocking::RequestBuilder {
+        self.0.post(url)
+    }
+    pub fn inner(&self) -> &Client {
+        &self.0
+    }
+}
+
+pub fn client(
     connect_timeout: Duration,
     timeout: Duration,
     user_agent: &str,
@@ -16,12 +38,12 @@ pub(crate) fn client(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::client;
     use std::{
         io::{BufRead, BufReader, Write},
         net::TcpListener,
         process::{Command, Stdio},
-        time::Instant,
+        time::{Duration, Instant},
     };
 
     #[test]
@@ -46,7 +68,7 @@ mod tests {
         child
             .args([
                 "--exact",
-                "core::http::tests::client_honors_proxy_and_bypass_environment",
+                "sdk::http::tests::client_honors_proxy_and_bypass_environment",
             ])
             .env_remove("http_proxy")
             .env_remove("no_proxy")
@@ -92,8 +114,6 @@ mod tests {
                 Err(error) => panic!("no HTTP request received: {error}"),
             }
         };
-        // Accepted sockets inherit nonblocking mode on Windows. The test
-        // server reads synchronously after accept, so restore blocking I/O.
         stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(2)))

@@ -76,7 +76,10 @@ pub static CANDIDATE: LazyLock<Regex> = LazyLock::new(|| {
 
 /// WebOTP / origin-bound one-time code line: `@example.com #123456`.
 pub static WEBOTP: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^\s*@([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\s+#([A-Za-z0-9]{4,10})(?:\s+@[a-z0-9.-]+)?\s*$").unwrap()
+    Regex::new(
+        r"(?m)^\s*@([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\s+#([A-Za-z0-9]{4,10})(?:\s+@[a-z0-9.-]+)?\s*$",
+    )
+    .unwrap()
 });
 
 /// "expires in 10 minutes" in several languages; group 1 = number, 2 = unit.

@@ -65,10 +65,6 @@ pub fn is_installed(cli: &OpenCli) -> Result<bool, String> {
     Ok(plugin_list(cli)?.contains("bilibili-unread"))
 }
 
-pub fn legacy_plugin_is_installed(cli: &OpenCli) -> Result<bool, String> {
-    Ok(plugin_list(cli)?.contains("peninsula-bilibili"))
-}
-
 fn plugin_list(cli: &OpenCli) -> Result<String, String> {
     let output = cli.run(&["plugin", "list"], Duration::from_secs(20))?;
     if output.status != 0 {

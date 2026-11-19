@@ -116,7 +116,7 @@ pub(super) fn read_url(raw: &str) -> Option<Vec<u8>> {
         }
         "http" | "https" => {
             let timeout = Duration::from_secs(2);
-            let client = crate::core::http::client(
+            let client = crate::sdk::http::client(
                 timeout,
                 timeout,
                 concat!("Peninsula/", env!("CARGO_PKG_VERSION")),

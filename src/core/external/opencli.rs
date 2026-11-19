@@ -1,12 +1,9 @@
 use std::{
     env,
     ffi::{OsStr, OsString},
-    io::Read,
     path::{Path, PathBuf},
-    process::Stdio,
-    sync::{mpsc, Mutex, OnceLock},
-    thread,
-    time::{Duration, Instant},
+    sync::{Mutex, OnceLock},
+    time::Duration,
 };
 
 const OUTPUT_LIMIT: usize = 2 * 1024 * 1024;
@@ -84,7 +81,10 @@ impl OpenCli {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .map_err(|_| "OpenCLI execution lock poisoned".to_owned())?;
-        let mut command = super::process::command(&self.executable);
+        let mut command = crate::sdk::process::ProcessSpec::new(self.executable.clone())
+            .args(args.iter().copied())
+            .timeout(timeout)
+            .max_output_bytes(OUTPUT_LIMIT);
         // Finder does not load NVM's shell initialization. Its OpenCLI script
         // uses /usr/bin/env node, so make the sibling Node runtime discoverable.
         if let Some(parent) = self
@@ -96,92 +96,24 @@ impl OpenCli {
             if let Ok(paths) = env::join_paths(
                 std::iter::once(parent.to_owned()).chain(env::split_paths(&inherited)),
             ) {
-                command.env("PATH", paths);
+                command = command.env("PATH", paths);
             }
         }
         if let Some(timeout) = browser_timeout {
-            command.env(
+            command = command.env(
                 "OPENCLI_BROWSER_COMMAND_TIMEOUT",
                 timeout.as_secs().to_string(),
             );
         }
-        let mut child = command
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| format!("unable to start {}: {error}", self.executable.display()))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "OpenCLI stdout was unavailable".to_owned())?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| "OpenCLI stderr was unavailable".to_owned())?;
-        let (tx, rx) = mpsc::channel();
-        let out_tx = tx.clone();
-        let out_thread = thread::spawn(move || {
-            let _ = out_tx.send((true, read_capped(stdout)));
-        });
-        let err_thread = thread::spawn(move || {
-            let _ = tx.send((false, read_capped(stderr)));
-        });
-        let start = Instant::now();
-        let status = loop {
-            if let Some(status) = child
-                .try_wait()
-                .map_err(|error| format!("unable to wait for OpenCLI: {error}"))?
-            {
-                break status;
-            }
-            if start.elapsed() >= timeout {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = out_thread.join();
-                let _ = err_thread.join();
-                return Err(format!(
-                    "OpenCLI command timed out after {} seconds",
-                    timeout.as_secs()
-                ));
-            }
-            thread::sleep(Duration::from_millis(20));
-        };
-        let mut out = Vec::new();
-        let mut err = Vec::new();
-        for _ in 0..2 {
-            if let Ok((is_stdout, bytes)) = rx.recv_timeout(Duration::from_secs(2)) {
-                if is_stdout {
-                    out = bytes
-                } else {
-                    err = bytes
-                }
-            }
-        }
-        let _ = out_thread.join();
-        let _ = err_thread.join();
+        let output = crate::sdk::process::ProcessExecutor
+            .run(command)
+            .map_err(|error| format!("OpenCLI process failed: {error}"))?;
         Ok(CommandOutput {
-            stdout: String::from_utf8_lossy(&out).into_owned(),
-            stderr: String::from_utf8_lossy(&err).into_owned(),
-            status: status.code().unwrap_or(-1),
+            stdout: output.stdout_text(),
+            stderr: output.stderr_text(),
+            status: output.status.code().unwrap_or(-1),
         })
     }
-}
-
-fn read_capped(mut reader: impl Read) -> Vec<u8> {
-    let mut output = Vec::new();
-    let mut buffer = [0_u8; 8192];
-    loop {
-        match reader.read(&mut buffer) {
-            Ok(0) | Err(_) => break,
-            Ok(count) => {
-                let keep = count.min(OUTPUT_LIMIT.saturating_sub(output.len()));
-                output.extend_from_slice(&buffer[..keep]);
-            }
-        }
-    }
-    output
 }
 
 fn command_error(command: &str, output: &CommandOutput) -> String {

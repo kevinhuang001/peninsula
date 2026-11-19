@@ -18,6 +18,8 @@ pub struct ExtensionContext {
     config_dir: PathBuf,
     scheduled: Arc<Mutex<Vec<(String, Instant)>>>,
     canceled: Arc<Mutex<Vec<String>>>,
+    task_scopes: crate::sdk::tasks::TaskRegistry,
+    task_scope: Option<crate::sdk::tasks::TaskScope>,
 }
 
 impl ExtensionContext {
@@ -29,17 +31,19 @@ impl ExtensionContext {
             config_dir,
             scheduled: Arc::new(Mutex::new(Vec::new())),
             canceled: Arc::new(Mutex::new(Vec::new())),
+            task_scopes: crate::sdk::tasks::TaskRegistry::default(),
+            task_scope: None,
         }
     }
 
     pub fn scoped(&self, owner: &ExtensionId) -> Self {
-        let mut scoped = self.clone();
-        scoped.owner = Some(owner.clone());
-        scoped
+        self.scoped_at(owner, self.generation)
     }
     pub fn scoped_at(&self, owner: &ExtensionId, generation: u64) -> Self {
-        let mut context = self.scoped(owner);
+        let mut context = self.clone();
+        context.owner = Some(owner.clone());
         context.generation = generation;
+        context.task_scope = Some(self.task_scopes.scope(owner, generation));
         context
     }
     fn task_key(&self, task: String) -> String {
@@ -51,6 +55,23 @@ impl ExtensionContext {
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }
+    pub fn extension_id(&self) -> Option<&ExtensionId> {
+        self.owner.as_ref()
+    }
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+    pub fn sdk(&self) -> crate::sdk::SdkContext {
+        crate::sdk::SdkContext::new(self.clone())
+    }
+    pub fn tasks(&self) -> crate::sdk::tasks::TaskScope {
+        self.task_scope.clone().unwrap_or_default()
+    }
+    pub fn shutdown_tasks(&self) {
+        if let Some(owner) = self.owner.as_ref() {
+            self.task_scopes.cancel(owner, self.generation);
+        }
+    }
     pub(crate) fn config_dir(&self) -> &Path {
         &self.config_dir
     }
@@ -58,7 +79,7 @@ impl ExtensionContext {
     pub fn extension_data_dir(&self, id: &ExtensionId) -> PathBuf {
         self.data_dir
             .join("extensions")
-            .join(id.as_str().replace('/', "_"))
+            .join(id.as_str().replace('/', "%2F"))
     }
 
     pub fn log(&self, extension: &ExtensionId, message: &str) {

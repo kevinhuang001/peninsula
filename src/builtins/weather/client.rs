@@ -1,6 +1,6 @@
 use super::model::{parse_snapshot, Location, Snapshot};
 use super::preferences::WeatherPreferences;
-use crate::core::http;
+use crate::sdk::http;
 use serde_json::Value;
 use std::{io::Read, time::Duration};
 
