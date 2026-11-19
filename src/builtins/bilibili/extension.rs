@@ -11,19 +11,13 @@ use crate::{
 use std::{
     fs,
     path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver},
-        Arc,
-    },
-    thread::{self, JoinHandle},
+    sync::mpsc::{self, Receiver},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 pub const NOTIFICATION_ID: &str = "builtin.bilibili/notifications";
 const PLUGIN_SPEC: &str = "github:kevinhuang001/opencli-bilibili-unread";
 const PLUGIN_NAME: &str = "bilibili-unread";
-const LEGACY_PLUGIN_NAME: &str = "peninsula-bilibili";
 const DEFAULT_POLL_SECS: u64 = 60;
 const OPEN_MESSAGES_ACTION: &str = "open-messages";
 const MESSAGES_URL: &str = "https://message.bilibili.com/";
@@ -36,8 +30,7 @@ enum PollMessage {
 
 pub struct BilibiliExtension {
     receiver: Option<Receiver<PollMessage>>,
-    stop: Option<Arc<AtomicBool>>,
-    worker: Option<JoinHandle<()>>,
+    polling: bool,
     last_error: Option<String>,
     last_check: Option<SystemTime>,
     opencli_path: String,
@@ -50,8 +43,7 @@ impl Default for BilibiliExtension {
     fn default() -> Self {
         Self {
             receiver: None,
-            stop: None,
-            worker: None,
+            polling: false,
             last_error: None,
             last_check: None,
             opencli_path: String::new(),
@@ -64,70 +56,72 @@ impl Default for BilibiliExtension {
 
 impl BilibiliExtension {
     fn begin_polling(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
-        if self.worker.is_some() {
+        if self.polling {
             return Ok(());
         }
-        let root = ctx.extension_data_dir(&ExtensionId::builtin(NOTIFICATION_ID));
-        fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+        let storage = ctx.sdk().storage();
+        let state_storage = storage.state().clone();
         let (sender, receiver) = mpsc::channel();
-        let stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = stop.clone();
-        let state_path = root.join("unread-counts.tsv");
         let configured =
             (!self.opencli_path.trim().is_empty()).then(|| PathBuf::from(self.opencli_path.trim()));
         let poll_interval = self.poll_interval;
-        let worker = thread::spawn(move || {
-            let mut state = SyncState::load(&state_path);
-            let mut backoff = Duration::from_secs(DEFAULT_POLL_SECS);
-            let cli = match OpenCli::resolve(configured.as_deref()) {
-                Ok(cli) => cli,
-                Err(error) => {
+        ctx.sdk()
+            .tasks()
+            .spawn("bilibili-unread", move |cancel| {
+                let mut state = match SyncState::load_storage(&state_storage) {
+                    Ok(state) => state,
+                    Err(error) => {
+                        let _ = sender.send(PollMessage::Error(error.to_string()));
+                        return;
+                    }
+                };
+                let mut backoff = Duration::from_secs(DEFAULT_POLL_SECS);
+                let cli = match OpenCli::resolve(configured.as_deref()) {
+                    Ok(cli) => cli,
+                    Err(error) => {
+                        let _ = sender.send(PollMessage::Error(error));
+                        return;
+                    }
+                };
+                if let Err(error) = ensure_opencli_plugin(&cli, storage.data()) {
                     let _ = sender.send(PollMessage::Error(error));
                     return;
                 }
-            };
-            if let Err(error) = ensure_opencli_plugin(&cli, &root) {
-                let _ = sender.send(PollMessage::Error(error));
-                return;
-            }
-            while !worker_stop.load(Ordering::Relaxed) {
-                match poller::collect(&cli) {
-                    Ok(counts) => {
-                        let increases = state.observe(counts);
-                        let save_error = state.save(&state_path).err();
-                        if sender.send(PollMessage::Checked).is_err() {
-                            break;
+                while !cancel.is_cancelled() {
+                    match poller::collect(&cli) {
+                        Ok(counts) => {
+                            let increases = state.observe(counts);
+                            let save_error = state.save_storage(&state_storage).err();
+                            if sender.send(PollMessage::Checked).is_err() {
+                                break;
+                            }
+                            if let Some(error) = save_error {
+                                let _ = sender.send(PollMessage::Error(format!(
+                                    "unable to persist Bilibili unread counts: {error}"
+                                )));
+                            }
+                            if !increases.is_empty()
+                                && sender.send(PollMessage::Increases(increases)).is_err()
+                            {
+                                break;
+                            }
+                            backoff = poll_interval;
                         }
-                        if let Some(error) = save_error {
-                            let _ = sender.send(PollMessage::Error(format!(
-                                "unable to persist Bilibili unread counts: {error}"
-                            )));
+                        Err(error) => {
+                            let _ = sender.send(PollMessage::Error(error));
+                            backoff = (backoff * 2).min(Duration::from_secs(600));
                         }
-                        if !increases.is_empty()
-                            && sender.send(PollMessage::Increases(increases)).is_err()
-                        {
-                            break;
-                        }
-                        backoff = poll_interval;
                     }
-                    Err(error) => {
-                        let _ = sender.send(PollMessage::Error(error));
-                        backoff = (backoff * 2).min(Duration::from_secs(600));
-                    }
-                }
-                let deadline = std::time::Instant::now() + backoff;
-                while !worker_stop.load(Ordering::Relaxed) {
+                    let deadline = std::time::Instant::now() + backoff;
                     let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                    if remaining.is_zero() {
+                    if !remaining.is_zero() && cancel.wait(remaining) {
                         break;
                     }
-                    thread::park_timeout(remaining);
                 }
-            }
-        });
+            })
+            .map_err(|error| error.to_string())?;
         self.receiver = Some(receiver);
-        self.stop = Some(stop);
-        self.worker = Some(worker);
+        self.polling = true;
         Ok(())
     }
 
@@ -252,8 +246,16 @@ impl RuntimeExtension for BilibiliExtension {
         let changed = self.opencli_path != path.trim() || self.poll_interval != interval;
         self.opencli_path = path.trim().to_owned();
         self.poll_interval = interval;
-        if changed && self.enabled && self.worker.is_some() {
-            if let Err(error) = self.on_stop(ctx).and_then(|()| self.on_start(ctx)) {
+        if changed && self.enabled && self.polling {
+            ctx.shutdown_tasks();
+            self.receiver = None;
+            self.polling = false;
+            let owner = ctx
+                .extension_id()
+                .cloned()
+                .unwrap_or_else(|| ExtensionId::builtin("builtin.bilibili"));
+            let restarted = ctx.scoped_at(&owner, ctx.generation());
+            if let Err(error) = self.begin_polling(&restarted) {
                 ctx.log(id, &error);
                 self.last_error = Some(error);
             }
@@ -263,47 +265,34 @@ impl RuntimeExtension for BilibiliExtension {
 
     fn on_stop(&mut self, _ctx: &ExtensionContext) -> Result<(), String> {
         self.enabled = false;
-        if let Some(stop) = self.stop.take() {
-            stop.store(true, Ordering::Relaxed);
-        }
-        if let Some(worker) = self.worker.take() {
-            worker.thread().unpark();
-            let _ = worker.join();
-        }
         self.receiver = None;
+        self.polling = false;
         Ok(())
     }
 
     fn on_uninstall(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
         self.on_stop(ctx)?;
-        let root = ctx.extension_data_dir(&ExtensionId::builtin(NOTIFICATION_ID));
-        let marker = root.join("managed-unread-plugin");
-        let legacy_marker = root.join("managed-plugin");
-        if marker.is_file() || legacy_marker.is_file() {
+        let storage = ctx.sdk().storage();
+        let marker = storage.data().root().join("managed-unread-plugin");
+        if marker.is_file() {
             let configured = (!self.opencli_path.trim().is_empty())
                 .then(|| PathBuf::from(self.opencli_path.trim()));
             let cli = OpenCli::resolve(configured.as_deref())?;
-            for (installed, plugin) in [
-                (marker.is_file() && poller::is_installed(&cli)?, PLUGIN_NAME),
-                (
-                    legacy_marker.is_file() && poller::legacy_plugin_is_installed(&cli)?,
-                    LEGACY_PLUGIN_NAME,
-                ),
-            ] {
-                if !installed {
-                    continue;
-                }
-                let output = cli.run(&["plugin", "uninstall", plugin], Duration::from_secs(30))?;
+            if poller::is_installed(&cli)? {
+                let output = cli.run(
+                    &["plugin", "uninstall", PLUGIN_NAME],
+                    Duration::from_secs(30),
+                )?;
                 if output.status != 0 {
                     return Err(format!(
-                        "unable to uninstall OpenCLI plugin {plugin}: {}",
+                        "unable to uninstall OpenCLI plugin {PLUGIN_NAME}: {}",
                         output.stderr.trim()
                     ));
                 }
             }
         }
-        if root.exists() {
-            fs::remove_dir_all(root).map_err(|error| error.to_string())?;
+        if storage.data().root().exists() {
+            fs::remove_dir_all(storage.data().root()).map_err(|error| error.to_string())?;
         }
         Ok(())
     }
@@ -349,7 +338,7 @@ impl RuntimeExtension for BilibiliExtension {
                 .as_secs();
             return Some(format!("已连接 OpenCLI · {age} 秒前检查"));
         }
-        Some(if self.worker.is_some() {
+        Some(if self.polling {
             "正在连接 OpenCLI 与 Bilibili…".into()
         } else {
             "尚未启用".into()
@@ -403,31 +392,13 @@ fn opencli_version_supported(version: &str) -> bool {
         .is_some_and(|major| major >= 2)
 }
 
-fn ensure_opencli_plugin(cli: &OpenCli, root: &std::path::Path) -> Result<(), String> {
+fn ensure_opencli_plugin(
+    cli: &OpenCli,
+    storage: &crate::sdk::storage::StorageArea,
+) -> Result<(), String> {
     let version = cli.version(Duration::from_secs(20))?;
     if !opencli_version_supported(&version) {
         return Err(format!("OpenCLI >=2.0.0 is required, found {version}"));
-    }
-
-    let legacy_marker = root.join("managed-plugin");
-    if legacy_marker.is_file() {
-        if poller::legacy_plugin_is_installed(cli)? {
-            let removed = cli.run(
-                &["plugin", "uninstall", LEGACY_PLUGIN_NAME],
-                Duration::from_secs(30),
-            )?;
-            if removed.status != 0 {
-                return Err(format!(
-                    "unable to remove the previous Bilibili plugin: {}",
-                    removed.stderr.trim()
-                ));
-            }
-        }
-        fs::remove_file(legacy_marker).map_err(|error| error.to_string())?;
-        let old_plugin = root.join("plugin");
-        if old_plugin.exists() {
-            fs::remove_dir_all(old_plugin).map_err(|error| error.to_string())?;
-        }
     }
 
     if poller::is_installed(cli)? {
@@ -449,7 +420,8 @@ fn ensure_opencli_plugin(cli: &OpenCli, root: &std::path::Path) -> Result<(), St
                 install.stderr.trim()
             ));
         }
-        fs::write(root.join("managed-unread-plugin"), "Peninsula-managed\n")
+        storage
+            .write_bytes("managed-unread-plugin", b"Peninsula-managed\n")
             .map_err(|error| error.to_string())?;
     }
     if !poller::is_installed(cli)? {

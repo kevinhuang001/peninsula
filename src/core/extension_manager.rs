@@ -358,6 +358,9 @@ impl ExtensionManager {
             let _ = extension.on_stop(&context);
             let _ = extension.on_disable(&context);
         }
+        if !enabled || result.is_err() {
+            context.shutdown_tasks();
+        }
         self.states[owner] = if result.is_err() {
             LifecycleState::Failed
         } else if enabled {
@@ -726,10 +729,13 @@ impl Drop for ExtensionManager {
             if self.states[i] != LifecycleState::Running {
                 continue;
             }
-            if let Err(error) = extension.on_stop(&self.context.scoped(&extension.descriptor().id))
-            {
+            let context = self
+                .context
+                .scoped_at(&extension.descriptor().id, self.generations[i]);
+            if let Err(error) = extension.on_stop(&context) {
                 eprintln!("Extension on_stop failed: {error}");
             }
+            context.shutdown_tasks();
         }
     }
 }

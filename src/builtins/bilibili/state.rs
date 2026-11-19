@@ -1,4 +1,6 @@
-use std::{collections::BTreeMap, fs, io, path::Path};
+use crate::sdk::storage::StorageArea;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnreadIncrease {
@@ -6,28 +8,22 @@ pub struct UnreadIncrease {
     pub increase: u64,
 }
 
-#[derive(Default)]
+#[derive(Default, Deserialize, Serialize)]
 pub struct SyncState {
     counts: BTreeMap<String, u64>,
     initialized: bool,
 }
 
 impl SyncState {
-    pub fn load(path: &Path) -> Self {
-        let Ok(contents) = fs::read_to_string(path) else {
-            return Self::default();
-        };
-        let mut state = Self::default();
-        for line in contents.lines() {
-            if line == "initialized=true" {
-                state.initialized = true;
-            } else if let Some((category, count)) = line.split_once('\t') {
-                if let Ok(count) = count.parse() {
-                    state.counts.insert(category.to_owned(), count);
-                }
-            }
-        }
-        state
+    pub fn load_storage(storage: &StorageArea) -> Result<Self, crate::sdk::storage::StorageError> {
+        Ok(storage.read_json("unread-counts.json")?.unwrap_or_default())
+    }
+
+    pub fn save_storage(
+        &self,
+        storage: &StorageArea,
+    ) -> Result<(), crate::sdk::storage::StorageError> {
+        storage.write_json("unread-counts.json", self)
     }
 
     /// Replaces the last known counts and returns only categories that grew.
@@ -51,27 +47,13 @@ impl SyncState {
         self.initialized = true;
         increases
     }
-
-    pub fn save(&self, path: &Path) -> io::Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut lines = vec![format!("initialized={}", self.initialized)];
-        lines.extend(
-            self.counts
-                .iter()
-                .map(|(category, count)| format!("{category}\t{count}")),
-        );
-        let temporary = path.with_extension("tmp");
-        fs::write(&temporary, format!("{}\n", lines.join("\n")))?;
-        fs::rename(temporary, path)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::SyncState;
-    use std::{collections::BTreeMap, path::PathBuf};
+    use crate::sdk::storage::{AreaKind, StorageArea};
+    use std::collections::BTreeMap;
 
     fn counts(values: &[(&str, u64)]) -> BTreeMap<String, u64> {
         values
@@ -95,22 +77,18 @@ mod tests {
 
     #[test]
     fn latest_decreased_counts_are_persisted_as_the_next_comparison_baseline() {
-        let path: PathBuf = std::env::temp_dir().join(format!(
-            "peninsula-bilibili-unread-test-{}.tsv",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_file(&path);
+        let root = tempfile::tempdir().unwrap();
+        let storage = StorageArea::from_root(AreaKind::State, root.path());
         let mut state = SyncState::default();
         state.observe(counts(&[("我的消息", 5)]));
-        state.save(&path).unwrap();
+        state.save_storage(&storage).unwrap();
 
-        let mut loaded = SyncState::load(&path);
+        let mut loaded = SyncState::load_storage(&storage).unwrap();
         assert!(loaded.observe(counts(&[("我的消息", 2)])).is_empty());
-        loaded.save(&path).unwrap();
-        let mut loaded = SyncState::load(&path);
+        loaded.save_storage(&storage).unwrap();
+        let mut loaded = SyncState::load_storage(&storage).unwrap();
         let increases = loaded.observe(counts(&[("我的消息", 3)]));
         assert_eq!(increases.len(), 1);
         assert_eq!(increases[0].increase, 1);
-        std::fs::remove_file(path).unwrap();
     }
 }

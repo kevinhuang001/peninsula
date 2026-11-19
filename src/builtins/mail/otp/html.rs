@@ -17,8 +17,9 @@ pub fn emphasized(html: &str) -> HashSet<String> {
         )
         .unwrap()
     });
-    static STYLED: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(?is)<(?:td|div|span|p|font|th|center|a)\b([^>]*)>([^<]{3,60})<").unwrap());
+    static STYLED: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?is)<(?:td|div|span|p|font|th|center|a)\b([^>]*)>([^<]{3,60})<").unwrap()
+    });
     static LOUD_STYLE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"(?i)font-size\s*:\s*(?:1[89]|[2-9]\d)(?:\.\d+)?px|font-size\s*:\s*(?:1\.[2-9]|[2-9](?:\.\d+)?)(?:em|rem)|letter-spacing|monospace|courier|consolas|menlo|font-weight\s*:\s*(?:bold|[6-9]00)|size\s*=\s*.?[4-7]",
@@ -62,7 +63,8 @@ pub fn emphasized(html: &str) -> HashSet<String> {
 /// (url, anchor text) for every http(s) link.
 pub fn links(html: &str) -> Vec<(String, String)> {
     static A: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"(?is)<a\b[^>]*?href\s*=\s*["'](https?://[^"']+)["'][^>]*>(.{0,300}?)</a\s*>"#).unwrap()
+        Regex::new(r#"(?is)<a\b[^>]*?href\s*=\s*["'](https?://[^"']+)["'][^>]*>(.{0,300}?)</a\s*>"#)
+            .unwrap()
     });
     static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<[^>]*>").unwrap());
     A.captures_iter(html)

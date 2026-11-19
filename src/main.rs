@@ -4,6 +4,7 @@ mod app;
 mod builtins;
 mod core;
 pub mod extension;
+pub mod sdk;
 mod single_instance;
 pub mod ui;
 

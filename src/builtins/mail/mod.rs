@@ -10,16 +10,17 @@ use crate::{
         NotificationPresentationProvider, NotificationPriority, ReloadPolicy, RuntimeExtension,
         SettingSchema, SettingValue, Settings, WidgetView,
     },
+    sdk::{
+        secrets::{SecretBackend, SecretStore},
+        storage::ExtensionStorage,
+        tasks::{CancellationToken, TaskScope},
+    },
     ui::declarative::{Overflow, ScrollAxes, WidgetBounds},
 };
-use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    io::Write,
-    path::PathBuf,
     sync::mpsc::{self, Receiver, Sender},
-    thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -74,6 +75,7 @@ struct Mailbox {
     unread_count: usize,
     pending: bool,
     error: Option<String>,
+    credential_warning: Option<String>,
 }
 
 enum WorkerRequest {
@@ -104,17 +106,18 @@ enum WorkerResult {
 struct Worker {
     requests: Sender<WorkerRequest>,
     results: Receiver<WorkerResult>,
-    thread: Option<JoinHandle<()>>,
 }
 
 impl Worker {
-    fn start() -> Result<Self, String> {
+    fn start(tasks: TaskScope) -> Result<Self, String> {
         let (requests, incoming) = mpsc::channel();
         let (outgoing, results) = mpsc::channel();
-        let thread = thread::Builder::new()
-            .name("mail-imap".into())
-            .spawn(move || {
-                while let Ok(request) = incoming.recv() {
+        tasks
+            .spawn("mail-imap", move |cancel: CancellationToken| {
+                while !cancel.is_cancelled() {
+                    let Ok(request) = incoming.recv() else {
+                        break;
+                    };
                     let result = match request {
                         WorkerRequest::Refresh { account, password } => {
                             let account_id = account.id.clone();
@@ -147,20 +150,13 @@ impl Worker {
                 }
             })
             .map_err(|error| format!("无法启动邮件同步：{error}"))?;
-        Ok(Self {
-            requests,
-            results,
-            thread: Some(thread),
-        })
+        Ok(Self { requests, results })
     }
 }
 
 impl Drop for Worker {
     fn drop(&mut self) {
         let _ = self.requests.send(WorkerRequest::Stop);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
     }
 }
 
@@ -169,7 +165,8 @@ pub struct MailExtension {
     mailboxes: HashMap<String, Mailbox>,
     passwords: HashMap<String, String>,
     selected: Option<String>,
-    directory: Option<PathBuf>,
+    storage: Option<ExtensionStorage>,
+    secrets: Option<SecretStore>,
     worker: Option<Worker>,
     opening: Option<(String, u32)>,
     reader: Option<reader::Reader>,
@@ -192,7 +189,8 @@ impl Default for MailExtension {
             mailboxes: HashMap::new(),
             passwords: HashMap::new(),
             selected: None,
-            directory: None,
+            storage: None,
+            secrets: None,
             worker: None,
             opening: None,
             reader: None,
@@ -246,31 +244,15 @@ impl NotificationPresentationProvider for MailExtension {
 }
 
 impl MailExtension {
-    fn credential_entry(account_id: &str) -> Result<Entry, String> {
-        Entry::new("Peninsula Mail", account_id)
-            .map_err(|error| format!("打开系统钥匙串失败：{error}"))
-    }
-
     fn save_accounts(&self) -> Result<(), String> {
-        let directory = self
-            .directory
+        let storage = self
+            .storage
             .as_ref()
             .ok_or_else(|| "邮件设置目录尚未就绪".to_owned())?;
-        std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-        let bytes = serde_json::to_vec_pretty(&self.accounts).map_err(|error| error.to_string())?;
-        let mut temporary =
-            tempfile::NamedTempFile::new_in(directory).map_err(|error| error.to_string())?;
-        temporary
-            .write_all(&bytes)
-            .map_err(|error| error.to_string())?;
-        temporary
-            .as_file()
-            .sync_all()
-            .map_err(|error| error.to_string())?;
-        temporary
-            .persist(directory.join(ACCOUNT_FILE))
-            .map_err(|error| error.to_string())?;
-        Ok(())
+        storage
+            .config()
+            .write_json(ACCOUNT_FILE, &self.accounts)
+            .map_err(|error| error.to_string())
     }
 
     fn add_account(&mut self) -> Result<(), String> {
@@ -301,6 +283,18 @@ impl MailExtension {
             .iter()
             .find(|account| account.id == id)
             .cloned();
+        let secrets = self
+            .secrets
+            .as_ref()
+            .ok_or_else(|| "邮件密钥存储尚未就绪".to_owned())?
+            .clone();
+        let previous_password = if previous.is_some() {
+            secrets
+                .get(&id)
+                .map_err(|error| format!("无法读取原邮箱密码：{error}"))?
+        } else {
+            None
+        };
         let account = Account {
             id: id.clone(),
             email: email.clone(),
@@ -309,10 +303,9 @@ impl MailExtension {
             last_uid: previous.as_ref().and_then(|account| account.last_uid),
         };
 
-        let entry = Self::credential_entry(&id)?;
-        entry
-            .set_password(&password)
-            .map_err(|error| format!("无法把密码保存到系统钥匙串：{error}"))?;
+        let backend = secrets
+            .set(&id, &password)
+            .map_err(|error| format!("无法保存邮箱密码：{error}"))?;
         if let Some(existing) = self.accounts.iter_mut().find(|existing| existing.id == id) {
             *existing = account.clone();
         } else {
@@ -320,9 +313,14 @@ impl MailExtension {
         }
         if let Err(error) = self.save_accounts() {
             if previous.is_none() {
-                let _ = entry.delete_credential();
+                let _ = secrets.delete(&id);
                 self.accounts.retain(|existing| existing.id != id);
             } else if let Some(previous) = previous {
+                if let Some(password) = previous_password.as_deref() {
+                    let _ = secrets.set(&id, password);
+                } else {
+                    let _ = secrets.delete(&id);
+                }
                 *self
                     .accounts
                     .iter_mut()
@@ -333,7 +331,9 @@ impl MailExtension {
         }
 
         self.passwords.insert(id.clone(), password);
-        self.mailboxes.entry(id.clone()).or_default();
+        let mailbox = self.mailboxes.entry(id.clone()).or_default();
+        mailbox.credential_warning = (backend == SecretBackend::PlaintextFallback)
+            .then(|| "系统钥匙串不可用，邮箱密码保存在当前用户的受限权限文件中".to_owned());
         self.selected = Some(id.clone());
         self.email_draft.clear();
         self.password_draft.clear();
@@ -356,9 +356,11 @@ impl MailExtension {
         }
         self.passwords.remove(&id);
         self.mailboxes.remove(&id);
-        if let Ok(entry) = Self::credential_entry(&id) {
-            let _ = entry.delete_credential();
-        }
+        let secret_cleanup_error = self
+            .secrets
+            .as_ref()
+            .and_then(|secrets| secrets.delete(&id).err())
+            .map(|error| format!("账号已移除，但密码清理失败：{error}"));
         self.selected = self.accounts.first().map(|account| account.id.clone());
         if let Some(account) = self
             .selected
@@ -368,7 +370,7 @@ impl MailExtension {
         {
             self.request_refresh(&account);
         }
-        Ok(())
+        secret_cleanup_error.map_or(Ok(()), Err)
     }
 
     fn request_refresh(&mut self, account: &Account) {
@@ -640,29 +642,39 @@ impl MailExtension {
         changed
     }
 
-    fn load_accounts(&mut self, directory: PathBuf) -> Result<(), String> {
-        let path = directory.join(ACCOUNT_FILE);
-        self.accounts = match std::fs::File::open(path) {
-            Ok(file) => serde_json::from_reader(file).map_err(|error| error.to_string())?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(error) => return Err(error.to_string()),
-        };
+    fn load_accounts(
+        &mut self,
+        storage: ExtensionStorage,
+        secrets: SecretStore,
+    ) -> Result<(), String> {
+        let configured = storage
+            .config()
+            .read_json(ACCOUNT_FILE)
+            .map_err(|error| error.to_string())?;
+        self.accounts = configured.unwrap_or_default();
         self.selected = self.accounts.first().map(|account| account.id.clone());
         self.mailboxes.clear();
         self.passwords.clear();
         for account in &self.accounts {
             let mailbox = self.mailboxes.entry(account.id.clone()).or_default();
-            match Self::credential_entry(&account.id).and_then(|entry| {
-                entry
-                    .get_password()
-                    .map_err(|error| format!("系统钥匙串中没有该账号密码：{error}"))
-            }) {
-                Ok(password) => {
+            match secrets.get(&account.id) {
+                Ok(Some(password)) => {
                     self.passwords.insert(account.id.clone(), password);
+                    if secrets.backend(&account.id).ok().flatten()
+                        == Some(SecretBackend::PlaintextFallback)
+                    {
+                        mailbox.credential_warning =
+                            Some("系统钥匙串不可用，邮箱密码保存在当前用户的受限权限文件中".into());
+                    }
                 }
-                Err(error) => mailbox.error = Some(error),
+                Ok(None) => {
+                    mailbox.error = Some("系统钥匙串中没有该账号密码，请重新添加账号".into())
+                }
+                Err(error) => mailbox.error = Some(format!("读取邮箱密码失败：{error}")),
             }
         }
+        self.storage = Some(storage);
+        self.secrets = Some(secrets);
         Ok(())
     }
 }
@@ -717,10 +729,10 @@ impl RuntimeExtension for MailExtension {
     }
 
     fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
-        let directory = ctx.extension_data_dir(&ExtensionId::builtin(ID));
-        self.load_accounts(directory.clone())?;
-        self.directory = Some(directory);
-        self.worker = Some(Worker::start()?);
+        let storage = ctx.sdk().storage();
+        let secrets = ctx.sdk().secrets();
+        self.load_accounts(storage, secrets)?;
+        self.worker = Some(Worker::start(ctx.sdk().tasks())?);
         self.next_refresh = Instant::now();
         Ok(())
     }

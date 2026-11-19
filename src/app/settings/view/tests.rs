@@ -143,6 +143,22 @@ fn stopped_extension_forms_are_editable_and_switching_plugins_keeps_values() {
         &mut prefs,
         text_rect(&output, "番茄钟").center(),
     );
+    let plugin_panel = Panels::new(bounds(), true).plugins.unwrap();
+    for _ in 0..8 {
+        frame(
+            &ctx,
+            &mut view,
+            &mut prefs,
+            vec![
+                Event::PointerMoved(plugin_panel.center()),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -60.0),
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+    }
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     click(
         &ctx,

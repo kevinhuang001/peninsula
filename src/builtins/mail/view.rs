@@ -257,7 +257,7 @@ fn message_row(message: &EmailMessage, account: &Account, pending: bool) -> View
                     ViewNode::row(
                         vec![
                             sender.sized(Size::Fill(1.0), Size::Auto),
-                            text(&display_date(&message.date), 9.0, ColorSpec::SecondaryText),
+                            text(display_date(&message.date), 9.0, ColorSpec::SecondaryText),
                         ],
                         Flow {
                             gap: Some(8.0),
@@ -399,7 +399,7 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
     )
     .sized(Size::Fill(1.0), Size::Fixed(30.0));
 
-    let mut content = vec![text(&status(mail), 10.0, ColorSpec::SecondaryText)];
+    let mut content = vec![text(status(mail), 10.0, ColorSpec::SecondaryText)];
     if let Some(error) = &mail.error {
         content.push(text(error, 10.0, ColorSpec::Warning));
     }
@@ -408,6 +408,17 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
         .iter()
         .filter(|account| mail.selected.as_ref().is_none_or(|id| id == &account.id))
     {
+        if let Some(warning) = mail
+            .mailboxes
+            .get(&account.id)
+            .and_then(|box_| box_.credential_warning.as_ref())
+        {
+            content.push(text(
+                format!("{}：{warning}", account.email),
+                10.0,
+                ColorSpec::Warning,
+            ));
+        }
         if let Some(error) = mail
             .mailboxes
             .get(&account.id)

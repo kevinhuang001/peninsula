@@ -445,9 +445,11 @@ mod tests {
     #[test]
     fn goal_suppresses_water_notifications_and_midnight_restores_them() {
         let start = SystemTime::now();
-        let mut health = HealthExtension::default();
-        health.state = SavedState::new(start);
-        health.daily_goal_ml = 200;
+        let mut health = HealthExtension {
+            state: SavedState::new(start),
+            daily_goal_ml: 200,
+            ..HealthExtension::default()
+        };
         health.record(WATER, start);
         health.record(WATER, start);
         let output = health.remind(start + Duration::from_secs(3600), Instant::now());
