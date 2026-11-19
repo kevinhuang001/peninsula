@@ -372,6 +372,71 @@ impl RuntimeExtension for KuaidiExtension {
         (widget_id.as_str() == WIDGET_ID)
             .then(|| widget::build(&self.sources, self.refresh.is_some()))
     }
+
+    fn doctor(&self) -> Vec<crate::extension::DiagnosticCheck> {
+        use crate::extension::{DiagnosticCheck as Check, DiagnosticStatus as Status};
+        let errors: Vec<_> = self
+            .sources
+            .iter()
+            .filter_map(|source| source.error)
+            .collect();
+        let all_ready = self.sources.iter().all(|source| source.snapshot.is_some());
+        let mut checks = Vec::new();
+        for (id, title, issue, detail, fix) in [
+            (
+                "opencli-command",
+                "OpenCLI 命令",
+                SyncError::OpenCli,
+                "无法启动 OpenCLI。",
+                "安装 OpenCLI，并确认它位于 Peninsula 可访问的 PATH 中。",
+            ),
+            (
+                "kuaidi-plugin",
+                "快递插件",
+                SyncError::Plugin,
+                "OpenCLI 未找到快递查询插件。",
+                "安装 OpenCLI 快递插件后重新启用扩展。",
+            ),
+            (
+                "browser-bridge",
+                "浏览器连接",
+                SyncError::Browser,
+                "没有连接到 Chrome Browser Bridge。",
+                "打开 Chrome 并连接 OpenCLI Browser Bridge。",
+            ),
+            (
+                "account-login",
+                "电商账号登录",
+                SyncError::Login,
+                "淘宝或京东需要重新登录。",
+                "在 Chrome 中登录对应账号，再刷新快递列表。",
+            ),
+            (
+                "query-result",
+                "查询结果",
+                SyncError::Query,
+                "OpenCLI 查询未能返回可用数据。",
+                "检查浏览器登录状态、插件版本和网络后重试。",
+            ),
+        ] {
+            if errors.contains(&issue) {
+                checks.push(Check::new(id, title, Status::Failed, detail, Some(fix)));
+            } else if all_ready {
+                checks.push(Check::passed(id, title, "淘宝和京东最近一次查询均已完成。"));
+            } else if self.last_poll.is_some() {
+                checks.push(Check::new(
+                    id,
+                    title,
+                    Status::Warning,
+                    "最近一次检查未能覆盖所有来源。",
+                    Some(fix),
+                ));
+            } else {
+                checks.push(Check::unknown(id, title, "等待首次快递查询完成。"));
+            }
+        }
+        checks
+    }
 }
 
 impl NotificationPresentationProvider for KuaidiExtension {

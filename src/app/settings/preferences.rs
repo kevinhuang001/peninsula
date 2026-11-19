@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     builtins::registry,
-    extension::{ContributionKind, ExtensionDescriptor, ExtensionId, Settings},
+    extension::{ContributionKind, DiagnosticCheck, ExtensionDescriptor, ExtensionId, Settings},
 };
 use std::{fs, io, path::PathBuf};
 
@@ -21,6 +21,7 @@ pub struct ExtensionPage {
     pub enabled: bool,
     pub running: bool,
     pub status: String,
+    pub doctor: Vec<DiagnosticCheck>,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompactPreferences {
@@ -71,6 +72,7 @@ impl Default for CompactPreferences {
                     enabled: d.default_enabled,
                     running: false,
                     status: "已注册".into(),
+                    doctor: vec![],
                 })
                 .collect(),
         }
@@ -194,6 +196,7 @@ impl CompactPreferences {
         for page in &mut self.pages {
             page.running = host.running(&page.descriptor.id);
             page.status = host.status(&page.descriptor.id);
+            page.doctor = host.doctor(&page.descriptor.id);
         }
     }
     pub fn read_extension_settings(
@@ -207,6 +210,7 @@ impl CompactPreferences {
             page.running = host.running(&page.descriptor.id);
             page.enabled = page.running;
             page.status = host.status(&page.descriptor.id);
+            page.doctor = host.doctor(&page.descriptor.id);
         }
     }
     pub fn save(&self) -> io::Result<()> {

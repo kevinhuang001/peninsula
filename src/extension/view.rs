@@ -1,7 +1,9 @@
 use super::{
-    ExtensionId, Notification, NotificationAction, NotificationAlertView,
-    NotificationCenterItemView, ReloadPolicy, Settings, WidgetView,
+    DiagnosticCheck, ExtensionId, Notification, NotificationAction, NotificationAlertView,
+    NotificationCenterItemView, ReloadPolicy, SearchOption, Settings, WidgetView,
 };
+
+pub type SettingSearchTask = Box<dyn FnOnce() -> Result<Vec<SearchOption>, String> + Send>;
 
 /// Runtime visibility is evaluated separately from the user's Compact preference.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -84,6 +86,58 @@ pub struct ExtensionOutput {
     pub resolved_notifications: Vec<super::NotificationKey>,
     pub schedule: Vec<ScheduledTask>,
     pub cancel_tasks: Vec<String>,
+    pub prompts: Vec<Prompt>,
+}
+
+/// A one-shot, exclusive Compact presentation. The host queues prompts in the
+/// order it receives them and restores ordinary Compact items when the queue
+/// becomes empty.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Prompt {
+    pub source_extension_id: ExtensionId,
+    pub contribution_id: ExtensionId,
+    pub content: super::ViewNode,
+    pub duration: std::time::Duration,
+    pub min_width: f32,
+    pub preferred_width: f32,
+}
+
+impl Prompt {
+    pub fn new(
+        source_extension_id: ExtensionId,
+        contribution_id: ExtensionId,
+        content: super::ViewNode,
+        duration: std::time::Duration,
+    ) -> Self {
+        Self {
+            source_extension_id,
+            contribution_id,
+            content,
+            duration,
+            min_width: 112.0,
+            preferred_width: 152.0,
+        }
+    }
+
+    pub fn with_width(mut self, min_width: f32, preferred_width: f32) -> Self {
+        self.min_width = min_width.max(1.0);
+        self.preferred_width = preferred_width.max(self.min_width);
+        self
+    }
+
+    pub fn compact_view(&self) -> CompactView {
+        CompactView {
+            id: self.contribution_id.clone(),
+            source_extension_id: self.source_extension_id.clone(),
+            content: self.content.clone(),
+            visibility: CompactVisibility::Visible,
+            min_width: self.min_width,
+            preferred_width: self.preferred_width,
+            fit_width: false,
+            priority: 0,
+            tooltip: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -198,6 +252,20 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
         ExtensionOutput::default()
     }
     fn status_message(&self) -> Option<String> {
+        None
+    }
+    /// Return cached checks only; probes and network calls belong on extension
+    /// tasks and should update this snapshot when they finish.
+    fn doctor(&self) -> Vec<DiagnosticCheck> {
+        vec![DiagnosticCheck::passed(
+            "extension-loaded",
+            "扩展状态",
+            "扩展已加载，暂无额外依赖检查。",
+        )]
+    }
+    /// Construct a detached search task for the provider declared in a setting
+    /// schema. The host runs it away from the UI thread.
+    fn setting_search(&self, _provider: &str, _query: &str) -> Option<SettingSearchTask> {
         None
     }
     fn on_notifications_committed(&mut self, _notifications: &[super::Notification]) {}

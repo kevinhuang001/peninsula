@@ -181,7 +181,7 @@ fn locate_by_ip() -> Result<Location, String> {
 fn location_from_saved(saved: &super::preferences::WeatherLocation) -> Location {
     Location {
         name: saved.name.clone(),
-        admin: String::new(),
+        admin: saved.detail.clone(),
         country: String::new(),
         latitude: saved.latitude,
         longitude: saved.longitude,

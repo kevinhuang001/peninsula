@@ -13,6 +13,28 @@ pub enum ValueType {
     Enum,
     Color,
     Duration,
+    Search,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchOption {
+    /// Stable provider value used to identify this result.
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub detail: String,
+    /// Provider-specific values needed by the extension after selection.
+    #[serde(default)]
+    pub data: BTreeMap<String, String>,
+}
+
+pub type SearchSelection = SearchOption;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchSchema {
+    pub provider: String,
+    pub placeholder: String,
+    pub min_query_chars: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -26,6 +48,7 @@ pub enum SettingValue {
     Color([u8; 4]),
     /// Milliseconds.
     Duration(u64),
+    Search(Option<SearchSelection>),
 }
 
 impl SettingValue {
@@ -38,6 +61,7 @@ impl SettingValue {
             Self::Enum(_) => ValueType::Enum,
             Self::Color(_) => ValueType::Color,
             Self::Duration(_) => ValueType::Duration,
+            Self::Search(_) => ValueType::Search,
         }
     }
 }
@@ -59,6 +83,8 @@ pub struct SettingSchema {
     pub options: Vec<String>,
     pub required: bool,
     pub reload_policy: ReloadPolicy,
+    #[serde(default)]
+    pub search: Option<SearchSchema>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -81,7 +107,26 @@ impl SettingSchema {
             options: vec![],
             required: true,
             reload_policy: ReloadPolicy::Live,
+            search: None,
         }
+    }
+
+    pub fn search(key: &str, description: &str, provider: &str) -> Self {
+        let mut schema = Self::new(key, SettingValue::Search(None), description);
+        schema.search = Some(SearchSchema {
+            provider: provider.into(),
+            placeholder: "输入关键词搜索".into(),
+            min_query_chars: 2,
+        });
+        schema
+    }
+
+    pub fn search_placeholder(mut self, placeholder: &str, min_query_chars: usize) -> Self {
+        if let Some(search) = &mut self.search {
+            search.placeholder = placeholder.into();
+            search.min_query_chars = min_query_chars;
+        }
+        self
     }
 
     pub fn range(mut self, min: f64, max: f64) -> Self {
@@ -103,6 +148,7 @@ impl SettingSchema {
         let outside = match value {
             SettingValue::Integer(v) => outside_integer(i128::from(*v)),
             SettingValue::Duration(v) => outside_integer(i128::from(*v)),
+            SettingValue::Search(_) => false,
             SettingValue::Float(v) => {
                 !v.is_finite()
                     || self.constraints.min.is_some_and(|min| *v < min)
@@ -123,6 +169,19 @@ impl SettingSchema {
                 Err(invalid())
             }
             SettingValue::Enum(v) if !self.options.contains(v) => Err(invalid()),
+            SettingValue::Search(Some(option))
+                if option.id.trim().is_empty()
+                    || option.label.trim().is_empty()
+                    || option.id.chars().count() > 256
+                    || option.label.chars().count() > 256
+                    || option.detail.chars().count() > 512
+                    || option.data.len() > 32
+                    || option.data.iter().any(|(key, value)| {
+                        key.chars().count() > 64 || value.chars().count() > 1024
+                    }) =>
+            {
+                Err(invalid())
+            }
             _ => Ok(()),
         }
     }
@@ -162,6 +221,13 @@ pub fn validate_schema(schema: &[SettingSchema]) -> Result<(), String> {
                     ValueType::Integer | ValueType::Float | ValueType::Duration
                 ))
             || (max_length.is_some() && field.value_type != ValueType::String)
+            || (field.value_type == ValueType::Search
+                && field.search.as_ref().is_none_or(|search| {
+                    search.provider.trim().is_empty()
+                        || search.placeholder.trim().is_empty()
+                        || search.min_query_chars == 0
+                }))
+            || (field.value_type != ValueType::Search && field.search.is_some())
         {
             return Err(invalid());
         }

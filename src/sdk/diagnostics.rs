@@ -1,4 +1,5 @@
 use crate::extension::ExtensionId;
+pub use crate::extension::{DiagnosticCheck, DiagnosticStatus};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

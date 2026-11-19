@@ -71,6 +71,7 @@ pub enum ContributionKind {
     BackgroundService,
     EventHandler,
     MascotExpression,
+    Prompt,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -79,6 +80,7 @@ pub enum Capability {
     Action,
     Event,
     Schedule,
+    Prompt,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -127,6 +129,7 @@ impl ContributionDescriptor {
                 ContributionKind::Notification
                 | ContributionKind::EventHandler
                 | ContributionKind::MascotExpression => vec![Capability::Event],
+                ContributionKind::Prompt => vec![Capability::Prompt],
                 ContributionKind::BackgroundService => vec![Capability::Schedule],
                 ContributionKind::Widget | ContributionKind::Compact => {
                     vec![Capability::View, Capability::Action]

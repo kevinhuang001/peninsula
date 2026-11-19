@@ -1,10 +1,29 @@
 use super::theme::{BORDER, ROW, SECONDARY_TEXT, TEXT};
-use crate::extension::{SettingSchema, SettingValue};
+use crate::extension::{SearchOption, SettingSchema, SettingValue};
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke, Vec2};
+use std::time::Instant;
 
 pub(super) const SWITCH_ON: Color32 = Color32::from_rgb(24, 62, 105);
 pub(super) const SWITCH_OFF: Color32 = Color32::from_rgb(75, 81, 92);
 const CONTROL_WIDTH: f32 = 132.0;
+pub(super) const SEARCH_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(350);
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct SearchFieldState {
+    pub query: String,
+    pub results: Vec<SearchOption>,
+    pub error: Option<String>,
+    pub searching: bool,
+    pub(super) pending_since: Option<Instant>,
+    pub(super) submitted_query: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::app) struct SearchRequest {
+    pub extension_id: crate::extension::ExtensionId,
+    pub setting_key: String,
+    pub query: String,
+}
 
 pub(super) fn section(ui: &mut egui::Ui, title: &str) {
     ui.add_space(6.0);
@@ -104,6 +123,39 @@ pub(super) fn value(ui: &mut egui::Ui, label: &str, text: &str) {
     });
 }
 
+pub(super) fn doctor(ui: &mut egui::Ui, checks: &[crate::extension::DiagnosticCheck]) {
+    if checks.is_empty() {
+        value(ui, "自检结果", "扩展没有报告检查项");
+        return;
+    }
+    for check in checks {
+        let (status, color) = match check.status {
+            crate::extension::DiagnosticStatus::Passed => ("正常", Color32::LIGHT_GREEN),
+            crate::extension::DiagnosticStatus::Warning => ("注意", Color32::YELLOW),
+            crate::extension::DiagnosticStatus::Failed => ("异常", Color32::LIGHT_RED),
+            crate::extension::DiagnosticStatus::Unknown => ("待检查", SECONDARY_TEXT),
+        };
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(&check.title).size(11.0).color(TEXT));
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(status).size(10.5).strong().color(color));
+        });
+        ui.label(
+            egui::RichText::new(&check.detail)
+                .size(10.5)
+                .color(SECONDARY_TEXT),
+        );
+        if let Some(remediation) = &check.remediation {
+            ui.label(
+                egui::RichText::new(format!("处理：{remediation}"))
+                    .size(10.5)
+                    .color(SECONDARY_TEXT),
+            );
+        }
+        ui.add_space(4.0);
+    }
+}
+
 /// Every extension shares this renderer; business code supplies only a schema.
 pub(super) fn setting_control(
     ui: &mut egui::Ui,
@@ -153,6 +205,7 @@ pub(super) fn setting_control(
             SettingValue::Color(v) => {
                 ui.color_edit_button_srgba_unmultiplied(v);
             }
+            SettingValue::Search(_) => {}
         }
         false
     });
@@ -161,6 +214,118 @@ pub(super) fn setting_control(
         return false;
     }
     *value != old
+}
+
+pub(super) fn search_setting(
+    ui: &mut egui::Ui,
+    field: &SettingSchema,
+    value: &mut SettingValue,
+    state: &mut SearchFieldState,
+) -> bool {
+    let Some(schema) = field.search.as_ref() else {
+        return false;
+    };
+    let mut changed = false;
+    ui.add_space(5.0);
+    ui.label(
+        egui::RichText::new(&field.description)
+            .size(11.5)
+            .strong()
+            .color(TEXT),
+    );
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        let width = (ui.available_width() - 55.0).max(80.0);
+        let response = ui.add_sized(
+            [width, 25.0],
+            egui::TextEdit::singleline(&mut state.query)
+                .hint_text(&schema.placeholder)
+                .char_limit(128),
+        );
+        if response.changed() {
+            state.pending_since = Some(Instant::now());
+            state.submitted_query = None;
+            state.results.clear();
+            state.error = None;
+        }
+        let pressed = ui.button("搜索").clicked();
+        if pressed {
+            state.pending_since = Some(Instant::now() - SEARCH_DEBOUNCE);
+            state.submitted_query = None;
+        }
+    });
+    if let SettingValue::Search(selected) = value {
+        if let Some(option) = selected.clone() {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("已选择：{}", option.label))
+                        .size(10.5)
+                        .color(SECONDARY_TEXT),
+                )
+                .on_hover_text(if option.detail.is_empty() {
+                    option.label.clone()
+                } else {
+                    format!("{} · {}", option.label, option.detail)
+                });
+                if ui.small_button("清除").clicked() {
+                    *selected = None;
+                    changed = true;
+                }
+            });
+        }
+    }
+    if state.searching {
+        ui.label(
+            egui::RichText::new("正在搜索…")
+                .size(10.5)
+                .color(SECONDARY_TEXT),
+        );
+    } else if let Some(error) = &state.error {
+        ui.label(
+            egui::RichText::new(error)
+                .size(10.5)
+                .color(Color32::LIGHT_RED),
+        );
+    } else if matches!(value, SettingValue::Search(None))
+        && state.submitted_query.as_deref() == Some(state.query.as_str())
+        && !state.searching
+        && state.results.is_empty()
+    {
+        ui.label(
+            egui::RichText::new("没有找到匹配结果")
+                .size(10.5)
+                .color(SECONDARY_TEXT),
+        );
+    } else if state.pending_since.is_none()
+        && !state.query.trim().is_empty()
+        && state.query.trim().chars().count() < schema.min_query_chars
+    {
+        ui.label(
+            egui::RichText::new(format!("至少输入 {} 个字符", schema.min_query_chars))
+                .size(10.5)
+                .color(SECONDARY_TEXT),
+        );
+    }
+    for option in state.results.clone() {
+        let detail = if option.detail.is_empty() {
+            option.label.clone()
+        } else {
+            format!("{} · {}", option.label, option.detail)
+        };
+        let selected =
+            matches!(value, SettingValue::Search(Some(current)) if current.id == option.id);
+        if ui
+            .selectable_label(selected, egui::RichText::new(detail).size(10.5))
+            .clicked()
+        {
+            *value = SettingValue::Search(Some(option));
+            state.results.clear();
+            state.submitted_query = None;
+            changed = true;
+        }
+    }
+    ui.add_space(5.0);
+    changed
 }
 
 pub(super) fn reorder(ui: &mut egui::Ui) -> i8 {

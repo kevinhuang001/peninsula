@@ -7,6 +7,7 @@ use super::{
 };
 use crate::extension::{ContributionKind, ExtensionId};
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
+use std::{collections::HashMap, time::Instant};
 
 const NAV_BACKGROUND: Color32 = Color32::from_rgb(23, 25, 30);
 const SIDEBAR_WIDTH: f32 = 104.0;
@@ -40,6 +41,7 @@ pub struct SettingsView {
     selected: Option<ExtensionId>,
     capsule_section: CapsuleSection,
     quiet_dialog: Option<QuietDialog>,
+    searches: HashMap<(ExtensionId, String), forms::SearchFieldState>,
 }
 
 #[derive(Clone, Copy)]
@@ -108,6 +110,7 @@ impl SettingsView {
                 .or_else(|| prefs.pages.first().map(|p| p.descriptor.id.clone())),
             capsule_section: self.capsule_section,
             quiet_dialog: None,
+            searches: self.searches.clone(),
         };
         let content_height = if self.section == Section::QuietHours {
             106.0 + 28.0 * prefs.quiet_hours.periods().len().max(1) as f32
@@ -269,14 +272,25 @@ impl SettingsView {
         forms::section(ui, "系统管理");
         let mut changed = forms::boolean(ui, "启用扩展", &mut page.enabled);
         forms::value(ui, "当前状态", &page.status);
+        forms::section(ui, "Doctor 自检");
+        forms::doctor(ui, &page.doctor);
         forms::section(ui, "插件设置");
         if page.descriptor.settings.is_empty() {
             forms::value(ui, "配置", "无需额外配置");
         }
+        let extension_id = page.descriptor.id.clone();
         for field in &page.descriptor.settings {
             if let Some(value) = page.values.get_mut(&field.key) {
                 ui.push_id((id, &field.key), |ui| {
-                    changed |= forms::setting_control(ui, field, value);
+                    if field.search.is_some() {
+                        let state = self
+                            .searches
+                            .entry((extension_id.clone(), field.key.clone()))
+                            .or_default();
+                        changed |= forms::search_setting(ui, field, value, state);
+                    } else {
+                        changed |= forms::setting_control(ui, field, value);
+                    }
                 });
             }
         }
@@ -298,6 +312,105 @@ impl SettingsView {
             }
         }
         changed
+    }
+
+    pub(in crate::app) fn take_due_searches(
+        &mut self,
+        prefs: &CompactPreferences,
+        now: Instant,
+    ) -> Vec<forms::SearchRequest> {
+        let mut requests = Vec::new();
+        for ((extension_id, setting_key), state) in &mut self.searches {
+            let Some(page) = prefs
+                .pages
+                .iter()
+                .find(|page| page.descriptor.id == *extension_id)
+            else {
+                continue;
+            };
+            let Some(search) = page
+                .descriptor
+                .settings
+                .iter()
+                .find(|field| field.key == *setting_key)
+                .and_then(|field| field.search.as_ref())
+            else {
+                continue;
+            };
+            let Some(started) = state.pending_since else {
+                continue;
+            };
+            if now.saturating_duration_since(started) < forms::SEARCH_DEBOUNCE
+                || state.submitted_query.as_deref() == Some(state.query.as_str())
+            {
+                continue;
+            }
+            state.pending_since = None;
+            state.error = None;
+            state.results.clear();
+            if state.query.trim().chars().count() < search.min_query_chars {
+                state.searching = false;
+                continue;
+            }
+            state.searching = true;
+            state.submitted_query = Some(state.query.clone());
+            requests.push(forms::SearchRequest {
+                extension_id: extension_id.clone(),
+                setting_key: setting_key.clone(),
+                query: state.query.clone(),
+            });
+        }
+        requests
+    }
+
+    pub(in crate::app) fn apply_search_result(
+        &mut self,
+        extension_id: &ExtensionId,
+        setting_key: &str,
+        query: &str,
+        result: Result<Vec<crate::extension::SearchOption>, String>,
+    ) {
+        let Some(state) = self
+            .searches
+            .get_mut(&(extension_id.clone(), setting_key.to_owned()))
+        else {
+            return;
+        };
+        if state.query != query {
+            return;
+        }
+        state.searching = false;
+        state.pending_since = None;
+        match result {
+            Ok(results) => {
+                state.error = None;
+                state.results = results;
+            }
+            Err(error) => {
+                state.results.clear();
+                state.error = Some(error);
+            }
+        }
+    }
+
+    pub(in crate::app) fn has_searches_in_flight(&self) -> bool {
+        self.searches.values().any(|state| state.searching)
+    }
+
+    pub(in crate::app) fn next_search_wake(&self) -> Option<Instant> {
+        self.searches
+            .values()
+            .filter_map(|state| {
+                state
+                    .pending_since
+                    .map(|started| started + forms::SEARCH_DEBOUNCE)
+                    .or_else(|| {
+                        state
+                            .searching
+                            .then(|| Instant::now() + std::time::Duration::from_millis(100))
+                    })
+            })
+            .min()
     }
 
     fn quiet(&mut self, ui: &mut egui::Ui, rect: Rect, prefs: &mut CompactPreferences) -> bool {

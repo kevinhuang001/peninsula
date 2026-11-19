@@ -2,18 +2,37 @@ use crate::ui::declarative::{RefreshHint, WidgetBounds};
 use crate::{
     core::{settings::SettingsStore, views::ViewCache},
     extension::{
-        Action, ContributionKind, ExtensionContext, ExtensionId, ExtensionLifecycleRecord,
-        ExtensionOutput, ExtensionRegistry, LifecycleManager, Notification, NotificationAction,
-        NotificationPresentation, ReloadPolicy, RuntimeExtension, Settings, WidgetView,
-        WidgetVisibility, NOTIFICATION_CENTER_ID,
+        Action, ContributionKind, DiagnosticCheck, ExtensionContext, ExtensionId,
+        ExtensionLifecycleRecord, ExtensionOutput, ExtensionRegistry, LifecycleManager,
+        Notification, NotificationAction, NotificationPresentation, Prompt, ReloadPolicy,
+        RuntimeExtension, SearchOption, Settings, WidgetView, WidgetVisibility,
+        NOTIFICATION_CENTER_ID,
     },
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     path::PathBuf,
-    sync::Arc,
+    sync::{mpsc, Arc},
     time::{Duration, Instant},
 };
+
+struct SettingSearchJob {
+    query: String,
+    receiver: mpsc::Receiver<Result<Vec<SearchOption>, String>>,
+}
+
+struct ActivePrompt {
+    prompt: Prompt,
+    remaining: Duration,
+    deadline: Option<Instant>,
+}
+
+pub struct SettingSearchResult {
+    pub extension_id: ExtensionId,
+    pub setting_key: String,
+    pub query: String,
+    pub result: Result<Vec<SearchOption>, String>,
+}
 /// All feature implementations are registered through this host collection.
 /// It routes by extension IDs and keeps feature logic out of App and Capsule.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,6 +61,10 @@ pub struct ExtensionManager {
     startup_output: Vec<ExtensionOutput>,
     widget_cache: ViewCache<ExtensionId, Option<Arc<WidgetView>>>,
     compact_cache: ViewCache<usize, Vec<Arc<crate::extension::CompactView>>>,
+    setting_searches: HashMap<(ExtensionId, String), SettingSearchJob>,
+    prompt_queue: VecDeque<Prompt>,
+    active_prompt: Option<ActivePrompt>,
+    prompt_visible: bool,
 }
 
 impl ExtensionManager {
@@ -79,6 +102,10 @@ impl ExtensionManager {
             startup_output: vec![],
             widget_cache: ViewCache::default(),
             compact_cache: ViewCache::default(),
+            setting_searches: HashMap::new(),
+            prompt_queue: VecDeque::new(),
+            active_prompt: None,
+            prompt_visible: false,
         };
         for (index, extension) in host.extensions.iter_mut().enumerate() {
             for descriptor in [extension.registration_descriptor()] {
@@ -106,6 +133,169 @@ impl ExtensionManager {
         self.settings
             .values(id)
             .or_else(|| self.effective_settings.get(id))
+    }
+
+    pub fn doctor(&self, id: &ExtensionId) -> Vec<DiagnosticCheck> {
+        let Some(&owner) = self.owners.get(id) else {
+            return vec![DiagnosticCheck::unknown(
+                "extension-registration",
+                "扩展注册",
+                "扩展未注册。",
+            )];
+        };
+        let mut checks = vec![match self.states[owner] {
+            LifecycleState::Running => {
+                DiagnosticCheck::passed("extension-runtime", "扩展运行状态", "扩展正在运行。")
+            }
+            LifecycleState::Failed => DiagnosticCheck::new(
+                "extension-runtime",
+                "扩展运行状态",
+                crate::extension::DiagnosticStatus::Failed,
+                self.status(id),
+                Some("检查扩展报错信息，并修复所列依赖或配置。"),
+            ),
+            _ => DiagnosticCheck::unknown(
+                "extension-runtime",
+                "扩展运行状态",
+                "扩展当前未运行，依赖项尚未完成检查。",
+            ),
+        }];
+        checks.extend(self.extensions[owner].doctor());
+        checks
+    }
+
+    pub fn search_setting(
+        &mut self,
+        id: &ExtensionId,
+        setting_key: &str,
+        query: &str,
+    ) -> Result<(), String> {
+        let owner = *self
+            .owners
+            .get(id)
+            .ok_or_else(|| format!("settings owner {id} is not registered"))?;
+        let descriptor = self
+            .registry
+            .extension(id)
+            .ok_or_else(|| format!("settings owner {id} is not registered"))?;
+        let field = descriptor
+            .settings
+            .iter()
+            .find(|field| field.key == setting_key)
+            .ok_or_else(|| format!("unknown search setting {setting_key}"))?;
+        let search = field
+            .search
+            .as_ref()
+            .ok_or_else(|| format!("setting {setting_key} does not declare search"))?;
+        let query = query.trim();
+        if query.chars().count() < search.min_query_chars {
+            self.setting_searches
+                .remove(&(id.clone(), setting_key.to_owned()));
+            return Ok(());
+        }
+        let task = self.extensions[owner]
+            .setting_search(&search.provider, query)
+            .ok_or_else(|| format!("search provider {} is unavailable", search.provider))?;
+        let (sender, receiver) = mpsc::channel();
+        std::thread::Builder::new()
+            .name(format!("settings-search-{}", id.as_str()))
+            .spawn(move || {
+                let _ = sender.send(task());
+            })
+            .map_err(|error| format!("unable to start setting search: {error}"))?;
+        self.setting_searches.insert(
+            (id.clone(), setting_key.to_owned()),
+            SettingSearchJob {
+                query: query.to_owned(),
+                receiver,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn take_setting_search_results(&mut self) -> Vec<SettingSearchResult> {
+        let keys: Vec<_> = self.setting_searches.keys().cloned().collect();
+        let mut finished = Vec::new();
+        let mut remove = Vec::new();
+        for key in keys {
+            let Some(job) = self.setting_searches.get(&key) else {
+                continue;
+            };
+            match job.receiver.try_recv() {
+                Ok(result) => {
+                    finished.push(SettingSearchResult {
+                        extension_id: key.0.clone(),
+                        setting_key: key.1.clone(),
+                        query: job.query.clone(),
+                        result,
+                    });
+                    remove.push(key);
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    finished.push(SettingSearchResult {
+                        extension_id: key.0.clone(),
+                        setting_key: key.1.clone(),
+                        query: job.query.clone(),
+                        result: Err("搜索任务意外结束".into()),
+                    });
+                    remove.push(key);
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        for key in remove {
+            self.setting_searches.remove(&key);
+        }
+        finished
+    }
+
+    pub fn has_setting_searches(&self) -> bool {
+        !self.setting_searches.is_empty()
+    }
+
+    pub fn active_prompt(&mut self, now: Instant, visible: bool) -> Option<Prompt> {
+        self.prompt_visible = visible;
+        let expired = self
+            .active_prompt
+            .as_ref()
+            .and_then(|active| active.deadline)
+            .is_some_and(|deadline| now >= deadline);
+        if expired {
+            self.active_prompt = None;
+        } else if let Some(active) = &mut self.active_prompt {
+            if let Some(deadline) = active.deadline.filter(|_| !visible) {
+                active.remaining = deadline.saturating_duration_since(now);
+                active.deadline = None;
+            } else if active.deadline.is_none() && visible {
+                active.deadline = Some(now + active.remaining);
+            }
+        }
+        while self.active_prompt.is_none() && visible {
+            let prompt = self.prompt_queue.pop_front()?;
+            let valid = self
+                .owners
+                .get(&prompt.source_extension_id)
+                .is_some_and(|owner| self.states[*owner] == LifecycleState::Running)
+                && self
+                    .registry
+                    .get(&prompt.contribution_id)
+                    .is_some_and(|contribution| contribution.kind == ContributionKind::Prompt)
+                && self
+                    .registry
+                    .owner(&prompt.contribution_id)
+                    .is_some_and(|owner| owner.id == prompt.source_extension_id);
+            if valid {
+                let duration = prompt.duration.max(Duration::from_millis(250));
+                self.active_prompt = Some(ActivePrompt {
+                    prompt,
+                    remaining: duration,
+                    deadline: Some(now + duration),
+                });
+            }
+        }
+        self.active_prompt
+            .as_ref()
+            .map(|active| active.prompt.clone())
     }
     pub fn update_settings(
         &mut self,
@@ -179,6 +369,21 @@ impl ExtensionManager {
         active_widget: Option<&ExtensionId>,
     ) -> Option<Instant> {
         let mut wake = active_widget.and_then(|id| self.widget_cache.refresh_at(id));
+        wake = wake
+            .into_iter()
+            .chain(
+                self.active_prompt
+                    .as_ref()
+                    .and_then(|active| active.deadline),
+            )
+            .chain(
+                (self.prompt_visible
+                    && self.active_prompt.is_none()
+                    && !self.prompt_queue.is_empty())
+                .then_some(now),
+            )
+            .chain((!self.setting_searches.is_empty()).then_some(now + Duration::from_millis(100)))
+            .min();
         for owner in 0..self.extensions.len() {
             if self.states[owner] != LifecycleState::Running {
                 continue;
@@ -321,6 +526,20 @@ impl ExtensionManager {
         } else {
             LifecycleState::Stopped
         };
+        if self.states[owner] != LifecycleState::Running {
+            let owner_id = id.clone();
+            self.prompt_queue
+                .retain(|prompt| prompt.source_extension_id != owner_id);
+            if self
+                .active_prompt
+                .as_ref()
+                .is_some_and(|active| active.prompt.source_extension_id == owner_id)
+            {
+                self.active_prompt = None;
+            }
+            self.setting_searches
+                .retain(|(search_owner, _), _| search_owner != &owner_id);
+        }
         if self.states[owner] == LifecycleState::Running {
             if let Some(output) = configured {
                 let output = self.track_output(owner, output);
@@ -519,6 +738,28 @@ impl ExtensionManager {
                 .owner(&key.source_extension_id)
                 .is_some_and(|descriptor| descriptor.id == id)
         });
+        output.prompts.retain(|prompt| {
+            prompt.source_extension_id == id
+                && self.registry.get(&prompt.contribution_id).is_some_and(|c| {
+                    c.kind == ContributionKind::Prompt
+                        && self
+                            .registry
+                            .owner(&c.id)
+                            .is_some_and(|owner| owner.id == id)
+                })
+                && prompt.duration > Duration::ZERO
+                && prompt.min_width.is_finite()
+                && prompt.preferred_width.is_finite()
+                && prompt.min_width > 0.0
+                && prompt.preferred_width >= prompt.min_width
+                && serde_json::to_vec(&prompt.content)
+                    .is_ok_and(|encoded| encoded.len() <= 64 * 1024)
+        });
+        let prompts = std::mem::take(&mut output.prompts);
+        for prompt in prompts {
+            output.invalidated.push(prompt.contribution_id.clone());
+            self.prompt_queue.push_back(prompt);
+        }
         output
     }
     pub fn update(&mut self, now: Instant) -> Vec<ExtensionOutput> {

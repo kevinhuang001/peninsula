@@ -1,6 +1,7 @@
 //! Typed settings contracts shared by the host and built-in extensions.
 pub use crate::extension::{
-    validate_schema, Constraints, ReloadPolicy, SettingSchema, SettingValue, Settings, ValueType,
+    validate_schema, Constraints, ReloadPolicy, SearchOption, SearchSchema, SearchSelection,
+    SettingSchema, SettingValue, Settings, ValueType,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -31,6 +32,12 @@ impl SettingsApi {
         match self.values.get(key) {
             Some(SettingValue::String(value) | SettingValue::Enum(value)) => value.clone(),
             _ => default.to_owned(),
+        }
+    }
+    pub fn search(&self, key: &str) -> Option<&SearchSelection> {
+        match self.values.get(key) {
+            Some(SettingValue::Search(Some(selection))) => Some(selection),
+            _ => None,
         }
     }
 }

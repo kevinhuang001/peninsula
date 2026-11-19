@@ -78,10 +78,10 @@ CI 会在 macOS、Windows 和 Linux 上运行测试并构建 release。
 
 ## 扩展架构
 
-- `src/extension/` 定义扩展 ID、版本化描述、生命周期 Hook、Widget/Compact 视图数据、通知视图和操作契约；Hook 状态持久化在用户数据目录。
-- `src/core/` 管理扩展调度、操作分发、通知待处理状态和提醒展示队列。提醒关闭或超时不会清除通知；确认、扩展操作和逐条/全部清理会将其标记为已处理。
+- `src/extension/` 定义扩展 ID、版本化描述、生命周期 Hook、声明式设置、Widget/Compact/Prompt 视图数据、通知视图、Doctor 自检和操作契约；Hook 状态持久化在用户数据目录。
+- `src/core/` 管理扩展调度、操作分发、通知待处理状态、提醒展示队列和 Prompt FIFO 队列。提醒关闭或超时不会清除通知；确认、扩展操作和逐条/全部清理会将其标记为已处理。
 - `src/builtins/` 注册 Download、Market、Performance、Pomodoro、Bilibili 通知及表情和时钟 Compact。性能 Widget 与 Compact 共用一个采样器快照；番茄钟使用 Core Deadline 调度，并保存专注/休息时长。
-- `src/core/external/opencli.rs` 负责检测并执行系统 OpenCLI；`integrations/opencli/peninsula-bilibili/` 提供私信与收到的赞只读命令。
+- 扩展通过 `src/sdk/process.rs` 调用普通外部命令；OpenCLI 没有专门的 Core 封装。
 - `src/app/` 管理胶囊外壳、设置面板、页面切换和窗口行为。
 
 通知使用 `(source_extension_id, notification_id)` 作为稳定标识。通知扩展分别提供提醒和通知中心条目的视图数据；Core 将这些数据交给统一的渲染器并回传用户操作。Rust 扩展仍在应用进程内运行；OpenCLI 插件只是由系统 OpenCLI 执行的集成资源，不是 Peninsula 的动态插件加载器或公开 SDK。
@@ -100,9 +100,13 @@ Widget 注册后默认为可见。扩展可通过 `RuntimeExtension::widget_visi
 
 ### 扩展设置
 
-在 `ExtensionDescriptor::with_settings` 声明配置版本、字段类型、默认值和约束。Core 验证配置并原子写入用户配置目录的 `extension-settings.json`；改动后通过 `on_settings_changed` 给扩展传递验证过的快照。配置版本变化后，Core 使用当前默认值重新初始化设置，不转换旧值。标记为 `Restart` 的值保存后在下次启动生效。时长以毫秒表示，颜色是四个 sRGBA 通道。
+在 `ExtensionDescriptor::with_settings` 声明配置版本、字段类型、默认值和约束。Core 验证配置并原子写入用户配置目录的 `extension-settings.json`；改动后通过 `on_settings_changed` 给扩展传递验证过的快照。配置版本变化后，Core 使用当前默认值重新初始化设置，不转换旧值。标记为 `Restart` 的值保存后在下次启动生效。时长以毫秒表示，颜色是四个 sRGBA 通道。`Search` 字段声明 provider；UI 对输入做防抖，宿主在后台运行扩展提供的搜索任务，并把所选结果的稳定 ID、显示文本和 provider 数据保存为一个值。
 
-番茄钟时长、Bilibili 的 OpenCLI 命令路径和轮询间隔通过 Schema 保存；命令路径留空时使用系统 `PATH` 查找。性能监控的 `show_download`、`show_upload` 和下载胶囊的 `show_rate` 是额外的布尔配置，未新增设置页面。启用状态、顺序和免打扰仍由 Core 管理；登录信息沿用现有认证方式。
+番茄钟时长、Bilibili 的 OpenCLI 命令路径和轮询间隔通过 Schema 保存；命令路径留空时使用系统 `PATH` 查找。天气城市通过 Open-Meteo 地名搜索选择，坐标保存在搜索结果数据里，不作为用户可编辑配置。性能监控的 `show_download`、`show_upload` 和下载胶囊的 `show_rate` 是额外的布尔配置，未新增设置页面。启用状态、顺序和免打扰仍由 Core 管理；登录信息沿用现有认证方式。
+
+每个扩展设置页都有 Doctor 区域。扩展返回稳定 ID、检查标题、状态、原因和可选处理建议；Doctor 回调只读取已缓存的检查结果，进程、浏览器和网络探测在后台任务中完成。OpenCLI 集成应分别报告命令、插件、浏览器连接和账号登录状态。
+
+Prompt 是一次性展示贡献。扩展发布带有声明式 Compact 内容和展示时长的 Prompt；宿主按接收顺序排队，同一时刻只显示一个，并独占整个 Compact 区域。到时或队列清空后恢复普通 Compact 内容。Prompt 没有 while 条件和优先级；它只在 Compact 可见时计时。动画继续使用共享声明式 Motion 渲染。免打扰只约束通知，不暂停或丢弃 Prompt。
 
 ## Linux 音乐显示演示
 

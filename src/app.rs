@@ -403,6 +403,15 @@ impl eframe::App for IslandApp {
         for output in self.extensions.update(now) {
             self.apply_extension_output(output, context);
         }
+        for result in self.extensions.take_setting_search_results() {
+            self.settings_view.apply_search_result(
+                &result.extension_id,
+                &result.setting_key,
+                &result.query,
+                result.result,
+            );
+            context.request_repaint();
+        }
         let context_tasks = self.extensions.drain_context_tasks();
         self.apply_extension_output(context_tasks, context);
         self.scheduler.due_tasks(now);
@@ -608,11 +617,20 @@ impl eframe::App for IslandApp {
             } else {
                 crate::core::mascot::MotionPolicy::Full
             });
-        let mut available_views = self.extensions.compact_views(now);
+        let active_prompt = self.extensions.active_prompt(
+            now,
+            !self.state.expanded && !self.settings_open && notice.is_none(),
+        );
+        let prompt_active = active_prompt.is_some();
+        let mut available_views = active_prompt.map_or_else(
+            || self.extensions.compact_views(now),
+            |prompt| vec![Arc::new(prompt.compact_view())],
+        );
         let sources = self.extensions.mascot_sources();
-        let mascot_visible = self.preferences.mascot_enabled && !self.state.expanded;
+        let mascot_visible =
+            self.preferences.mascot_enabled && !self.state.expanded && !prompt_active;
         self.mascot.update(&sources, mascot_visible, now);
-        if self.preferences.mascot_enabled {
+        if self.preferences.mascot_enabled && !prompt_active {
             let policy = if self.preferences.motion_off || self.preferences.mascot_motion == "Off" {
                 crate::core::mascot::MotionPolicy::Off
             } else if self.preferences.reduced_motion || self.preferences.mascot_motion == "Reduced"
@@ -634,15 +652,21 @@ impl eframe::App for IslandApp {
                 context.request_repaint_after(wake.saturating_duration_since(now));
             }
         }
-        let compact_views = compact_layout::measure_views(
+        let mut compact_views = compact_layout::measure_views(
             context,
             available_views.iter().map(Arc::as_ref).filter(|view| {
-                self.preferences.is_enabled(&view.id)
+                prompt_active
+                    || self.preferences.is_enabled(&view.id)
                     || (self.preferences.mascot_enabled
                         && view.id.as_str() == crate::core::mascot::MASCOT_SLOT_ID)
             }),
             &self.icons,
         );
+        if prompt_active {
+            for view in &mut compact_views {
+                view.exclusive = true;
+            }
+        }
         let compact_width = compact_layout::width(&self.preferences, &compact_views);
         self.update_viewport_size(
             context,
@@ -810,6 +834,29 @@ impl eframe::App for IslandApp {
             }
         }
 
+        if self.settings_open {
+            for request in self.settings_view.take_due_searches(&self.preferences, now) {
+                if let Err(error) = self.extensions.search_setting(
+                    &request.extension_id,
+                    &request.setting_key,
+                    &request.query,
+                ) {
+                    self.settings_view.apply_search_result(
+                        &request.extension_id,
+                        &request.setting_key,
+                        &request.query,
+                        Err(error),
+                    );
+                }
+            }
+        }
+        if self.settings_open
+            && (self.extensions.has_setting_searches()
+                || self.settings_view.has_searches_in_flight())
+        {
+            context.request_repaint_after(Duration::from_millis(100));
+        }
+
         let dragging = self.window_drag.update(frame);
         let can_turn_page = self.state.expanded && notice.is_none() && !self.settings_open;
         let grace_rect = self.page_edge_grace.take().filter(|(rect, deadline)| {
@@ -921,6 +968,11 @@ impl eframe::App for IslandApp {
             .chain(extension_wake)
             .chain(quiet_wake)
             .chain(self.notifications.next_deadline())
+            .chain(
+                self.settings_open
+                    .then(|| self.settings_view.next_search_wake())
+                    .flatten(),
+            )
             .chain(animated.then_some(now + Duration::from_millis(16)))
             .min();
         if let Some(wake) = wake {

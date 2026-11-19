@@ -297,7 +297,70 @@ impl RuntimeExtension for WeatherExtension {
             descriptors(),
         );
         d.settings = WeatherPreferences::schema();
+        d.settings_version = 2;
         d
+    }
+
+    fn setting_search(
+        &self,
+        provider: &str,
+        query: &str,
+    ) -> Option<crate::extension::SettingSearchTask> {
+        if provider != super::preferences::CITY_SEARCH_PROVIDER {
+            return None;
+        }
+        let query = query.to_owned();
+        Some(Box::new(move || {
+            client::search_cities(&query).map(|cities| {
+                cities
+                    .into_iter()
+                    .map(|city| {
+                        let detail = city.detail();
+                        crate::extension::SearchOption {
+                            id: format!("{:.5},{:.5}", city.latitude, city.longitude),
+                            label: city.name,
+                            detail,
+                            data: [
+                                ("latitude".into(), city.latitude.to_string()),
+                                ("longitude".into(), city.longitude.to_string()),
+                            ]
+                            .into(),
+                        }
+                    })
+                    .collect()
+            })
+        }))
+    }
+
+    fn doctor(&self) -> Vec<crate::extension::DiagnosticCheck> {
+        use crate::extension::{DiagnosticCheck as Check, DiagnosticStatus as Status};
+        let location = if self.preferences.auto_locate {
+            Check::passed("weather-location", "城市位置", "已开启网络位置自动定位。")
+        } else if self.preferences.location.is_some() {
+            Check::passed("weather-location", "城市位置", "已选择天气城市。")
+        } else {
+            Check::new(
+                "weather-location",
+                "城市位置",
+                Status::Failed,
+                "尚未选择天气城市。",
+                Some("在搜索框中输入城市名称，并从结果中选择。"),
+            )
+        };
+        let service = if let Some(error) = &self.error {
+            Check::new(
+                "weather-service",
+                "天气服务",
+                Status::Failed,
+                error.as_str(),
+                Some("检查网络连接，稍后重试；也可以切换到手动城市。"),
+            )
+        } else if self.snapshot.is_some() {
+            Check::passed("weather-service", "天气服务", "最近一次预报请求成功。")
+        } else {
+            Check::unknown("weather-service", "天气服务", "等待首次天气数据请求。")
+        };
+        vec![location, service]
     }
 
     fn on_settings_changed(

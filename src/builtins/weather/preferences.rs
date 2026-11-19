@@ -1,10 +1,12 @@
 use std::time::Duration;
 
 const DEFAULT_REFRESH_MINUTES: u16 = 10;
+pub(super) const CITY_SEARCH_PROVIDER: &str = "weather.open-meteo-city";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WeatherLocation {
     pub name: String,
+    pub detail: String,
     pub latitude: f64,
     pub longitude: f64,
 }
@@ -13,9 +15,15 @@ impl WeatherLocation {
     pub fn new(name: impl Into<String>, latitude: f64, longitude: f64) -> Self {
         Self {
             name: name.into(),
+            detail: String::new(),
             latitude,
             longitude,
         }
+    }
+
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = detail.into();
+        self
     }
 }
 
@@ -55,9 +63,12 @@ impl WeatherPreferences {
             S::new("auto_locate", V::Boolean(true), "自动定位"),
             S::new("alerts", V::Boolean(true), "天气预警"),
             S::new("refresh_minutes", V::Integer(10), "刷新间隔（分钟）").range(1.0, 180.0),
-            S::new("location_name", V::String(String::new()), "城市名称"),
-            S::new("latitude", V::Float(0.0), "纬度").range(-90.0, 90.0),
-            S::new("longitude", V::Float(0.0), "经度").range(-180.0, 180.0),
+            S::search(
+                "location",
+                "手动天气城市（关闭自动定位后使用）",
+                CITY_SEARCH_PROVIDER,
+            )
+            .search_placeholder("搜索城市名称", 2),
         ]
     }
     pub fn from_settings(settings: &crate::extension::Settings) -> Self {
@@ -72,13 +83,23 @@ impl WeatherPreferences {
         if let Some(V::Integer(v)) = settings.get("refresh_minutes") {
             prefs.refresh_minutes = *v as u16;
         }
-        if let (Some(V::String(name)), Some(V::Float(lat)), Some(V::Float(lon))) = (
-            settings.get("location_name"),
-            settings.get("latitude"),
-            settings.get("longitude"),
-        ) {
-            if !name.is_empty() {
-                prefs.location = Some(WeatherLocation::new(name, *lat, *lon));
+        if let Some(V::Search(Some(selection))) = settings.get("location") {
+            if let (Some(lat), Some(lon)) = (
+                selection
+                    .data
+                    .get("latitude")
+                    .and_then(|value| value.parse().ok()),
+                selection
+                    .data
+                    .get("longitude")
+                    .and_then(|value| value.parse().ok()),
+            ) {
+                if (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon) {
+                    prefs.location = Some(
+                        WeatherLocation::new(&selection.label, lat, lon)
+                            .with_detail(selection.detail.clone()),
+                    );
+                }
             }
         }
         prefs

@@ -336,6 +336,96 @@ impl RuntimeExtension for BilibiliExtension {
             "尚未启用".into()
         })
     }
+
+    fn doctor(&self) -> Vec<crate::extension::DiagnosticCheck> {
+        use crate::extension::{DiagnosticCheck as Check, DiagnosticStatus as Status};
+        let Some(error) = self.last_error.as_deref() else {
+            let status = if self.last_check.is_some() {
+                Status::Passed
+            } else {
+                Status::Unknown
+            };
+            let detail = if self.last_check.is_some() {
+                "最近一次 OpenCLI 与 Bilibili 检查成功。"
+            } else {
+                "等待 OpenCLI 完成首次检查。"
+            };
+            return [
+                ("opencli-command", "OpenCLI 命令"),
+                ("opencli-plugin", "未读插件"),
+                ("browser-bridge", "浏览器连接"),
+                ("bilibili-login", "Bilibili 登录"),
+            ]
+            .into_iter()
+            .map(|(id, title)| Check::new(id, title, status, detail, None))
+            .collect();
+        };
+
+        let lower = error.to_ascii_lowercase();
+        let missing_cli = [
+            "no such file",
+            "program not found",
+            "executable not found",
+            "cannot find the file specified",
+            "系统找不到指定的文件",
+        ]
+        .iter()
+        .any(|needle| lower.contains(needle));
+        let login = ["auth_required", "login", "登录", "cookie", "未登录"]
+            .iter()
+            .any(|needle| lower.contains(needle));
+        let browser = ["browser", "bridge", "daemon_unavailable", "浏览器"]
+            .iter()
+            .any(|needle| lower.contains(needle));
+        let plugin = ["plugin", "unknown command", "插件"]
+            .iter()
+            .any(|needle| lower.contains(needle));
+        let check = |id, title, matched, remediation| {
+            if matched {
+                Check::new(id, title, Status::Failed, error, Some(remediation))
+            } else if self.last_check.is_some() {
+                Check::passed(id, title, "最近一次检查成功。")
+            } else {
+                Check::unknown(id, title, "尚未通过首次连接检查。")
+            }
+        };
+        let mut checks = vec![
+            check(
+                "opencli-command",
+                "OpenCLI 命令",
+                missing_cli,
+                "安装 OpenCLI，或在设置中填写可执行文件路径。",
+            ),
+            check(
+                "opencli-plugin",
+                "未读插件",
+                plugin,
+                "检查 OpenCLI 插件安装与版本，然后重新启用扩展。",
+            ),
+            check(
+                "browser-bridge",
+                "浏览器连接",
+                browser,
+                "启动浏览器并连接 OpenCLI Browser Bridge。",
+            ),
+            check(
+                "bilibili-login",
+                "Bilibili 登录",
+                login,
+                "在浏览器中登录 Bilibili 后重新检查。",
+            ),
+        ];
+        if !missing_cli && !plugin && !browser && !login {
+            checks.push(Check::new(
+                "unread-query",
+                "未读查询",
+                Status::Failed,
+                error,
+                Some("检查 OpenCLI 输出和扩展设置中的命令路径后重试。"),
+            ));
+        }
+        checks
+    }
 }
 
 impl NotificationPresentationProvider for BilibiliExtension {

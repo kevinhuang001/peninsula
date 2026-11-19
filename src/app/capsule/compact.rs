@@ -29,12 +29,19 @@ pub(super) fn show(
         icons,
     } = content;
     let opacity = 1.0 - progress.clamp(0.0, 1.0);
-    let mut views: Vec<_> = prefs
-        .ordered_compact_items()
-        .into_iter()
-        .filter(|item| prefs.is_enabled(&item.id))
-        .filter_map(|item| available_views.iter().find(|view| view.view.id == item.id))
-        .collect();
+    let mut views: Vec<_> = if available_views.iter().any(|item| item.exclusive) {
+        available_views
+            .iter()
+            .filter(|item| item.exclusive)
+            .collect()
+    } else {
+        prefs
+            .ordered_compact_items()
+            .into_iter()
+            .filter(|item| prefs.is_enabled(&item.id))
+            .filter_map(|item| available_views.iter().find(|view| view.view.id == item.id))
+            .collect()
+    };
     if let Some(slot) = available_views
         .iter()
         .find(|v| prefs.mascot_enabled && v.view.id.as_str() == crate::core::mascot::MASCOT_SLOT_ID)

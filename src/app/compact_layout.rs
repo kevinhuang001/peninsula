@@ -15,6 +15,7 @@ pub(super) struct CompactItem<'a> {
     pub view: &'a CompactView,
     preferred_width: f32,
     min_width: f32,
+    pub exclusive: bool,
 }
 
 impl<'a> From<&'a CompactView> for CompactItem<'a> {
@@ -23,6 +24,7 @@ impl<'a> From<&'a CompactView> for CompactItem<'a> {
             view,
             preferred_width: view.preferred_width,
             min_width: view.min_width,
+            exclusive: false,
         }
     }
 }
@@ -59,6 +61,13 @@ pub(super) fn item_widths(
     preferences: &CompactPreferences,
     available: &[CompactItem<'_>],
 ) -> Vec<f32> {
+    if available.iter().any(|item| item.exclusive) {
+        return available
+            .iter()
+            .filter(|item| item.exclusive)
+            .map(|item| item.preferred_width)
+            .collect();
+    }
     let mut widths = available
         .iter()
         .filter(|v| {

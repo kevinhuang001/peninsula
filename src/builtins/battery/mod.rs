@@ -6,10 +6,12 @@ use crate::{
 };
 use power::PowerSnapshot;
 const ID: &str = "builtin.battery/status";
+const PROMPT_ID: &str = "builtin.battery/prompt";
 #[derive(Default)]
 pub struct BatteryExtension {
     updates: Option<Worker<PowerSnapshot>>,
     snapshot: PowerSnapshot,
+    sampled: bool,
 }
 impl NotificationPresentationProvider for BatteryExtension {}
 impl RuntimeExtension for BatteryExtension {
@@ -18,15 +20,25 @@ impl RuntimeExtension for BatteryExtension {
             "builtin.battery",
             "电池",
             "电量、充电状态和电源动画",
-            vec![ContributionDescriptor::builtin(
-                ID,
-                ContributionKind::Compact,
-                "电池",
-                "battery",
-                true,
-                1,
-            )
-            .with_size_hint(64.0, 28.0)],
+            vec![
+                ContributionDescriptor::builtin(
+                    ID,
+                    ContributionKind::Compact,
+                    "电池",
+                    "battery",
+                    true,
+                    1,
+                )
+                .with_size_hint(64.0, 28.0),
+                ContributionDescriptor::builtin(
+                    PROMPT_ID,
+                    ContributionKind::Prompt,
+                    "电源提示",
+                    "battery-charging",
+                    true,
+                    1,
+                ),
+            ],
         )
     }
     fn on_start(&mut self, _: &ExtensionContext) -> Result<(), String> {
@@ -40,9 +52,24 @@ impl RuntimeExtension for BatteryExtension {
     fn update(&mut self, _: std::time::Instant) -> ExtensionOutput {
         if let Some(snapshot) = self.updates.as_ref().and_then(Worker::take) {
             if snapshot != self.snapshot {
+                let was_sampled = self.sampled;
+                let was_connected = self.snapshot.external == Some(true);
+                let connected = snapshot.external == Some(true);
                 self.snapshot = snapshot;
+                self.sampled = true;
+                let prompts = if was_sampled && !was_connected && connected {
+                    vec![crate::extension::Prompt::new(
+                        ExtensionId::builtin("builtin.battery"),
+                        ExtensionId::builtin(PROMPT_ID),
+                        battery_prompt(&self.snapshot),
+                        std::time::Duration::from_secs(5),
+                    )]
+                } else {
+                    Vec::new()
+                };
                 return ExtensionOutput {
                     invalidated: vec![ExtensionId::builtin(ID)],
+                    prompts,
                     ..Default::default()
                 };
             }
@@ -70,6 +97,21 @@ impl RuntimeExtension for BatteryExtension {
     }
 }
 fn battery_compact(metrics: &PowerSnapshot) -> ViewNode {
+    battery_view(metrics, battery_label(metrics))
+}
+
+fn battery_prompt(metrics: &PowerSnapshot) -> ViewNode {
+    battery_view(
+        metrics,
+        if metrics.charging {
+            "正在充电".into()
+        } else {
+            "已接通电源".into()
+        },
+    )
+}
+
+fn battery_view(metrics: &PowerSnapshot, label: String) -> ViewNode {
     let level = f32::from(metrics.percent.unwrap_or(0)) / 100.0;
     let color = battery_color(metrics);
     let indicator = |segments, fraction, width, inactive, color| {
@@ -117,7 +159,7 @@ fn battery_compact(metrics: &PowerSnapshot) -> ViewNode {
     .sized(Size::Fixed(25.0), Size::Fixed(24.0));
     ViewNode::compact(
         leading,
-        super::compact_value(battery_label(metrics), true).color(color),
+        super::compact_value(label, false).color(color),
         CompactLayout {
             leading_size: [25.0, 24.0],
             gap: 4.0,
