@@ -119,60 +119,8 @@ fn account_row(mail: &MailExtension, account: &Account, unread: usize) -> ViewNo
     row
 }
 
-fn all_accounts_row(mail: &MailExtension, unread: usize) -> ViewNode {
-    let selected = mail.selected.is_none();
-    let mut content = vec![
-        ViewNode::icon("mail", 15.0)
-            .color(ColorSpec::Info)
-            .sized(Size::Fixed(20.0), Size::Fixed(20.0)),
-        text(
-            "全部邮件",
-            12.0,
-            if selected {
-                ColorSpec::Info
-            } else {
-                ColorSpec::PrimaryText
-            },
-        )
-        .sized(Size::Fill(1.0), Size::Auto),
-    ];
-    if unread > 0 {
-        content.push(badge(unread));
-    }
-    let mut row = ViewNode::new(Node::ActionArea {
-        action: Action::Select("all-mail".into()),
-        label: "全部邮件".into(),
-        content: Box::new(ViewNode::row(
-            content,
-            Flow {
-                gap: Some(4.0),
-                align: Align::Center,
-                ..Default::default()
-            },
-        )),
-    })
-    .sized(Size::Fill(1.0), Size::Fixed(36.0));
-    row.style.padding = [7.0, 8.0, 7.0, 8.0];
-    row.style.normal.background = Some(if selected {
-        ColorSpec::AccentSubtle
-    } else {
-        ColorSpec::Transparent
-    });
-    row.style.hovered.background = Some(ColorSpec::AccentSubtle);
-    row.style.normal.corner_radius = Some(8.0);
-    row
-}
-
 fn sidebar(mail: &MailExtension) -> ViewNode {
-    let unread_total = mail
-        .mailboxes
-        .values()
-        .map(|mailbox| mailbox.unread_count)
-        .sum();
-    let mut rows = vec![all_accounts_row(mail, unread_total)];
-    rows.push(
-        ViewNode::new(Node::Divider { vertical: false }).sized(Size::Fill(1.0), Size::Fixed(1.0)),
-    );
+    let mut rows = Vec::new();
     if mail.accounts.is_empty() {
         rows.push(text("添加一个 IMAP 账号", 11.0, ColorSpec::SecondaryText));
     } else {
@@ -374,9 +322,9 @@ fn messages(mail: &MailExtension) -> Vec<ViewNode> {
         let has_accounts = !mail.accounts.is_empty();
         return vec![text(
             if has_accounts {
-                "收件箱暂时为空，点刷新同步服务器邮件。"
+                "这个邮箱的收件箱暂时为空，点刷新同步服务器邮件。"
             } else {
-                "添加邮箱账号后，这里会汇总所有收件箱。"
+                "添加邮箱账号后，这里会显示该邮箱的邮件。"
             },
             12.0,
             ColorSpec::SecondaryText,
@@ -400,19 +348,15 @@ fn status(mail: &MailExtension) -> String {
     if mail.opening.is_some() {
         return "正在从服务器读取邮件并同步已读状态…".into();
     }
-    if mail.mailboxes.values().any(|mailbox| mailbox.pending) {
+    let mailbox = mail.selected.as_ref().and_then(|id| mail.mailboxes.get(id));
+    if mailbox.is_some_and(|mailbox| mailbox.pending) {
         return "正在与邮箱服务器同步…".into();
     }
-    let unread = mail
-        .mailboxes
-        .values()
-        .map(|mailbox| mailbox.unread_count)
-        .sum::<usize>();
-    format!(
-        "{} 个账号 · {} 封未读 · IMAP 服务器状态",
-        mail.accounts.len(),
-        unread
-    )
+    if mail.accounts.is_empty() {
+        return "尚未登录邮箱".into();
+    }
+    let unread = mailbox.map_or(0, |mailbox| mailbox.unread_count);
+    format!("{unread} 封未读 · IMAP 服务器状态")
 }
 
 pub(super) fn build(mail: &MailExtension) -> WidgetView {
@@ -422,7 +366,7 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
             .find(|account| Some(&account.id) == mail.selected.as_ref())
             .map_or_else(|| "邮件".to_owned(), |account| account.email.clone())
     } else {
-        "全部邮件".into()
+        "选择邮箱".into()
     };
     let mut actions = vec![ViewNode::subtle_button(
         if mail.mailboxes.values().any(|mailbox| mailbox.pending) {

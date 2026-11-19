@@ -317,7 +317,7 @@ impl MailExtension {
 
         self.passwords.insert(id.clone(), password);
         self.mailboxes.entry(id.clone()).or_default();
-        self.selected = None;
+        self.selected = Some(id.clone());
         self.email_draft.clear();
         self.password_draft.clear();
         self.adding = false;
@@ -342,7 +342,15 @@ impl MailExtension {
         if let Ok(entry) = Self::credential_entry(&id) {
             let _ = entry.delete_credential();
         }
-        self.selected = None;
+        self.selected = self.accounts.first().map(|account| account.id.clone());
+        if let Some(account) = self
+            .selected
+            .as_ref()
+            .and_then(|id| self.accounts.iter().find(|account| &account.id == id))
+            .cloned()
+        {
+            self.request_refresh(&account);
+        }
         Ok(())
     }
 
@@ -374,15 +382,20 @@ impl MailExtension {
     }
 
     fn refresh_accounts(&mut self) {
-        let selected = self.selected.clone();
-        let accounts: Vec<_> = self
-            .accounts
-            .iter()
-            .filter(|account| selected.as_ref().is_none_or(|id| id == &account.id))
-            .cloned()
-            .collect();
+        let accounts = self.accounts.clone();
         for account in &accounts {
             self.request_refresh(account);
+        }
+    }
+
+    fn refresh_selected(&mut self) {
+        let account = self
+            .selected
+            .as_ref()
+            .and_then(|id| self.accounts.iter().find(|account| &account.id == id))
+            .cloned();
+        if let Some(account) = account {
+            self.request_refresh(&account);
         }
     }
 
@@ -608,6 +621,7 @@ impl MailExtension {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(error) => return Err(error.to_string()),
         };
+        self.selected = self.accounts.first().map(|account| account.id.clone());
         self.mailboxes.clear();
         self.passwords.clear();
         for account in &self.accounts {
@@ -661,7 +675,7 @@ impl RuntimeExtension for MailExtension {
         let mut descriptor = ExtensionDescriptor::builtin(
             ID,
             "邮件",
-            "IMAP 邮箱聚合、阅读与新邮件提醒",
+            "IMAP 邮箱分账号阅读、已读同步与新邮件提醒",
             vec![widget, notifications],
         );
         descriptor.settings = vec![
@@ -725,9 +739,16 @@ impl RuntimeExtension for MailExtension {
                 "mail-password" => self.password_draft = value,
                 _ => return ExtensionOutput::default(),
             },
-            Action::Select(selection) if selection == "all-mail" => self.selected = None,
             Action::Select(id) if self.accounts.iter().any(|account| account.id == id) => {
-                self.selected = Some(id)
+                self.selected = Some(id.clone());
+                if let Some(account) = self
+                    .accounts
+                    .iter()
+                    .find(|account| account.id == id)
+                    .cloned()
+                {
+                    self.request_refresh(&account);
+                }
             }
             Action::Select(provider) if provider.starts_with("provider:") => {
                 match &provider[9..] {
@@ -747,7 +768,7 @@ impl RuntimeExtension for MailExtension {
                 self.adding = true;
             }
             Action::Advance => {
-                self.refresh_accounts();
+                self.refresh_selected();
                 self.next_refresh = now + self.refresh_interval;
             }
             Action::Custom(key) if key == "add" => self.adding = true,
