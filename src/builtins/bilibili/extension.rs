@@ -1,16 +1,16 @@
 use super::{poller, state::SyncState, state::UnreadIncrease};
 use crate::{
-    core::external::opencli::OpenCli,
     extension::{
         ContributionDescriptor, ContributionKind, ExtensionContext, ExtensionId, ExtensionOutput,
         Notification, NotificationAction, NotificationAlertView, NotificationCenterItemView,
         NotificationPresentationProvider, NotificationPriority, ReloadPolicy, RuntimeExtension,
         SettingSchema, SettingValue, Settings,
     },
+    sdk::process::{ProcessExecutor, ProcessSpec},
 };
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::mpsc::{self, Receiver},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -62,8 +62,11 @@ impl BilibiliExtension {
         let storage = ctx.sdk().storage();
         let state_storage = storage.state().clone();
         let (sender, receiver) = mpsc::channel();
-        let configured =
-            (!self.opencli_path.trim().is_empty()).then(|| PathBuf::from(self.opencli_path.trim()));
+        let program = if self.opencli_path.trim().is_empty() {
+            PathBuf::from("opencli")
+        } else {
+            PathBuf::from(self.opencli_path.trim())
+        };
         let poll_interval = self.poll_interval;
         ctx.sdk()
             .tasks()
@@ -76,19 +79,12 @@ impl BilibiliExtension {
                     }
                 };
                 let mut backoff = Duration::from_secs(DEFAULT_POLL_SECS);
-                let cli = match OpenCli::resolve(configured.as_deref()) {
-                    Ok(cli) => cli,
-                    Err(error) => {
-                        let _ = sender.send(PollMessage::Error(error));
-                        return;
-                    }
-                };
-                if let Err(error) = ensure_opencli_plugin(&cli, storage.data()) {
+                if let Err(error) = ensure_opencli_plugin(&program, storage.data()) {
                     let _ = sender.send(PollMessage::Error(error));
                     return;
                 }
                 while !cancel.is_cancelled() {
-                    match poller::collect(&cli) {
+                    match poller::collect(&program) {
                         Ok(counts) => {
                             let increases = state.observe(counts);
                             let save_error = state.save_storage(&state_storage).err();
@@ -277,16 +273,20 @@ impl RuntimeExtension for BilibiliExtension {
         if marker.is_file() {
             let configured = (!self.opencli_path.trim().is_empty())
                 .then(|| PathBuf::from(self.opencli_path.trim()));
-            let cli = OpenCli::resolve(configured.as_deref())?;
-            if poller::is_installed(&cli)? {
-                let output = cli.run(
-                    &["plugin", "uninstall", PLUGIN_NAME],
-                    Duration::from_secs(30),
-                )?;
-                if output.status != 0 {
+            let program = configured.unwrap_or_else(|| PathBuf::from("opencli"));
+            if poller::is_installed(&program)? {
+                let output = ProcessExecutor
+                    .run(
+                        ProcessSpec::new(&program)
+                            .args(["plugin", "uninstall", PLUGIN_NAME])
+                            .timeout(Duration::from_secs(30)),
+                    )
+                    .map_err(|error| format!("OpenCLI process failed: {error}"))?;
+                if !output.success() {
                     return Err(format!(
-                        "unable to uninstall OpenCLI plugin {PLUGIN_NAME}: {}",
-                        output.stderr.trim()
+                        "unable to uninstall OpenCLI plugin {PLUGIN_NAME} ({}): {}",
+                        output.status.code().unwrap_or(-1),
+                        output.stderr_text().trim()
                     ));
                 }
             }
@@ -393,38 +393,64 @@ fn opencli_version_supported(version: &str) -> bool {
 }
 
 fn ensure_opencli_plugin(
-    cli: &OpenCli,
+    program: &Path,
     storage: &crate::sdk::storage::StorageArea,
 ) -> Result<(), String> {
-    let version = cli.version(Duration::from_secs(20))?;
-    if !opencli_version_supported(&version) {
+    let version_output = ProcessExecutor
+        .run(
+            ProcessSpec::new(program)
+                .arg("--version")
+                .timeout(Duration::from_secs(20)),
+        )
+        .map_err(|error| format!("OpenCLI process failed: {error}"))?;
+    if !version_output.success() {
+        return Err(format!(
+            "OpenCLI version query failed ({}): {}",
+            version_output.status.code().unwrap_or(-1),
+            version_output.stderr_text().trim()
+        ));
+    }
+    let version = version_output.stdout_text();
+    let version = version.trim();
+    if !opencli_version_supported(version) {
         return Err(format!("OpenCLI >=2.0.0 is required, found {version}"));
     }
 
-    if poller::is_installed(cli)? {
-        let update = cli.run(&["plugin", "update", PLUGIN_NAME], Duration::from_secs(120))?;
-        if update.status != 0 {
+    if poller::is_installed(program)? {
+        let update = ProcessExecutor
+            .run(
+                ProcessSpec::new(program)
+                    .args(["plugin", "update", PLUGIN_NAME])
+                    .timeout(Duration::from_secs(120)),
+            )
+            .map_err(|error| format!("OpenCLI process failed: {error}"))?;
+        if !update.success() {
             return Err(format!(
-                "unable to update OpenCLI plugin {PLUGIN_NAME}: {}",
-                update.stderr.trim()
+                "unable to update OpenCLI plugin {PLUGIN_NAME} ({}): {}",
+                update.status.code().unwrap_or(-1),
+                update.stderr_text().trim()
             ));
         }
     } else {
-        let install = cli.run(
-            &["plugin", "install", PLUGIN_SPEC],
-            Duration::from_secs(120),
-        )?;
-        if install.status != 0 {
+        let install = ProcessExecutor
+            .run(
+                ProcessSpec::new(program)
+                    .args(["plugin", "install", PLUGIN_SPEC])
+                    .timeout(Duration::from_secs(120)),
+            )
+            .map_err(|error| format!("OpenCLI process failed: {error}"))?;
+        if !install.success() {
             return Err(format!(
-                "unable to install OpenCLI plugin {PLUGIN_NAME}: {}",
-                install.stderr.trim()
+                "unable to install OpenCLI plugin {PLUGIN_NAME} ({}): {}",
+                install.status.code().unwrap_or(-1),
+                install.stderr_text().trim()
             ));
         }
         storage
             .write_bytes("managed-unread-plugin", b"Peninsula-managed\n")
             .map_err(|error| error.to_string())?;
     }
-    if !poller::is_installed(cli)? {
+    if !poller::is_installed(program)? {
         return Err(format!("OpenCLI did not register {PLUGIN_NAME}"));
     }
     Ok(())

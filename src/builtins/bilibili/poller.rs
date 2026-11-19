@@ -1,6 +1,6 @@
-use crate::core::external::opencli::{parse_json, OpenCli};
+use crate::sdk::process::{ProcessExecutor, ProcessSpec};
 use serde_json::Value;
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, path::Path, time::Duration};
 
 const CATEGORIES: &[&str] = &[
     "我的消息",
@@ -12,15 +12,43 @@ const CATEGORIES: &[&str] = &[
     "疑似不良消息",
 ];
 
-pub fn collect(cli: &OpenCli) -> Result<BTreeMap<String, u64>, String> {
-    // Explicitly keep the adapter in the background so polling never steals
-    // focus or opens a foreground browser window.
-    let output = cli.run(
-        &["bilibili", "unread", "-f", "json", "--window", "background"],
-        Duration::from_secs(45),
-    )?;
-    let value = parse_json(&output)?;
+pub fn collect(program: &Path) -> Result<BTreeMap<String, u64>, String> {
+    // Run the configured executable through the common process SDK.
+    let output = ProcessExecutor
+        .run(
+            ProcessSpec::new(program)
+                .args(["bilibili", "unread", "-f", "json", "--window", "background"])
+                .timeout(Duration::from_secs(45)),
+        )
+        .map_err(|error| format!("OpenCLI process failed: {error}"))?;
+    if !output.success() {
+        return Err(format!(
+            "OpenCLI unread command failed ({}): {}",
+            output.status.code().unwrap_or(-1),
+            output.stderr_text().trim()
+        ));
+    }
+    let value: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("OpenCLI returned invalid JSON: {error}"))?;
     parse_counts(&value)
+}
+
+pub fn is_installed(program: &Path) -> Result<bool, String> {
+    let output = ProcessExecutor
+        .run(
+            ProcessSpec::new(program)
+                .args(["plugin", "list"])
+                .timeout(Duration::from_secs(20)),
+        )
+        .map_err(|error| format!("OpenCLI process failed: {error}"))?;
+    if !output.success() {
+        return Err(format!(
+            "opencli plugin list failed ({}): {}",
+            output.status.code().unwrap_or(-1),
+            output.stderr_text().trim()
+        ));
+    }
+    Ok(output.stdout_text().contains("bilibili-unread"))
 }
 
 pub fn parse_counts(value: &Value) -> Result<BTreeMap<String, u64>, String> {
@@ -59,21 +87,6 @@ pub fn parse_counts(value: &Value) -> Result<BTreeMap<String, u64>, String> {
         return Err("OpenCLI unread result contained no categories".into());
     }
     Ok(counts)
-}
-
-pub fn is_installed(cli: &OpenCli) -> Result<bool, String> {
-    Ok(plugin_list(cli)?.contains("bilibili-unread"))
-}
-
-fn plugin_list(cli: &OpenCli) -> Result<String, String> {
-    let output = cli.run(&["plugin", "list"], Duration::from_secs(20))?;
-    if output.status != 0 {
-        return Err(format!(
-            "opencli plugin list failed: {}",
-            output.stderr.trim()
-        ));
-    }
-    Ok(output.stdout)
 }
 
 #[cfg(test)]

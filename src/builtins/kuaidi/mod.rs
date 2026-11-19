@@ -7,7 +7,6 @@ use self::{
     poller::{Platform, SyncError},
 };
 use crate::{
-    core::external::opencli::OpenCli,
     extension::{
         Action, Capability, ContributionDescriptor, ContributionKind, ExtensionContext,
         ExtensionId, ExtensionOutput, Notification, NotificationPresentationProvider,
@@ -18,6 +17,7 @@ use crate::{
     ui::declarative::{Overflow, ScrollAxes, WidgetBounds},
 };
 use std::{
+    path::PathBuf,
     sync::mpsc::{self, Receiver, TryRecvError},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -124,12 +124,8 @@ impl KuaidiExtension {
         };
         let (sender, results) = mpsc::channel();
         let worker = tasks.spawn("kuaidi-sync", move |cancel| {
-            let cli = OpenCli::resolve(None)
-                .map_err(|_| SyncError::OpenCli)
-                .and_then(|cli| {
-                    poller::check_plugin(&cli)?;
-                    Ok(cli)
-                });
+            let program = PathBuf::from("opencli");
+            let cli = poller::check_plugin(&program).map(|()| program);
 
             if cancel.is_cancelled() {
                 return;
@@ -139,7 +135,7 @@ impl KuaidiExtension {
                     break;
                 }
                 let result = match &cli {
-                    Ok(cli) => platform.collect(cli),
+                    Ok(program) => platform.collect(program),
                     Err(error) => Err(*error),
                 };
                 if sender.send((platform, result)).is_err() {
