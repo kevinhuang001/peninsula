@@ -127,18 +127,24 @@ impl KuaidiExtension {
             let cli = OpenCli::resolve(None)
                 .map_err(|_| SyncError::OpenCli)
                 .and_then(|cli| {
-                    poller::check_plugin(&cli)?;
+                    poller::check_plugin(&cli, &cancel)?;
                     Ok(cli)
                 });
 
+            if cancel.is_cancelled() {
+                return;
+            }
             for platform in Platform::ALL {
                 if cancel.is_cancelled() {
                     break;
                 }
                 let result = match &cli {
-                    Ok(cli) => platform.collect(cli),
+                    Ok(cli) => platform.collect(cli, &cancel),
                     Err(error) => Err(*error),
                 };
+                if cancel.is_cancelled() {
+                    break;
+                }
                 if sender.send((platform, result)).is_err() {
                     break;
                 }

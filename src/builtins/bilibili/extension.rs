@@ -83,12 +83,14 @@ impl BilibiliExtension {
                         return;
                     }
                 };
-                if let Err(error) = ensure_opencli_plugin(&cli, storage.data()) {
-                    let _ = sender.send(PollMessage::Error(error));
+                if let Err(error) = ensure_opencli_plugin(&cli, storage.data(), &cancel) {
+                    if !cancel.is_cancelled() {
+                        let _ = sender.send(PollMessage::Error(error));
+                    }
                     return;
                 }
                 while !cancel.is_cancelled() {
-                    match poller::collect(&cli) {
+                    match poller::collect(&cli, &cancel) {
                         Ok(counts) => {
                             let increases = state.observe(counts);
                             let save_error = state.save_storage(&state_storage).err();
@@ -108,6 +110,9 @@ impl BilibiliExtension {
                             backoff = poll_interval;
                         }
                         Err(error) => {
+                            if cancel.is_cancelled() {
+                                break;
+                            }
                             let _ = sender.send(PollMessage::Error(error));
                             backoff = (backoff * 2).min(Duration::from_secs(600));
                         }
@@ -395,14 +400,19 @@ fn opencli_version_supported(version: &str) -> bool {
 fn ensure_opencli_plugin(
     cli: &OpenCli,
     storage: &crate::sdk::storage::StorageArea,
+    cancellation: &crate::sdk::tasks::CancellationToken,
 ) -> Result<(), String> {
-    let version = cli.version(Duration::from_secs(20))?;
+    let version = cli.version_with_cancellation(Duration::from_secs(20), cancellation)?;
     if !opencli_version_supported(&version) {
         return Err(format!("OpenCLI >=2.0.0 is required, found {version}"));
     }
 
-    if poller::is_installed(cli)? {
-        let update = cli.run(&["plugin", "update", PLUGIN_NAME], Duration::from_secs(120))?;
+    if poller::is_installed_with_cancellation(cli, cancellation)? {
+        let update = cli.run_with_cancellation(
+            &["plugin", "update", PLUGIN_NAME],
+            Duration::from_secs(120),
+            cancellation,
+        )?;
         if update.status != 0 {
             return Err(format!(
                 "unable to update OpenCLI plugin {PLUGIN_NAME}: {}",
@@ -410,9 +420,10 @@ fn ensure_opencli_plugin(
             ));
         }
     } else {
-        let install = cli.run(
+        let install = cli.run_with_cancellation(
             &["plugin", "install", PLUGIN_SPEC],
             Duration::from_secs(120),
+            cancellation,
         )?;
         if install.status != 0 {
             return Err(format!(
@@ -424,7 +435,7 @@ fn ensure_opencli_plugin(
             .write_bytes("managed-unread-plugin", b"Peninsula-managed\n")
             .map_err(|error| error.to_string())?;
     }
-    if !poller::is_installed(cli)? {
+    if !poller::is_installed_with_cancellation(cli, cancellation)? {
         return Err(format!("OpenCLI did not register {PLUGIN_NAME}"));
     }
     Ok(())

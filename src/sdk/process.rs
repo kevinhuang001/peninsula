@@ -168,11 +168,19 @@ impl ProcessExecutor {
             })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         let mut child = command
             .spawn()
             .map_err(|error| ProcessError::Spawn(error.to_string()))?;
         if let Some(input) = spec.stdin {
-            write_stdin(&mut child, input)?;
+            if let Err(error) = write_stdin(&mut child, input) {
+                let _ = terminate(&mut child);
+                return Err(error);
+            }
         }
         let stdout = child
             .stdout
@@ -291,6 +299,20 @@ fn drain(
     let _ = sender.send(Message::Done);
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn terminate(child: &mut Child) -> io::Result<()> {
+    let process_group = -(child.id() as i32);
+    let result = unsafe { libc::kill(process_group, libc::SIGKILL) };
+    if result == -1 {
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::NotFound {
+            child.kill()?;
+        }
+    }
+    child.wait().map(|_| ())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn terminate(child: &mut Child) -> io::Result<()> {
     child.kill()?;
     child.wait().map(|_| ())
