@@ -1,6 +1,5 @@
 use super::parcels::Parcel;
 use crate::core::external::opencli::OpenCli;
-use crate::sdk::tasks::CancellationToken;
 use serde_json::Value;
 use std::{collections::HashSet, time::Duration};
 
@@ -30,13 +29,9 @@ impl Platform {
         }
     }
 
-    pub fn collect(
-        self,
-        cli: &OpenCli,
-        cancellation: &CancellationToken,
-    ) -> Result<Vec<Parcel>, SyncError> {
+    pub fn collect(self, cli: &OpenCli) -> Result<Vec<Parcel>, SyncError> {
         let result = cli
-            .run_browser_with_cancellation(
+            .run_browser(
                 &[
                     "kuaidi",
                     self.command(),
@@ -50,7 +45,6 @@ impl Platform {
                     "json",
                 ],
                 Duration::from_secs(240),
-                cancellation,
             )
             .map_err(|_| SyncError::Query)?;
         let value = serde_json::from_str(&result.stdout).ok();
@@ -102,12 +96,9 @@ fn parse_rows(mut value: Value) -> Result<Vec<Parcel>, SyncError> {
     Ok(parcels)
 }
 
-pub(super) fn check_plugin(
-    cli: &OpenCli,
-    cancellation: &CancellationToken,
-) -> Result<(), SyncError> {
+pub(super) fn check_plugin(cli: &OpenCli) -> Result<(), SyncError> {
     let output = cli
-        .run_with_cancellation(&["plugin", "list"], Duration::from_secs(20), cancellation)
+        .run(&["plugin", "list"], Duration::from_secs(20))
         .map_err(|_| SyncError::OpenCli)?;
     if output.status != 0 {
         return Err(SyncError::OpenCli);

@@ -1,10 +1,8 @@
-use crate::sdk::tasks::CancellationToken;
 use std::{
     env,
     ffi::{OsStr, OsString},
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock, TryLockError},
-    thread,
+    sync::{Mutex, OnceLock},
     time::Duration,
 };
 
@@ -53,12 +51,8 @@ impl OpenCli {
             })
     }
 
-    pub fn version_with_cancellation(
-        &self,
-        timeout: Duration,
-        cancellation: &CancellationToken,
-    ) -> Result<String, String> {
-        let output = self.run_with_cancellation(&["--version"], timeout, cancellation)?;
+    pub fn version(&self, timeout: Duration) -> Result<String, String> {
+        let output = self.run(&["--version"], timeout)?;
         if output.status != 0 {
             return Err(command_error("opencli --version", &output));
         }
@@ -66,29 +60,14 @@ impl OpenCli {
     }
 
     pub fn run(&self, args: &[&str], timeout: Duration) -> Result<CommandOutput, String> {
-        self.run_with_cancellation(args, timeout, &CancellationToken::default())
+        self.run_with_browser_timeout(args, timeout, None)
     }
 
-    pub fn run_with_cancellation(
-        &self,
-        args: &[&str],
-        timeout: Duration,
-        cancellation: &CancellationToken,
-    ) -> Result<CommandOutput, String> {
-        self.run_with_browser_timeout(args, timeout, None, cancellation)
-    }
-
-    pub fn run_browser_with_cancellation(
-        &self,
-        args: &[&str],
-        timeout: Duration,
-        cancellation: &CancellationToken,
-    ) -> Result<CommandOutput, String> {
+    pub fn run_browser(&self, args: &[&str], timeout: Duration) -> Result<CommandOutput, String> {
         self.run_with_browser_timeout(
             args,
             timeout,
             Some(timeout.saturating_sub(Duration::from_secs(10))),
-            cancellation,
         )
     }
 
@@ -97,21 +76,11 @@ impl OpenCli {
         args: &[&str],
         timeout: Duration,
         browser_timeout: Option<Duration>,
-        cancellation: &CancellationToken,
     ) -> Result<CommandOutput, String> {
-        let lock = CLI_LOCK.get_or_init(|| Mutex::new(()));
-        let _guard = loop {
-            if cancellation.is_cancelled() {
-                return Err("OpenCLI execution cancelled".into());
-            }
-            match lock.try_lock() {
-                Ok(guard) => break guard,
-                Err(TryLockError::WouldBlock) => thread::sleep(Duration::from_millis(25)),
-                Err(TryLockError::Poisoned(_)) => {
-                    return Err("OpenCLI execution lock poisoned".into());
-                }
-            }
-        };
+        let _guard = CLI_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|_| "OpenCLI execution lock poisoned".to_owned())?;
         let mut command = crate::sdk::process::ProcessSpec::new(self.executable.clone())
             .args(args.iter().copied())
             .timeout(timeout)
@@ -137,7 +106,7 @@ impl OpenCli {
             );
         }
         let output = crate::sdk::process::ProcessExecutor
-            .run_with(command, cancellation, |_, _| {})
+            .run(command)
             .map_err(|error| format!("OpenCLI process failed: {error}"))?;
         Ok(CommandOutput {
             stdout: output.stdout_text(),
