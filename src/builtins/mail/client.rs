@@ -257,17 +257,31 @@ fn detect_verification_code(raw: &[u8]) -> Option<String> {
         .headers
         .get_first_value("Subject")
         .unwrap_or_default();
-    let body = extract_text(&parsed);
-    super::otp::detect(&subject, &body)
-}
-
-fn extract_text(message: &ParsedMail<'_>) -> String {
+    let from = parsed.headers.get_first_value("From").unwrap_or_default();
     let mut text = String::new();
-    collect_text(message, &mut text);
-    text
+    let mut html = String::new();
+    collect_otp_content(&parsed, &mut text, &mut html);
+    if text.trim().is_empty() && !html.trim().is_empty() {
+        text = super::otp::html_to_text(&html);
+    }
+    let input = super::otp::Input {
+        subject: &subject,
+        text: &text,
+        html: (!html.is_empty()).then_some(html.as_str()),
+        from: &from,
+        promotional: false,
+    };
+    // Detection is best-effort; a malformed email must not terminate the IMAP worker.
+    let detection = match std::panic::catch_unwind(|| super::otp::detect(&input)) {
+        Ok(Some(detection)) => detection,
+        _ => return None,
+    };
+    (detection.kind == super::otp::Kind::Code
+        && detection.confidence >= super::otp::TOAST_THRESHOLD)
+        .then_some(detection.value)
 }
 
-fn collect_text(part: &ParsedMail<'_>, text: &mut String) {
+fn collect_otp_content(part: &ParsedMail<'_>, text: &mut String, html: &mut String) {
     if part
         .headers
         .get_first_value("Content-Disposition")
@@ -277,7 +291,7 @@ fn collect_text(part: &ParsedMail<'_>, text: &mut String) {
     }
     if !part.subparts.is_empty() {
         for child in &part.subparts {
-            collect_text(child, text);
+            collect_otp_content(child, text, html);
         }
         return;
     }
@@ -288,43 +302,12 @@ fn collect_text(part: &ParsedMail<'_>, text: &mut String) {
         return;
     };
     if part.ctype.mimetype == "text/html" {
-        text.push_str(&html_text(&body));
+        html.push_str(&body);
+        html.push('\n');
     } else {
         text.push_str(&body);
+        text.push('\n');
     }
-    text.push('\n');
-}
-
-fn html_text(html: &str) -> String {
-    let mut text = String::with_capacity(html.len());
-    let mut in_tag = false;
-    let mut tag = String::new();
-    for character in html.chars() {
-        match character {
-            '<' if !in_tag => {
-                in_tag = true;
-                tag.clear();
-            }
-            '>' if in_tag => {
-                let normalized_tag = tag.trim().to_ascii_lowercase();
-                let name = normalized_tag
-                    .trim_start_matches('/')
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or("");
-                if matches!(name, "br" | "p" | "div" | "li" | "tr" | "hr" | "h1" | "h2" | "h3") {
-                    text.push('\n');
-                } else {
-                    text.push(' ');
-                }
-                in_tag = false;
-            }
-            _ if in_tag => tag.push(character),
-            '&' => text.push(' '),
-            _ => text.push(character),
-        }
-    }
-    text
 }
 
 fn extract_body(message: &ParsedMail<'_>) -> String {
