@@ -7,7 +7,8 @@
 - 采用岛仔同类的透明眼睛、嘴巴表情序列，自动播放眨眼、张望、害羞等动作；点击可切换，胶囊可自由拖动。
 - 收起态默认显示表情和电池；鼠标停留约 0.18 秒后弹簧展开，移开后延迟收起。
 - 展开后默认进入固定在第一页的通知中心；通知为空时显示空状态，通知较多时可分页查看并逐条清除。
-- 性能监控、番茄钟和快递作为普通 Widget 页面提供，按 Registry 顺序切换。
+- 性能监控、番茄钟、快递、市场行情和其他扩展作为普通 Widget 页面提供，按 Registry 顺序切换。
+- 市场 Widget 将股票与加密资产放在同一张自选表格中，显示公司/币种 Logo、最新报价和 24 小时涨跌；可直接在 Widget 里添加代码。
 - 显示系统电量和充电状态。
 - Linux / Windows 播放音乐时，收起态和展开态歌词都按实际文字宽度单行显示，最大宽度为 4096 个逻辑像素；收起态音符紧贴歌词，音响图标随播放抖动、暂停静止。
 - 监听 Chromium 系浏览器、Firefox 和 macOS Safari 的下载；可在设置中启用收起态进度，完成后展开并提供打开文件和显示所在位置的操作。
@@ -36,6 +37,8 @@ opencli plugin install github:kevinhuang001/opencli-kuaidi
 天气页显示当前温度、体感温度、日出日落、湿度、风、降水概率和紫外线。逐小时折线图从所选城市的下一整点开始，显示未来五小时的气温和天气图标。未来七天的最高温和最低温曲线也在天气页中。收起态显示天气图标与当前温度。地点、更新间隔和风险提醒可在「设置 → 天气」调整。更新间隔为 1–180 分钟，默认 10 分钟。天气图标使用 MIT 许可的静态 SVG。[Bas Milius 的 Meteocons](https://github.com/basmilius/meteocons)
 
 天气数据由 [Open-Meteo](https://open-meteo.com/) 提供。极端天气提醒使用预测值与阈值比较。阈值设计参考 [schlpbch/open-meteo-mcp-rust 的 `get_weather_alerts`](https://github.com/schlpbch/open-meteo-mcp-rust/blob/f0b84f5ab954de3c6a2a79bc83a9def53c3b43c5/src/tools/alerts.rs)（Apache-2.0）。Peninsula 使用逐小时和逐日预报生成提示，参考项目提供了参数和默认阈值。
+
+股票最新报价来自 Yahoo Finance，加密资产报价和公司/币种 Logo 分别来自 Coinbase Exchange、TradingView 与 CoinGecko。行情在本机显示并每 30 秒刷新；报价可用性和延迟取决于上游数据源。
 
 展开态固定按钮左侧的仪表盘按钮会打开一个独立窗口，按屏幕空间排列所有 Widget。展开 Widget 的最小宽度为屏幕宽度的 25%，最小高度为屏幕高度的 160/900。较小的内容会在展开区域内居中。
 
@@ -76,7 +79,7 @@ CI 会在 macOS、Windows 和 Linux 上运行测试并构建 release。
 
 - `src/extension/` 定义扩展 ID、版本化描述、生命周期 Hook、Widget/Compact 视图数据、通知视图和操作契约；Hook 状态持久化在用户数据目录。
 - `src/core/` 管理扩展调度、操作分发、通知待处理状态和提醒展示队列。提醒关闭或超时不会清除通知；确认、扩展操作和逐条/全部清理会将其标记为已处理。
-- `src/builtins/` 注册 Download、Performance、Pomodoro、Bilibili 通知及表情和时钟 Compact。性能 Widget 与 Compact 共用一个采样器快照；番茄钟使用 Core Deadline 调度，并保存专注/休息时长。
+- `src/builtins/` 注册 Download、Market、Performance、Pomodoro、Bilibili 通知及表情和时钟 Compact。性能 Widget 与 Compact 共用一个采样器快照；番茄钟使用 Core Deadline 调度，并保存专注/休息时长。
 - `src/core/external/opencli.rs` 负责检测并执行系统 OpenCLI；`integrations/opencli/peninsula-bilibili/` 提供私信与收到的赞只读命令。
 - `src/app/` 管理胶囊外壳、设置面板、页面切换和窗口行为。
 

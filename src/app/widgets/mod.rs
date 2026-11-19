@@ -85,6 +85,7 @@ mod tests {
                 "builtin.weather/forecast",
                 #[cfg(any(target_os = "linux", target_os = "windows"))]
                 "builtin.music/now-playing",
+                "builtin.market/overview",
                 "builtin.health/overview",
                 "builtin.rss/reader",
             ]

@@ -4,6 +4,7 @@ mod clock;
 pub mod download;
 mod health;
 pub mod kuaidi;
+mod market;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 mod music;
 pub mod performance;
@@ -61,6 +62,7 @@ pub fn runtimes() -> Vec<Box<dyn RuntimeExtension>> {
         Box::new(pomodoro::PomodoroExtension::default()),
         Box::new(health::HealthExtension::default()),
         Box::new(rss::RssExtension::default()),
+        Box::new(market::MarketExtension::new()),
         Box::new(bilibili::BilibiliExtension::default()),
         Box::new(kuaidi::KuaidiExtension::default()),
         Box::new(weather::WeatherExtension::new(

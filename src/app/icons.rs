@@ -18,6 +18,7 @@ pub(crate) enum Icon {
     Settings,
     Battery,
     BatteryCharging,
+    Chart,
     Cpu,
     Gpu,
     ArrowDown,
@@ -228,6 +229,24 @@ impl Icons {
             paint_cpu(painter, rect, color.linear_multiply(opacity));
             return;
         }
+        if matches!(icon, Icon::Chart) {
+            let origin = rect.min;
+            let unit = rect.width().min(rect.height()) / 24.0;
+            let point = |x: f32, y: f32| origin + Vec2::new(x, y) * unit;
+            let stroke = Stroke::new(1.7 * unit, color.linear_multiply(opacity));
+            painter.line_segment([point(3.0, 3.0), point(3.0, 21.0)], stroke);
+            painter.line_segment([point(3.0, 21.0), point(21.0, 21.0)], stroke);
+            painter.add(egui::Shape::line(
+                vec![
+                    point(5.0, 16.0),
+                    point(10.0, 11.0),
+                    point(14.0, 14.0),
+                    point(20.0, 6.0),
+                ],
+                stroke,
+            ));
+            return;
+        }
         if matches!(icon, Icon::Gpu) {
             paint_gpu(painter, rect, color.linear_multiply(opacity));
             return;
@@ -317,6 +336,7 @@ impl Icons {
             Icon::Battery => &self.battery,
             Icon::BatteryCharging => &self.battery_charging,
             Icon::Cpu
+            | Icon::Chart
             | Icon::Gpu
             | Icon::Bell
             | Icon::Dashboard

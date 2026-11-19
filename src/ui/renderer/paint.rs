@@ -97,6 +97,7 @@ fn named_icon(name: &str) -> Option<Icon> {
         "battery" => Icon::Battery,
         "battery-charging" => Icon::BatteryCharging,
         "cpu" => Icon::Cpu,
+        "chart" => Icon::Chart,
         "gpu" => Icon::Gpu,
         "clock" => Icon::Clock,
         "moon" => Icon::Moon,
