@@ -1,14 +1,14 @@
 use super::feed::{article_html, Article};
 
 #[cfg(target_os = "macos")]
-pub(super) struct Reader {
+pub(crate) struct Reader {
     window: objc2::rc::Retained<objc2_app_kit::NSWindow>,
     webview: objc2::rc::Retained<objc2_web_kit::WKWebView>,
 }
 
 #[cfg(target_os = "macos")]
 impl Reader {
-    pub fn new() -> Result<Self, String> {
+    pub(crate) fn new() -> Result<Self, String> {
         use objc2_app_kit::{
             NSAutoresizingMaskOptions, NSBackingStoreType, NSStatusWindowLevel, NSView, NSWindow,
             NSWindowStyleMask,
@@ -56,11 +56,11 @@ impl Reader {
         Ok(Self { window, webview })
     }
 
-    pub fn is_closed(&self) -> bool {
+    pub(crate) fn is_closed(&self) -> bool {
         !self.window.isVisible()
     }
 
-    pub fn show(&self, article: &Article, source: &str) -> Result<(), String> {
+    pub(super) fn show(&self, article: &Article, source: &str) -> Result<(), String> {
         use objc2_foundation::{NSString, NSURLRequest, NSURL};
 
         self.window.setTitle(&NSString::from_str(&article.title));
@@ -88,6 +88,21 @@ impl Reader {
         }
         Ok(())
     }
+
+    pub(crate) fn show_html(&self, title: &str, html: &str) -> Result<(), String> {
+        use objc2_foundation::NSString;
+
+        self.window.setTitle(&NSString::from_str(title));
+        unsafe {
+            self.window.makeKeyAndOrderFront(None);
+            self.webview.layoutSubtreeIfNeeded();
+            self.webview
+                .loadHTMLString_baseURL(&NSString::from_str(html), None);
+            self.webview.setNeedsDisplay(true);
+            self.window.displayIfNeeded();
+        }
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -101,23 +116,23 @@ impl Drop for Reader {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(super) struct Reader {
+pub(crate) struct Reader {
     directory: tempfile::TempDir,
 }
 
 #[cfg(not(target_os = "macos"))]
 impl Reader {
-    pub fn is_closed(&self) -> bool {
+    pub(crate) fn is_closed(&self) -> bool {
         false
     }
 
-    pub fn new() -> Result<Self, String> {
+    pub(crate) fn new() -> Result<Self, String> {
         Ok(Self {
             directory: tempfile::tempdir().map_err(|error| error.to_string())?,
         })
     }
 
-    pub fn show(&self, article: &Article, source: &str) -> Result<(), String> {
+    pub(super) fn show(&self, article: &Article, source: &str) -> Result<(), String> {
         if article.body.trim().is_empty() {
             return webbrowser::open(
                 article
@@ -130,6 +145,13 @@ impl Reader {
         let path = self.directory.path().join("article.html");
         std::fs::write(&path, article_html(article, source)).map_err(|error| error.to_string())?;
         let url = url::Url::from_file_path(path).map_err(|_| "无法创建阅读链接")?;
+        webbrowser::open(url.as_str()).map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn show_html(&self, _title: &str, html: &str) -> Result<(), String> {
+        let path = self.directory.path().join("email.html");
+        std::fs::write(&path, html).map_err(|error| error.to_string())?;
+        let url = url::Url::from_file_path(path).map_err(|_| "无法创建邮件阅读链接")?;
         webbrowser::open(url.as_str()).map_err(|error| error.to_string())
     }
 }

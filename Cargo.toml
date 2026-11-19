@@ -24,10 +24,15 @@ tempfile = "3"
 time = { version = "0.3", features = ["local-offset"] }
 reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "rustls-tls-native-roots", "socks", "system-proxy"] }
 feed-rs = { version = "3", features = ["sanitize"] }
+ammonia = "4.2.5"
+imap = "2.4.1"
+mailparse = "0.15"
+native-tls = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
 zbus = { version = "5", default-features = true }
+keyring = { version = "3.6.3", default-features = false, features = ["linux-native-sync-persistent", "crypto-rust", "vendored"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [
@@ -44,6 +49,7 @@ windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Storage_FileSystem",
 ] }
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
@@ -57,6 +63,7 @@ objc2-app-kit = { version = "0.2.2", default-features = false, features = ["NSBi
 objc2-foundation = { version = "0.2.2", default-features = false, features = ["NSGeometry"] }
 plist = "1"
 objc2-web-kit = { version = "0.2.2", default-features = false, features = ["objc2-app-kit", "WKWebView", "WKWebViewConfiguration", "WKNavigation", "WKPreferences", "WKWebpagePreferences"] }
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
 
 [dev-dependencies]
 base64 = "0.22"

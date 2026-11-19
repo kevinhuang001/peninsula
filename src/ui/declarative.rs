@@ -474,6 +474,11 @@ pub enum Node {
         value: String,
         hint: String,
     },
+    PasswordInput {
+        key: String,
+        value: String,
+        hint: String,
+    },
     Slider {
         fraction: f32,
         label: String,

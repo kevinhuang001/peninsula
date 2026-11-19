@@ -25,6 +25,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "aes"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
+dependencies = [
+ "cfg-if",
+ "cipher",
+ "cpufeatures 0.2.17",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -117,6 +128,12 @@ name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
+
+[[package]]
+name = "arrayvec"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23b62fc65de8e4e7f52534fb52b0f3ed04746ae267519eef2a83941e8085068b"
 
 [[package]]
 name = "arrayvec"
@@ -284,6 +301,12 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "base64"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
+
+[[package]]
+name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
@@ -311,7 +334,7 @@ dependencies = [
  "lazycell",
  "libc",
  "mach",
- "nix",
+ "nix 0.19.1",
  "num-traits",
  "uom",
  "winapi",
@@ -354,6 +377,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a"
 
 [[package]]
+name = "block-buffer"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
+dependencies = [
+ "generic-array",
+]
+
+[[package]]
+name = "block-padding"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8894febbff9f758034a5b8e12d87918f56dfc64a8e1fe757d65e29041538d93"
+dependencies = [
+ "generic-array",
+]
+
+[[package]]
 name = "block2"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -374,6 +415,12 @@ dependencies = [
  "futures-lite",
  "piper",
 ]
+
+[[package]]
+name = "bufstream"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40e38929add23cdf8a366df9b0e088953150724bcbe5fc330b0d8eb3b328eec8"
 
 [[package]]
 name = "bumpalo"
@@ -400,6 +447,12 @@ dependencies = [
  "quote",
  "syn 3.0.10",
 ]
+
+[[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "byteorder-lite"
@@ -464,6 +517,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cbc"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26b52a9543ae338f279b96b0b9fed9c8093744685043739079ce85cd58f289a6"
+dependencies = [
+ "cipher",
+]
+
+[[package]]
 name = "cc"
 version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -503,8 +565,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.3.1",
  "rand_core 0.10.1",
+]
+
+[[package]]
+name = "charset"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1f927b07c74ba84c7e5fe4db2baeb3e996ab2688992e39ac68ce3220a677c7e"
+dependencies = [
+ "base64 0.22.1",
+ "encoding_rs",
 ]
 
 [[package]]
@@ -515,550 +587,7 @@ checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
  "js-sys",
- "num-traits",
- "serde",
- "wasm-bindgen",
- "windows-link",
-]
-
-[[package]]
-name = "clipboard-win"
-version = "5.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "052af7878466feccda12ba7a6a67d019d712f296809559b47c12c8cc196d3a9a"
-dependencies = [
- "error-code",
-]
-
-[[package]]
-name = "codespan-reporting"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3538270d33cc669650c4b093848450d380def10c331d38c768e34cac80576e6e"
-dependencies = [
- "termcolor",
- "unicode-width",
-]
-
-[[package]]
-name = "combine"
-version = "4.6.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4356eba6976435498d05a311ee9fc486da3bc81c200d3f0d7dd9703b41913f92"
-dependencies = [
- "bytes",
- "memchr",
-]
-
-[[package]]
-name = "concurrent-queue"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
-name = "core-foundation"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57d24c7a13c43e870e37c1556b74555437870a04514f7685f5b354e090567171"
-dependencies = [
- "core-foundation-sys 0.7.0",
- "libc",
-]
-
-[[package]]
-name = "core-foundation"
-version = "0.9.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e195e091a93c46f7102ec7818a2aa394e1e1771c3ab4825963fa03e45afb8f"
-dependencies = [
- "core-foundation-sys 0.8.7",
- "libc",
-]
-
-[[package]]
-name = "core-foundation"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2a6cd9ae233e7f62ba4e9353e81a88df7fc8a5987b8d445b4d90c879bd156f6"
-dependencies = [
- "core-foundation-sys 0.8.7",
- "libc",
-]
-
-[[package]]
-name = "core-foundation-sys"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3a71ab494c0b5b860bdc8407ae08978052417070c2ced38573a9157ad75b8ac"
-
-[[package]]
-name = "core-foundation-sys"
-version = "0.8.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
-
-[[package]]
-name = "core-graphics"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c07782be35f9e1140080c6b96f0d44b739e2278479f64e02fdab4e32dfd8b081"
-dependencies = [
- "bitflags 1.3.2",
- "core-foundation 0.9.4",
- "core-graphics-types",
- "foreign-types",
- "libc",
-]
-
-[[package]]
-name = "core-graphics-types"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45390e6114f68f718cc7a830514a96f903cccd70d02a8f6d9f643ac4ba45afaf"
-dependencies = [
- "bitflags 1.3.2",
- "core-foundation 0.9.4",
- "libc",
-]
-
-[[package]]
-name = "core_detect"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
-
-[[package]]
-name = "cpufeatures"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "crc32fast"
-version = "1.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b929dd2a135771f40afabd1073f85eed59c800b7c61901e5c254270497dad64"
-dependencies = [
- "cfg-if",
-]
-
-[[package]]
-name = "crossbeam-deque"
-version = "0.8.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "622f3fc73690be383c7214310406f28a90e6edeadc3cea882f9d71e495b9711a"
-dependencies = [
- "crossbeam-epoch",
- "crossbeam-utils",
-]
-
-[[package]]
-name = "crossbeam-epoch"
-version = "0.9.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc74980687109a3b14c72fd458107bf0baa1da1a1a805e178d15501ba9b86d9d"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
-name = "crossbeam-utils"
-version = "0.8.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
-
-[[package]]
-name = "crunchy"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
-
-[[package]]
-name = "cssparser"
-version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11119743ad110e8c1bdccd930d7f5c30c99e5fc76a7b63ec9807e84eef0c5f59"
-dependencies = [
- "dtoa-short",
- "itoa",
- "smallvec",
-]
-
-[[package]]
-name = "cursor-icon"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
-
-[[package]]
-name = "data-url"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
-
-[[package]]
-name = "deranged"
-version = "0.5.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
-
-[[package]]
-name = "dispatch"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd0c93bb4b0c6d9b77f4435b0ae98c24d17f1c45b2ff844c6151a07256ca923b"
-
-[[package]]
-name = "dispatch2"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
-dependencies = [
- "bitflags 2.13.2",
- "objc2 0.6.5",
-]
-
-[[package]]
-name = "displaydoc"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.10",
-]
-
-[[package]]
-name = "dlib"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
-dependencies = [
- "libloading",
-]
-
-[[package]]
-name = "document-features"
-version = "0.2.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4b8a88685455ed29a21542a33abd9cb6510b6b129abadabdcef0f4c55bc8f61"
-dependencies = [
- "litrs",
-]
-
-[[package]]
-name = "downcast-rs"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
-
-[[package]]
-name = "dpi"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
-
-[[package]]
-name = "dtoa"
-version = "1.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c3cf4824e2d5f025c7b531afcb2325364084a16806f6d47fbc1f5fbd9960590"
-
-[[package]]
-name = "dtoa-short"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87"
-dependencies = [
- "dtoa",
-]
-
-[[package]]
-name = "ecolor"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc4feb366740ded31a004a0e4452fbf84e80ef432ecf8314c485210229672fd1"
-dependencies = [
- "bytemuck",
- "emath",
-]
-
-[[package]]
-name = "eframe"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0dfe0859f3fb1bc6424c57d41e10e9093fe938f426b691e42272c2f336d915c"
-dependencies = [
- "ahash",
- "bytemuck",
- "document-features",
- "egui",
- "egui-wgpu",
- "egui-winit",
- "egui_glow",
- "glow",
- "glutin",
- "glutin-winit",
- "image",
- "js-sys",
- "log",
- "objc2 0.5.3",
- "objc2-app-kit 0.2.2",
- "objc2-foundation 0.2.2",
- "parking_lot",
- "percent-encoding",
- "profiling",
- "raw-window-handle",
- "static_assertions",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "web-time",
- "winapi",
- "windows-sys 0.59.0",
- "winit",
-]
-
-[[package]]
-name = "egui"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25dd34cec49ab55d85ebf70139cb1ccd29c977ef6b6ba4fe85489d6877ee9ef3"
-dependencies = [
- "ahash",
- "bitflags 2.13.2",
- "emath",
- "epaint",
- "log",
- "nohash-hasher",
- "profiling",
-]
-
-[[package]]
-name = "egui-wgpu"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d319dfef570f699b6e9114e235e862a2ddcf75f0d1a061de9e1328d92146d820"
-dependencies = [
- "ahash",
- "bytemuck",
- "document-features",
- "egui",
- "epaint",
- "log",
- "profiling",
- "thiserror 1.0.69",
- "type-map",
- "web-time",
- "wgpu",
- "winit",
-]
-
-[[package]]
-name = "egui-winit"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d9dfbb78fe4eb9c3a39ad528b90ee5915c252e77bbab9d4ebc576541ab67e13"
-dependencies = [
- "ahash",
- "arboard",
- "bytemuck",
- "egui",
- "log",
- "profiling",
- "raw-window-handle",
- "smithay-clipboard",
- "web-time",
- "webbrowser",
- "winit",
-]
-
-[[package]]
-name = "egui_extras"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "624659a2e972a46f4d5f646557906c55f1cd5a0836eddbe610fdf1afba1b4226"
-dependencies = [
- "ahash",
- "egui",
- "enum-map",
- "log",
- "mime_guess2",
- "profiling",
- "resvg",
-]
-
-[[package]]
-name = "egui_glow"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "910906e3f042ea6d2378ec12a6fd07698e14ddae68aed2d819ffe944a73aab9e"
-dependencies = [
- "ahash",
- "bytemuck",
- "egui",
- "glow",
- "log",
- "memoffset",
- "profiling",
- "wasm-bindgen",
- "web-sys",
- "winit",
-]
-
-[[package]]
-name = "either"
-version = "1.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
-
-[[package]]
-name = "emath"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e4cadcff7a5353ba72b7fea76bf2122b5ebdbc68e8155aa56dfdea90083fe1b"
-dependencies = [
- "bytemuck",
-]
-
-[[package]]
-name = "encoding_rs"
-version = "0.8.44"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89253175e704ab869b04f9db224d38630e0211a53841a79181deae0889e169f5"
-dependencies = [
- "cfg-if",
- "core_detect",
- "multiversion_no_op",
- "rustversion",
- "scopeguard",
- "simdutf8",
-]
-
-[[package]]
-name = "endi"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
-
-[[package]]
-name = "enum-map"
-version = "2.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6866f3bfdf8207509a033af1a75a7b08abda06bbaaeae6669323fd5a097df2e9"
-dependencies = [
- "enum-map-derive",
- "serde",
-]
-
-[[package]]
-name = "enum-map-derive"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f282cfdfe92516eb26c2af8589c274c7c17681f5ecc03c18255fe741c6aa64eb"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "enumflags2"
-version = "0.7.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1027f7680c853e056ebcec683615fb6fbbc07dbaa13b4d5d9442b146ded4ecef"
-dependencies = [
- "enumflags2_derive",
- "serde",
-]
-
-[[package]]
-name = "enumflags2_derive"
-version = "0.7.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "epaint"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41fcc0f5a7c613afd2dee5e4b30c3e6acafb8ad6f0edb06068811f708a67c562"
-dependencies = [
- "ab_glyph",
- "ahash",
- "bytemuck",
- "ecolor",
- "emath",
- "epaint_default_fonts",
- "log",
- "nohash-hasher",
- "parking_lot",
- "profiling",
-]
-
-[[package]]
-name = "epaint_default_fonts"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc7e7a64c02cf7a5b51e745a9e45f60660a286f151c238b9d397b3e923f5082f"
-
-[[package]]
-name = "equivalent"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
-
-[[package]]
-name = "errno"
-version = "0.3.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
-dependencies = [
- "libc",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "error-code"
-version = "3.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b5343afd4a8365a643ac588dab4cf234a190c7f6c88c9f6dd6ffe00837661b7"
-
-[[package]]
-name = "event-listener"
-version = "5.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2"
-dependencies = [
- "parking",
- "pin-project-lite",
-]
-
-[[package]]
-name = "event-listener-strategy"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
-dependencies = [
- "event-listener",
- "pin-project-lite",
-]
-
-[[package]]
-name = "fallible-iterator"
+ "num-traitsm«ëŒ+Š×ž®º+º$zzb¥â"À¢'6W&FR"À¢'v6ÒÖ&–æFvVâ"À¢'v–æF÷w2ÖÆ–æ²"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&6—†W" §fW'6–öâÒ#ãBãB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#ss6c6#–ccCCCvC&6S“ƒS333Cs3SSF#3VSfsƒ6#&F#ƒfc3–SF6FB ¦FWVæFVæ6–W2Ò°¢&7'—FòÖ6öÖÖöâ"À¢&–æ÷WB"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&6Æ—&ö&B×v–â §fW'6–öâÒ#RãBã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#S&csƒsƒCcffV66F&&vfcvC–Cs&c#“cƒ“SS–#Cv3&3†63“fC6– ¦FWVæFVæ6–W2Ò°¢&W'&÷"Ö6öFR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&6öFW7â×&W÷'F–ær §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#3S3ƒ#sC3663cc“cS3F#“3ƒCƒCSC3ƒFVc333C3†3sc†S3F63ƒSsfSfR ¦FWVæFVæ6–W2Ò°¢'FW&Ö6öÆ÷""À¢'Væ–6öFR×v–GF‚"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&6öÖ&–æR §fW'6–öâÒ#Bãbã’ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#C3SfV&c“scC3SC“†CV3VS–f3CƒfF6&3ƒ3#C6cCvFC“s6#C“6c“" ¦FWVæFVæ6–W2Ò°¢&'—FW2"À¢&ÖVÖ6‡""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&6öæ7W'&VçB×VWVR §fW'6–öâÒ#"ãRã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#F6“vVS#fCS3sCCVVSS3&fVf6SC3#SC#F63v3ccs“–cFCCcƒvcC3“s2 ¦FWVæFVæ6–W2Ò°¢&7&÷76&VÒ×WF–Ç2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&6÷&RÖf÷VæFF–öâ §fW'6–öâÒ#ãrã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#SvC#F3v63C6SƒsS3v3SSf#sCSSSC3sƒsCSFcscƒVcV#3SFS“Scss ¦FWVæFVæ6–W2Ò°¢&6÷&RÖf÷VæFF–öâ×7—2ãrã"À¢&Æ–&2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&6÷&RÖf÷VæFF–öâ §fW'6–öâÒ#ã’ãB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#“S“VS““63Cfcs&V3sƒ†&3“FSSss36#Cƒ#S“c6f6SCVf#†b ¦FWVæFVæ6–W2Ò°¢&6÷&RÖf÷VæFF–öâ×7—2ã‚ãr"À¢&Æ–&2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&6÷&RÖf÷VæFF–öâ §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#&f6C–S#36Svcc&&FS“3S6Sƒƒ†Fcvf3†S“ƒv#†CCCV#FC“3ƒs–&CSfcb ¦FWVæFVæ6–W2Ò°¢&6÷&RÖf÷VæFF–öâ×7—2ã‚ãr"À¢&Æ–&2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&6÷&RÖf÷VæFF–öâ×7—2 §fW'6–öâÒ#ãrã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#6s#C“F3#V#ƒc&F3ƒCvSƒ“sƒS#Css3&6VC3ƒSs6“SvCsV#†2  ¥µ·6¶vUÕÐ¦æÖRÒ&6÷&RÖf÷VæFF–öâ×7—2 §fW'6–öâÒ#ã‚ãr §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#ss3cC†#“FCSVCc#ccFc#ƒsssCCSsCScfSs#SƒvV3†#SvcCV3s“ƒƒ†"  ¥µ·6¶vUÕÐ¦æÖRÒ&6÷&RÖw&†–72 §fW'6–öâÒ#ã#2ã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&3ssƒ&&S3Vc–SCƒ3f#“fcCCF#s3–S##sƒCs–ccFS&fF#FS3&FfC†#ƒ ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2ã2ã""À¢&6÷&RÖf÷VæFF–öâã’ãB"À¢&6÷&RÖw&†–72×G—W2"À¢&f÷&V–vâ×G—W2ãRã"À¢&Æ–&2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&6÷&RÖw&†–72×G—W2 §fW'6–öâÒ#ãã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#CS3“ScFcc†cs†63vƒ3SF“fc“6666CsC&†cfC–ccC63F&CVfb ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2ã2ã""À¢&6÷&RÖf÷VæFF–öâã’ãB"À¢&Æ–&2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&6÷&UöFWFV7B §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#vc†cƒ“–“ƒC6Cc##ƒCV3#sCS†&Cs6Scƒƒ3S&c66#“““#ccscF#ƒCC‚  ¥µ·6¶vUÕÐ¦æÖRÒ&7VfVGW&W2 §fW'6–öâÒ#ã"ãr §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#S–VCSƒ3†VV&##f&&#&SS†cfCV#S3c“ƒ–S–C†&#SSfC6ScSfC##ƒ ¦FWVæFVæ6–W2Ò°¢&Æ–&2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&7VfVGW&W2 §fW'6–öâÒ#ã2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#V6#†#S3V#ƒƒCccF#C†Cƒ3s“fCcsSf#fSƒ†c3–3c6csƒS“cCsScb ¦FWVæFVæ6–W2Ò°¢&Æ–&2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&7&33&f7B §fW'6–öâÒ#ãRãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#&#“#–FC&3SsscCf&Cs6cƒVVVCS–3ƒ#v3c“SV3#SC#sC“vFCcB ¦FWVæFVæ6–W2Ò°¢&6frÖ–b"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&7&÷76&VÒÖFWVR §fW'6–öâÒ#ã‚ã‚ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#c#&c6f3s3c“&S3ƒ63s#C3Cfc#†“SfVFVF366Vƒƒ&c–CsSC“V#“s ¦FWVæFVæ6–W2Ò°¢&7&÷76&VÒÖWö6‚"À¢&7&÷76&VÒ×WF–Ç2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&7&÷76&VÒÖWö6‚ §fW'6–öâÒ#ã’ã# §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&F3sC“ƒcƒs–6#F3s&fCCSƒv&c&FƒVSs†CSS&–#ƒfC–B ¦FWVæFVæ6–W2Ò°¢&7&÷76&VÒ×WF–Ç2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&7&÷76&VÒ×WF–Ç2 §fW'6–öâÒ#ã‚ã#2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&3VVS3–FFFV3ƒ33ƒ3“ƒff6Csc#VVF#V#FV3“V3ƒ#S#s6&&36F#†3b  ¥µ·6¶vUÕÐ¦æÖRÒ&7'Væ6‡’ §fW'6–öâÒ#ã"ãB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#Ccf&VS–3&3&c33“36Cs#c3f&336&sS6F#S3CFf3ƒS†CF#ƒ“S&CsvCR  ¥µ·6¶vUÕÐ¦æÖRÒ&7'—FòÖ6öÖÖöâ §fW'6–öâÒ#ããr §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#s†3ƒ#“#SVC3Fc66SVCƒ3“6F3†66S&V3s&F#f3v#VVccfCc ¦FWVæFVæ6–W2Ò°¢&vVæW&–2Ö'&’"À¢'G—VçVÒ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&777'6W" §fW'6–öâÒ#ã3‚ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#“sC6CS†3&F66C“3CvcV333“–SVf3sfv#c6V3“ƒvSƒFVVc3VcS’ ¦FWVæFVæ6–W2Ò°¢&GFö×6†÷'B"À¢&—Fö"À¢'6ÖÆÇfV2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&7W'6÷"Ö–6öâ §fW'6–öâÒ#ã"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&c#vSFC3vFcƒc#3C&SS#scƒ#sC33ƒƒ6C“fcfSccS6Cs3CVSs3&b  ¥µ·6¶vUÕÐ¦æÖRÒ&FFÖVæ6öF–ær §fW'6–öâÒ#"ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#CSƒ6CSSFcCfS#s“&cƒ&6VV3CVSƒSC&S&CVFV&&#“c#3ƒV6FV#cb  ¥µ·6¶vUÕÐ¦æÖRÒ&FF×W&Â §fW'6–öâÒ#ã2ã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&&SS&6f33c3vc““&f363v6&3S&s†3VcfF#sfF&cS–3C3#6Cf#Cƒ3sb  ¥µ·6¶vUÕÐ¦æÖRÒ&F'W2 §fW'6–öâÒ#ã’ã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#6#c–c663†3C3C3–3†S3SFScS†ScssV–#fC3Ss“s6#6V3#&#3&R ¦FWVæFVæ6–W2Ò°¢&Æ–&2"À¢&Æ–&F'W2×7—2"À¢'v–æF÷w2×7—2ãcã""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&F'W2×6V7&WB×6W'f–6R §fW'6–öâÒ#Bãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#s†#S–VFcsƒƒ–SS6CvVf#ffFC““F63f3#3CV66#c&cSV6fCf#cƒ#cVSFfb ¦FWVæFVæ6–W2Ò°¢&W2"À¢&&Æö6²×FF–ær"À¢&6&2"À¢&F'W2"À¢&f7G&æB"À¢&†¶Fb"À¢&çVÒ"À¢&öæ6Uö6VÆÂ"À¢&÷Vç76Â"À¢'6†""À¢'¦W&ö—¦R"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&FW&ævVB §fW'6–öâÒ#ãRã’ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–S–FSs&6S&Cc“F3c&f#VccC3VcƒVV#F#C†f&SFc33s6&3C#C#†R  ¥µ·6¶vUÕÐ¦æÖRÒ&F–vW7B §fW'6–öâÒ#ããr §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–VC–#ƒcv&3–#sSsfScCc†&cVcfV3†6fFfcC#C#sƒ#s6#S#“" ¦FWVæFVæ6–W2Ò°¢&&Æö6²Ö'VffW""À¢&7'—FòÖ6öÖÖöâ"À¢'7V'FÆR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&F—7F6‚ §fW'6–öâÒ#ã"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&&C3“6&#F#3fC–#svcCC3V#S“†3#FCvc3CV#&fcƒCF3cSs#Sf6“#6"  ¥µ·6¶vUÕÐ¦æÖRÒ&F—7F6ƒ" §fW'6–öâÒ#ã2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#SS3cvSFSvFƒCS#FVF63“SFF“cs3“CfCSSvS&f#“vF&C3‚ ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢&ö&¦3"ãbãR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&F—7Æ–Fö2 §fW'6–öâÒ#ã"ãr §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&3c#3&FC3svF63cCs“““SF6&C6–&#ƒƒ&S–6F33†66Cƒv#3“†cf#&Vcƒ&‚ ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â2ãã"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&FÆ–" §fW'6–öâÒ#ãRã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#†V6Cƒs3sS#F#CccƒSSv3–3CSSS&33“fVC“f3†VV3cƒcs–V##fc“F ¦FWVæFVæ6–W2Ò°¢&Æ–&ÆöF–ær"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&Fö7VÖVçBÖfVGW&W2 §fW'6–öâÒ#ã"ã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&CF#†ƒƒcƒSCSVVC#–#SC&36&C–6#cS#f##–&F&F6VccF3SV&3†cc ¦FWVæFVæ6–W2Ò°¢&Æ—G'2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&F÷væ67B×'2 §fW'6–öâÒ#ã"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#sV#3#V3VF&C3vcƒ3S“s#C3–6V#–f#F3ƒ“#s“cSv6ffFFƒs3fC3#–C"  ¥µ·6¶vUÕÐ¦æÖRÒ&G’ §fW'6–öâÒ#ãã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&C†#F66Vc#&f3fcV†cFCvCscƒSc&ƒ&3F6S–6#3Sv#“3“#S&FFfFcsb  ¥µ·6¶vUÕÐ¦æÖRÒ&GFö §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#F366cCƒ#FS&CVc#V3v#S3f6##3#S3cCƒFcƒfcfCCvf&3cVf&C““cS“  ¥µ·6¶vUÕÐ¦æÖRÒ&GFö×6†÷'B §fW'6–öâÒ#ã2ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&6CSv#fSc#“–&CC6–3cvfC&&f#3v&cƒFfFf6V&cSc†Ff#C63ƒr ¦FWVæFVæ6–W2Ò°¢&GFö"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&V6öÆ÷" §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&&3FfV#3ccsCFVC3FSCCS&f&cƒFSƒVcC3&V6cƒ3F3CƒS###“cs&fC ¦FWVæFVæ6–W2Ò°¢&'—FV×V6²"À¢&VÖF‚"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&Vg&ÖR §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&CFfSƒS–c6f#&3cC#F3SvCCSS““6fS“3†cC#f#c“SC##s&3&c33fC“V2 ¦FWVæFVæ6–W2Ò°¢&†6‚"À¢&'—FV×V6²"À¢&Fö7VÖVçBÖfVGW&W2"À¢&VwV’"À¢&VwV’×vwR"À¢&VwV’×v–æ—B"À¢&VwV•övÆ÷r"À¢&vÆ÷r"À¢&vÇWF–â"À¢&vÇWF–â×v–æ—B"À¢&–ÖvR"À¢&§2×7—2"À¢&Æör"À¢&ö&¦3"ãRã2"À¢&ö&¦3"ÖÖ¶—Bã"ã""À¢&ö&¦3"Öf÷VæFF–öâã"ã""À¢'&¶–æuöÆ÷B"À¢'W&6VçBÖVæ6öF–ær"À¢'&öf–Æ–ær"À¢'&r×v–æF÷rÖ†æFÆR"À¢'7FF–5ö76W'F–öç2"À¢'v6ÒÖ&–æFvVâ"À¢'v6ÒÖ&–æFvVâÖgWGW&W2"À¢'vV"×7—2"À¢'vV"×F–ÖR"À¢'v–æ’"À¢'v–æF÷w2×7—2ãS’ã"À¢'v–æ—B"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&VwV’ §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##VFC3F6V3C–#SVCƒVV&cs3–6#66C#–3“svVcf#f&FfSƒSCƒ–CcƒsvVS–Vc2 ¦FWVæFVæ6–W2Ò°¢&†6‚"À¢&&—FfÆw2"ã2ã""À¢&VÖF‚"À¢&W–çB"À¢&Æör"À¢&æö†6‚Ö†6†W""À¢'&öf–Æ–ær"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&VwV’×vwR §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&C3–FfVcSscc“–#fS“FS#3VSƒc&&FF6csVcCcFS–S3#†C“#CfCƒ# ¦FWVæFVæ6–W2Ò°¢&†6‚"À¢&'—FV×V6²"À¢&Fö7VÖVçBÖfVGW&W2"À¢&VwV’"À¢&W–çB"À¢&Æör"À¢'&öf–Æ–ær"À¢'F†—6W'&÷"ããc’"À¢'G—RÖÖ"À¢'vV"×F–ÖR"À¢'vwR"À¢'v–æ—B"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&VwV’×v–æ—B §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#vC–Ff&#s†fSFV#–363–CS#†#“VSS“V3#S&Ssv&&#–CFV&3SscSC#cvS2 ¦FWVæFVæ6–W2Ò°¢&†6‚"À¢&&&ö&B"À¢&'—FV×V6²"À¢&VwV’"À¢&Æör"À¢'&öf–Æ–ær"À¢'&r×v–æF÷rÖ†æFÆR"À¢'6Ö—F†’Ö6Æ—&ö&B"À¢'vV"×F–ÖR"À¢'vV&'&÷w6W""À¢'v–æ—B"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&VwV•öW‡G&2 §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#c#CcS–&S“s&CfcFCVccCcSSs“f3SVc6CVƒ3fVFF&ScfFcf&#C##b ¦FWVæFVæ6–W2Ò°¢&†6‚"À¢&VwV’"À¢&VçVÒÖÖ"À¢&Æör"À¢&Ö–ÖUöwVW73""À¢'&öf–Æ–ær"À¢'&W7fr"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&VwV•övÆ÷r §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#““fS6cC&VfC#3s†V3&ffCsc“†SFFFSc†VC&Cƒ–ffS“CFs6#–R ¦FWVæFVæ6–W2Ò°¢&†6‚"À¢&'—FV×V6²"À¢&VwV’"À¢&vÆ÷r"À¢&Æör"À¢&ÖVÖöfg6WB"À¢'&öf–Æ–ær"À¢'v6ÒÖ&–æFvVâ"À¢'vV"×7—2"À¢'v–æ—B"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&V—F†W" §fW'6–öâÒ#ã’ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#S–3s3#cv63#63ƒƒ&#“““ƒ“#“C3C#fS#3s6Vs#C&fcScS6SCVSS†&R  ¥µ·6¶vUÕÐ¦æÖRÒ&VÖF‚ §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–SF6F6fcvS3S6&s&#vfVsf&c##&#VV&F&3c†SƒSVSfFfFV“ƒ6fS" ¦FWVæFVæ6–W2Ò°¢&'—FV×V6²"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&Væ6öF–æu÷'2 §fW'6–öâÒ#ã‚ãCB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#ƒ“#S3sVSsF#ƒc–#Fc–F###FC3ƒc3S#S3ƒCs“ƒFVSƒƒ–Sc–cR ¦FWVæFVæ6–W2Ò°¢&6frÖ–b"À¢&6÷&UöFWFV7B"À¢&×VÇF—fW'6–öåöæõö÷"À¢''W7GfW'6–öâ"À¢'66÷VwV&B"À¢'6–ÖGWFc‚"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&VæF’ §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#cf#vS#C33fFfcf“SSCSS&6f3C3†c–6V“cV–CfcƒvcvS6#“FV63C“’  ¥µ·6¶vUÕÐ¦æÖRÒ&VçVÒÖÖ §fW'6–öâÒ#"ãrã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#cƒcfc6&fFcƒ#sS–36csVv#†&Ff&&VSccc“3#6fCV“vFc&S’ ¦FWVæFVæ6–W2Ò°¢&VçVÒÖÖÖFW&—fR"À¢'6W&FR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&VçVÒÖÖÖFW&—fR §fW'6–öâÒ#ãrã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&c#ƒ&6fFfS“#SfV##f3&cƒSƒ–3#sF3v3scƒcVV6363ƒ#SVfSsC3fcFV" ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â"ãã’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&VçVÖfÆw3" §fW'6–öâÒ#ãrã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##vcscƒ3ƒS6SSfV&6V3cƒ3cVf#ff&&3vF&6#FCVC“CC&#CfFVCFV6Vb ¦FWVæFVæ6–W2Ò°¢&VçVÖfÆw3%öFW&—fR"À¢'6W&FR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&VçVÖfÆw3%öFW&—fR §fW'6–öâÒ#ãrã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#cv3s†FC†fFc““S6V3–CCS†c–VfS“CfC“v6#“C3sVƒ63S“Cs33ƒ#r ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â"ãã’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&W–çB §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#Cf63cVv3c6fC&FVSVSF#336Sf6f#†CfcVF#ccƒƒcs†cv3Sc" ¦FWVæFVæ6–W2Ò°¢&%övÇ—‚"À¢&†6‚"À¢&'—FV×V6²"À¢&V6öÆ÷""À¢&VÖF‚"À¢&W–çEöFVfVÇEöföçG2"À¢&Æör"À¢&æö†6‚Ö†6†W""À¢'&¶–æuöÆ÷B"À¢'&öf–Æ–ær"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&W–çEöFVfVÇEöföçG2 §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&f3vSvcF3&6cvV#SSsCV–SCVcccc#ƒfcS3#3†#–C3“v#6S“#6cSƒ&b  ¥µ·6¶vUÕÐ¦æÖRÒ&WV—fÆVçB §fW'6–öâÒ#ãã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#CsFCSCSVS†fCcƒvCC–S&cSsƒ#ƒVf“C##cvS†#&CSCf&Cƒ#b  ¥µ·6¶vUÕÐ¦æÖRÒ&W'&æò §fW'6–öâÒ#ã2ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&S3VCfSs†cF6V&#“SSCSC6F#†fSCS#ƒƒSCfFVVVcfVc#V&CF&fF3SsƒCssb ¦FWVæFVæ6–W2Ò°¢&Æ–&2"À¢'v–æF÷w2×7—2ãcã""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&W'&÷"Ö6öFR §fW'6–öâÒ#2ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##S3C6fCFƒ3cVcC63Sƒ†F#F6c#3F“3vcf3ƒ†3–cfFCfffSƒ3scc#r  ¥µ·6¶vUÕÐ¦æÖRÒ&WfVçBÖÆ—7FVæW" §fW'6–öâÒ#RãBã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#V#6FCCFcSc##“3“66#cVV#SCf#C#Cc#6cCCƒSS“6fCcc–C" ¦FWVæFVæ6–W2Ò°¢'&¶–ær"À¢'–â×&ö¦V7BÖÆ—FR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&WfVçBÖÆ—7FVæW"×7G&FVw’ §fW'6–öâÒ#ãRãB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#†&S–c6FfffFS#“s#ƒƒs–C“†&#v6&VC#†FCv3Cvccc†#CS6#“2 ¦FWVæFVæ6–W2Ò°¢&WfVçBÖÆ—7FVæW""À¢'–â×&ö¦V7BÖÆ—FR"À¥Ð ¥µ·6¶vUÕÐ¦æÖVÚ±î¸Â¸­yêë¢°k¢G§¦*^ = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
@@ -1139,12 +668,21 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "foreign-types"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1"
+dependencies = [
+ "foreign-types-shared 0.1.1",
+]
+
+[[package]]
+name = "foreign-types"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d737d9aa519fb7b749cbc3b962edcf310a8dd1f4b67c91c4f83975dbdd17d965"
 dependencies = [
  "foreign-types-macros",
- "foreign-types-shared",
+ "foreign-types-shared 0.3.1",
 ]
 
 [[package]]
@@ -1157,6 +695,12 @@ dependencies = [
  "quote",
  "syn 3.0.10",
 ]
+
+[[package]]
+name = "foreign-types-shared"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
 name = "foreign-types-shared"
@@ -1209,6 +753,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures-macro"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fb9654ba8355388abeb8dcb4fc62f511300867002afc858860463bdd9fe0c44"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
 name = "futures-sink"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1228,11 +783,22 @@ checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
 dependencies = [
  "futures-core",
  "futures-io",
+ "futures-macro",
  "futures-sink",
  "futures-task",
  "memchr",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "generic-array"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+dependencies = [
+ "typenum",
+ "version_check",
 ]
 
 [[package]]
@@ -1481,6 +1047,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "hkdf"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+dependencies = [
+ "hmac",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
+]
+
+[[package]]
 name = "html5ever"
 version = "0.40.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1608,519 +1192,7 @@ dependencies = [
 
 [[package]]
 name = "iana-time-zone-haiku"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
-dependencies = [
- "cc",
-]
-
-[[package]]
-name = "icu_collections"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe090a42a0d3140fed8c63263ed1fecc02422cb2f4bfe55cd8de2de1b8e105dd"
-dependencies = [
- "displaydoc",
- "potential_utf",
- "utf8_iter",
- "yoke",
- "zerofrom",
- "zerovec",
-]
-
-[[package]]
-name = "icu_locale_core"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25d29b57c17c6528d0dc4c2141cfa2d08200465acb537a3909c8b9b8a4a984c0"
-dependencies = [
- "displaydoc",
- "litemap",
- "tinystr",
- "writeable",
- "zerovec",
-]
-
-[[package]]
-name = "icu_normalizer"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "404a3b8c486f205c87fe7f23ab6894d84a4ad76d6e4671ae1981ba7def87c599"
-dependencies = [
- "icu_collections",
- "icu_normalizer_data",
- "icu_properties",
- "icu_provider",
- "smallvec",
- "zerovec",
-]
-
-[[package]]
-name = "icu_normalizer_data"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20f0088bfb7441f7a37fa0c9e20cb1e9cba1cac6b9ce8cd2a6dc44294f8e8cbc"
-
-[[package]]
-name = "icu_properties"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ea83d991c56158f7cf898bf86436c1dfe7c07ee82fe88951f2695c9f37a379f"
-dependencies = [
- "displaydoc",
- "icu_collections",
- "icu_locale_core",
- "icu_properties_data",
- "icu_provider",
- "zerotrie",
- "zerovec",
-]
-
-[[package]]
-name = "icu_properties_data"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b98f29af82d02b163fe50161388350e743bb3107cc8e8c2f7314cb505faddfcf"
-
-[[package]]
-name = "icu_provider"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "413099315636c588ee8f011190b329b971a09a8fae9d157e01dcae8379468514"
-dependencies = [
- "displaydoc",
- "icu_locale_core",
- "writeable",
- "yoke",
- "zerofrom",
- "zerotrie",
- "zerovec",
-]
-
-[[package]]
-name = "idna"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b0875f23caa03898994f6ddc501886a45c7d3d62d04d2d90788d47be1b1e4de"
-dependencies = [
- "idna_adapter",
- "smallvec",
- "utf8_iter",
-]
-
-[[package]]
-name = "idna_adapter"
-version = "1.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
-dependencies = [
- "icu_normalizer",
- "icu_properties",
-]
-
-[[package]]
-name = "image"
-version = "0.25.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
-dependencies = [
- "bytemuck",
- "byteorder-lite",
- "image-webp",
- "moxcms",
- "num-traits",
- "png 0.18.1",
- "tiff",
- "zune-core",
- "zune-jpeg",
-]
-
-[[package]]
-name = "image-webp"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
-dependencies = [
- "byteorder-lite",
- "quick-error",
-]
-
-[[package]]
-name = "imagesize"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "029d73f573d8e8d63e6d5020011d3255b28c3ba85d6cf870a07184ed23de9284"
-
-[[package]]
-name = "indexmap"
-version = "2.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
-dependencies = [
- "equivalent",
- "hashbrown 0.17.1",
-]
-
-[[package]]
-name = "ipnet"
-version = "2.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
-
-[[package]]
-name = "island-lab"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "battery",
- "block2",
- "eframe",
- "egui_extras",
- "feed-rs",
- "image",
- "libc",
- "objc2 0.5.3",
- "objc2-app-kit 0.2.2",
- "objc2-foundation 0.2.2",
- "objc2-web-kit",
- "plist",
- "rand 0.9.5",
- "raw-window-handle",
- "regex",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "sysinfo",
- "tempfile",
- "time",
- "url",
- "webbrowser",
- "windows 0.58.0",
- "zbus",
-]
-
-[[package]]
-name = "itoa"
-version = "1.0.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
-
-[[package]]
-name = "jni"
-version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498"
-dependencies = [
- "cfg-if",
- "combine",
- "jni-macros",
- "jni-sys 0.4.1",
- "log",
- "simd_cesu8",
- "thiserror 2.0.21",
- "walkdir",
- "windows-link",
-]
-
-[[package]]
-name = "jni-macros"
-version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3"
-dependencies = [
- "proc-macro2",
- "quote",
- "rustc_version",
- "simd_cesu8",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "jni-sys"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41a652e1f9b6e0275df1f15b32661cf0d4b78d4d87ddec5e0c3c20f097433258"
-dependencies = [
- "jni-sys 0.4.1",
-]
-
-[[package]]
-name = "jni-sys"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6377a88cb3910bee9b0fa88d4f42e1d2da8e79915598f65fb0c7ee14c878af2"
-dependencies = [
- "jni-sys-macros",
-]
-
-[[package]]
-name = "jni-sys-macros"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38c0b942f458fe50cdac086d2f946512305e5631e720728f2a61aabcd47a6264"
-dependencies = [
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "jobserver"
-version = "0.1.35"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
-dependencies = [
- "getrandom 0.4.3",
- "libc",
-]
-
-[[package]]
-name = "js-sys"
-version = "0.3.107"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8dc09d2154098bbf4ef54eab6b117a3c24cbbffe94046b16ee6d6d4510584d3a"
-dependencies = [
- "cfg-if",
- "futures-util",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "khronos-egl"
-version = "6.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6aae1df220ece3c0ada96b8153459b67eebe9ae9212258bb0134ae60416fdf76"
-dependencies = [
- "libc",
- "libloading",
- "pkg-config",
-]
-
-[[package]]
-name = "khronos_api"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
-
-[[package]]
-name = "kurbo"
-version = "0.9.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd85a5776cd9500c2e2059c8c76c3b01528566b7fcbaf8098b55a33fc298849b"
-dependencies = [
- "arrayvec",
-]
-
-[[package]]
-name = "lazycell"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
-
-[[package]]
-name = "libc"
-version = "0.2.191"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
-
-[[package]]
-name = "libloading"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
-dependencies = [
- "cfg-if",
- "windows-link",
-]
-
-[[package]]
-name = "libredox"
-version = "0.1.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61ff90caf6077a803a240f62fdbe88645a890bbca49ef8174c3cb0404362171d"
-dependencies = [
- "bitflags 2.13.2",
- "libc",
- "plain",
- "redox_syscall 0.9.5",
-]
-
-[[package]]
-name = "libsqlite3-sys"
-version = "0.30.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149"
-dependencies = [
- "cc",
- "pkg-config",
- "vcpkg",
-]
-
-[[package]]
-name = "linux-raw-sys"
-version = "0.4.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab"
-
-[[package]]
-name = "linux-raw-sys"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
-
-[[package]]
-name = "litemap"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
-
-[[package]]
-name = "litrs"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4744e383959f0db86ede514b809b1c53251889093803c05267acc7d4e7030d70"
-
-[[package]]
-name = "lock_api"
-version = "0.4.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
-dependencies = [
- "scopeguard",
-]
-
-[[package]]
-name = "log"
-version = "0.4.35"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
-
-[[package]]
-name = "lru-slab"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
-
-[[package]]
-name = "mach"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b823e83b2affd8f40a9ee8c29dbc56404c1e34cd2710921f2801e2cf29527afa"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "malloc_buf"
-version = "0.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "maplit"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
-
-[[package]]
-name = "markup5ever"
-version = "0.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ab3dc68ac4a0f5719e560136778c1ee716e296030d75dbd4484e37e39e3a842"
-dependencies = [
- "log",
- "tendril",
- "web_atoms",
-]
-
-[[package]]
-name = "mediatype"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0695a693e38d35838dd34bc3ab19911395f6837ccf55c7271189cfb12cb8b57f"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "memchr"
-version = "2.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
-
-[[package]]
-name = "memmap2"
-version = "0.9.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "memoffset"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
-dependencies = [
- "autocfg",
-]
-
-[[package]]
-name = "metal"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f569fb946490b5743ad69813cb19629130ce9374034abe31614a36402d18f99e"
-dependencies = [
- "bitflags 2.13.2",
- "block",
- "core-graphics-types",
- "foreign-types",
- "log",
- "objc",
- "paste",
-]
-
-[[package]]
-name = "mime"
-version = "0.3.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5848f5a9e8117cf94f2f90faac24a87ff81600ff8628c1e3deaab572e76bfa1"
-
-[[package]]
-name = "mime_guess2"
-version = "2.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1706dc14a2e140dec0a7a07109d9a3d5890b81e85bd6c60b906b249a77adf0ca"
-dependencies = [
- "mime",
- "phf 0.11.3",
- "phf_shared 0.11.3",
- "unicase",
-]
-
-[[package]]
-name = "miniz_oxide"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
-dependencies = [
- "adler2",
- "simd-adler32",
-]
-
-[[package]]
-name = "miniz_oxide"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
-dependencies = [
- "adler2",
- "simd-adler32",
+vem«ëŒ+Š×ž®º+º$zzb¥ç'6–öâÒ#ãã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&c3ƒ#v#fcSfc3&SS“&SfCVC&CƒVcSSƒSƒ“#S“3sC6cf##3cC“S#c–b ¦FWVæFVæ6–W2Ò°¢&62"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–7Uö6öÆÆV7F–öç2 §fW'6–öâÒ#"ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&fS“C&C3CfVC†3c3#c6VCfV63#C#&6#&cF&fSSV6C†FS&FS#†SVFB ¦FWVæFVæ6–W2Ò°¢&F—7Æ–Fö2"À¢'÷FVçF–Å÷WFb"À¢'WFc…ö—FW""À¢'–ö¶R"À¢'¦W&ög&öÒ"À¢'¦W&÷fV2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–7UöÆö6ÆUö6÷&R §fW'6–öâÒ#"ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##VC#–#Sv3v3cS#†CF3F3#C6f&Cƒ#CcV6#S3v3“–3†#–#†F“ƒF3 ¦FWVæFVæ6–W2Ò°¢&F—7Æ–Fö2"À¢&Æ—FVÖ"À¢'F–ç—7G""À¢'w&—FV&ÆR"À¢'¦W&÷fV2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–7Uöæ÷&ÖÆ—¦W" §fW'6–öâÒ#"ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#CF6#†3Cƒfc#V3ƒvfSvc#6#cƒ“FCƒFFCsfCfSCcsS“ƒ&vFVcƒv3S“’ ¦FWVæFVæ6–W2Ò°¢&–7Uö6öÆÆV7F–öç2"À¢&–7Uöæ÷&ÖÆ—¦W%öFF"À¢&–7U÷&÷W'F–W2"À¢&–7U÷&÷f–FW""À¢'6ÖÆÇfV2"À¢'¦W&÷fV2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–7Uöæ÷&ÖÆ—¦W%öFF §fW'6–öâÒ#"ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##cƒ†&f#sCCcv3vf3–S#6#S–6&63f#–6S†6C&fF3CC#“Fc†S†6&2  ¥µ·6¶vUÕÐ¦æÖRÒ&–7U÷&÷W'F–W2 §fW'6–öâÒ#"ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#&Vƒ6C““3ScS†cv6cƒ“†&cƒcC3f3FfSv3vVSƒ&fSƒƒ“Sc#c“V3–c3v3s–b ¦FWVæFVæ6–W2Ò°¢&F—7Æ–Fö2"À¢&–7Uö6öÆÆV7F–öç2"À¢&–7UöÆö6ÆUö6÷&R"À¢&–7U÷&÷W'F–W5öFF"À¢&–7U÷&÷f–FW""À¢'¦W&÷G&–R"À¢'¦W&÷fV2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–7U÷&÷W'F–W5öFF §fW'6–öâÒ#"ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#“†c#–cƒ&C&#c6fSSc3ƒƒ3SSsC6&#3v63†S†3&cs3F6#SVfFFf6b  ¥µ·6¶vUÕÐ¦æÖRÒ&–7U÷&÷f–FW" §fW'6–öâÒ#"ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#C3““3Sc3f3Sƒ†VS†c“#3#–#“s–†fS–CSvSF6Sƒ3s“CcƒSB ¦FWVæFVæ6–W2Ò°¢&F—7Æ–Fö2"À¢&–7UöÆö6ÆUö6÷&R"À¢'w&—FV&ÆR"À¢'–ö¶R"À¢'¦W&ög&öÒ"À¢'¦W&÷G&–R"À¢'¦W&÷fV2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–Fæ §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#6#ƒsVc#663ƒ“ƒ““FcfFF3SƒƒfCV3vC6Cc&CFC&C“sƒ†CCv&S#SFFR ¦FWVæFVæ6–W2Ò°¢&–FæöFFW""À¢'6ÖÆÇfV2"À¢'WFc…ö—FW""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–FæöFFW" §fW'6–öâÒ#ã"ã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&6#cƒ3s63Ccc#VcƒVSƒSVSssCVS†#CC6&F#vf#S3&SC3C#CF6F#–sB ¦FWVæFVæ6–W2Ò°¢&–7Uöæ÷&ÖÆ—¦W""À¢&–7U÷&÷W'F–W2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–ÖvR §fW'6–öâÒ#ã#Rã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#ƒV#ƒ3“C3363&fScƒ–Vc“#Sf&C3##6FCCcƒvV&c““VcVCVcB ¦FWVæFVæ6–W2Ò°¢&'—FV×V6²"À¢&'—FV÷&FW"ÖÆ—FR"À¢&–ÖvR×vV'"À¢&Ö÷†6×2"À¢&çVÒ×G&—G2"À¢'ærã‚ã"À¢'F–fb"À¢'§VæRÖ6÷&R"À¢'§VæRÖ§Vr"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–ÖvR×vV' §fW'6–öâÒ#ã"ãB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#S#VS–fc6SF&S&f&VfFcS“ƒcƒffC“†#FC†c“3vS&csC##CVc“–S†32 ¦FWVæFVæ6–W2Ò°¢&'—FV÷&FW"ÖÆ—FR"À¢'V–6²ÖW'&÷""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–ÖvW6—¦R §fW'6–öâÒ#ã"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##–Cs6cSs6C†S†Cc6SfCS#C3#SV##†36&ƒVCf6cƒssƒFVC#6FS“#ƒB  ¥µ·6¶vUÕÐ¦æÖRÒ&–Ö §fW'6–öâÒ#"ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&3cv3SVFVc†3C##–SFCS6cCvVS3–Cs6cV3vSVfcSSsc†#3ƒs–fcCvB ¦FWVæFVæ6–W2Ò°¢&&6ScBã2ã"À¢&'Vg7G&VÒ"À¢&6‡&öæò"À¢&–Ö×&÷Fò"À¢&Æ§•÷7FF–2"À¢&æF—fR×FÇ2"À¢&æöÒ"À¢'&VvW‚"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–Ö×&÷Fò §fW'6–öâÒ#ãã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#ffFVcCV3ƒ“sVCs#6fCCSs“S6fS3#s†Vc&VSVCsƒf6&SF#CFf3#&b ¦FWVæFVæ6–W2Ò°¢&æöÒ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&–æFW†Ö §fW'6–öâÒ#"ãBã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&63FS“cVC#f6sScC#c#–F&3S&f36&FSƒV3“v3““C†F6C#“s3F3ƒSVÚ±î¸Â¸­yêë¢°k¢G§¦*^,
 ]
 
 [[package]]
@@ -2156,7 +1228,7 @@ version = "24.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e380993072e52eef724eddfcde0ed013b0c023c3f0417336ed041aa9f076994e"
 dependencies = [
- "arrayvec",
+ "arrayvec 0.7.6",
  "bit-set",
  "bitflags 2.13.2",
  "cfg_aliases",
@@ -2173,578 +1245,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "ndk"
-version = "0.9.0"
+name = "native-tls"
+version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3f42e7bbe13d351b6bead8286a43aac9534b82bd3cc43e47037f012ebfd62d4"
+checksum = "465500e14ea162429d264d44189adc38b199b62b1c21eea9f69e4b73cb03bbf2"
 dependencies = [
- "bitflags 2.13.2",
- "jni-sys 0.3.1",
+ "libc",
  "log",
- "ndk-sys 0.6.0+11769913",
- "num_enum",
- "raw-window-handle",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ndk-context"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27b02d87554356db9e9a873add8782d4ea6e3e58ea071a9adb9a2e8ddb884a8b"
-
-[[package]]
-name = "ndk-sys"
-version = "0.5.0+25.2.9519653"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c196769dd60fd4f363e11d948139556a344e79d451aeb2fa2fd040738ef7691"
-dependencies = [
- "jni-sys 0.3.1",
-]
-
-[[package]]
-name = "ndk-sys"
-version = "0.6.0+11769913"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
-dependencies = [
- "jni-sys 0.3.1",
-]
-
-[[package]]
-name = "new_debug_unreachable"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
-
-[[package]]
-name = "nix"
-version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2ccba0cfe4fdf15982d1674c69b1fd80bad427d293849982668dfe454bd61f2"
-dependencies = [
- "bitflags 1.3.2",
- "cc",
- "cfg-if",
- "libc",
-]
-
-[[package]]
-name = "nohash-hasher"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
-
-[[package]]
-name = "ntapi"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
-dependencies = [
- "winapi",
-]
-
-[[package]]
-name = "num-conv"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441"
-
-[[package]]
-name = "num-traits"
-version = "0.2.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
-dependencies = [
- "autocfg",
-]
-
-[[package]]
-name = "num_enum"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d0bca838442ec211fa11de3a8b0e0e8f3a4522575b5c4c06ed722e005036f26"
-dependencies = [
- "num_enum_derive",
- "rustversion",
-]
-
-[[package]]
-name = "num_enum_derive"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "num_threads"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "objc"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "915b1b472bc21c53464d6c8461c9d3af805ba1ef837e1cac254428f4a77177b1"
-dependencies = [
- "malloc_buf",
-]
-
-[[package]]
-name = "objc-sys"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdb91bdd390c7ce1a8607f35f3ca7151b65afc0ff5ff3b34fa350f7d7c7e4310"
-
-[[package]]
-name = "objc2"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19d5490aaf8f1d7cf7688dfa9b0ce07900e168852c45cd2c03f534dfd27cfd0b"
-dependencies = [
- "objc-sys",
- "objc2-encode",
-]
-
-[[package]]
-name = "objc2"
-version = "0.6.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08849bbd4767dfae9457696856ae1c84fe4e0281bbe4a7abff2d0e06fb7981f8"
-dependencies = [
- "objc2-encode",
-]
-
-[[package]]
-name = "objc2-app-kit"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4e89ad9e3d7d297152b17d39ed92cd50ca8063a89a9fa569046d41568891eff"
-dependencies = [
- "bitflags 2.13.2",
- "block2",
- "libc",
- "objc2 0.5.3",
- "objc2-core-data",
- "objc2-core-image",
- "objc2-foundation 0.2.2",
- "objc2-quartz-core",
-]
-
-[[package]]
-name = "objc2-app-kit"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
-dependencies = [
- "bitflags 2.13.2",
- "objc2 0.6.5",
- "objc2-core-foundation",
- "objc2-core-graphics",
- "objc2-foundation 0.3.2",
-]
-
-[[package]]
-name = "objc2-cloud-kit"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74dd3b56391c7a0596a295029734d3c1c5e7e510a4cb30245f8221ccea96b009"
-dependencies = [
- "bitflags 2.13.2",
- "block2",
- "objc2 0.5.3",
- "objc2-core-location",
- "objc2-foundation 0.2.2",
-]
-
-[[package]]
-name = "objc2-contacts"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5ff520e9c33812fd374d8deecef01d4a840e7b41862d849513de77e44aa4889"
-dependencies = [
- "block2",
- "objc2 0.5.3",
- "objc2-foundation 0.2.2",
-]
-
-[[package]]
-name = "objc2-core-data"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "617fbf49e071c178c0b24c080767db52958f716d9eabdf0890523aeae54773ef"
-dependencies = [
- "bitflags 2.13.2",
- "block2",
- "objc2 0.5.3",
- "objc2-foundation 0.2.2",
-]
-
-[[package]]
-name = "objc2-core-foundation"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
-dependencies = [
- "bitflags 2.13.2",
- "dispatch2",
- "objc2 0.6.5",
-]
-
-[[package]]
-name = "objc2-core-graphics"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e022c9d066895efa1345f8e33e584b9f958da2fd4cd116792e15e07e4720a807"
-dependencies = [
- "bitflags 2.13.2",
- "dispatch2",
- "objc2 0.6.5",
- "objc2-core-foundation",
- "objc2-io-surface",
-]
-
-[[package]]
-name = "objc2-core-image"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55260963a527c99f1819c4f8e3b47fe04f9650694ef348ffd2227e8196d34c80"
-dependencies = [
- "block2",
- "objc2 0.5.3",
- "objc2-foundation 0.2.2",
- "objc2-metal",
-]
-
-[[package]]
-name = "objc2-core-location"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "000cfee34e683244f284252ee206a27953279d370e309649dc3ee317b37e5781"
-dependencies = [
- "block2",
- "objc2 0.5.3",
- "objc2-contacts",
- "objc2-foundation 0.2.2",
-]
-
-[[package]]
-name = "objc2-encode"
-version = "4.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef25abbcd74fb2609453eb695bd2f860d389e457f67dc17cafc8b8cbc89d0c33"
-
-[[package]]
-name = "objc2-foundation"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ee638a5da3799329310ad4cfa62fbf045d5f56e3ef5ba4149e7452dcf89d5a8"
-dependencies = [
- "bitflags 2.13.2",
- "block2",
- "dispatch",
- "libc",
- "objc2 0.5.3",
-]
-
-[[package]]
-name = "objc2-foundation"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
-dependencies = [
- "bitflags 2.13.2",
- "objc2 0.6.5",
- "objc2-core-foundation",
-]
-
-[[package]]
-name = "objc2-io-surface"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "180788110936d59bab6bd83b6060ffdfffb3b922ba1396b312ae795e1de9d81d"
-dependencies = [
- "bitflags 2.13.2",
- "objc2 0.6.5",
- "objc2-core-foundation",
-]
-
-[[package]]
-name = "objc2-link-presentation"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1a1ae721c5e35be65f01a03b6d2ac13a54cb4fa70d8a5da293d7b0020261398"
-dependencies = [
- "block2",
- "objc2 0.5.3",
- "objc2-app-kit 0.2.2",
- "objc2-foundation 0.2.2",
-]
-
-[[package]]
-name = "objc2-metal"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd0cba1276f6023976a406a14ffa85e1fdd19df6b0f737b063b95f6c8c7aadd6"
-dependencies = [
- "bitflags 2.13.2",
- "block2",
- "objc2 0.5.3",
- "objc2-foundation 0.2.2",
-]
-
-[[package]]
-name = "objc2-quartz-core"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e42bee7bff906b14b167da2bac5efe6b6a07e6f7c0a21a7308d40c960242dc7a"
-dependencies = [
- "bitflags 2.13.2",
- "block2",
- "objc2 0.5.3",
- "objc2-foundation 0.2.2",
- "objc2-metal",
-]
-
-[[package]]
-name = "objc2-symbols"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a684efe3dec1b305badae1a28f6555f6ddd3bb2c2267896782858d5a78404dc"
-dependencies = [
- "objc2 0.5.3",
- "objc2-foundation 0.2.2",
-]
-
-[[package]]
-name = "objc2-ui-kit"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8bb46798b20cd6b91cbd113524c490f1686f4c4e8f49502431415f3512e2b6f"
-dependencies = [
- "bitflags 2.13.2",
- "block2",
- "objc2 0.5.3",
- "objc2-cloud-kit",
- "objc2-core-data",
- "objc2-core-image",
- "objc2-core-location",
- "objc2-foundation 0.2.2",
- "objc2-link-presentation",
- "objc2-quartz-core",
- "objc2-symbols",
- "objc2-uniform-type-identifiers",
- "objc2-user-notifications",
-]
-
-[[package]]
-name = "objc2-uniform-type-identifiers"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44fa5f9748dbfe1ca6c0b79ad20725a11eca7c2218bceb4b005cb1be26273bfe"
-dependencies = [
- "block2",
- "objc2 0.5.3",
- "objc2-foundation 0.2.2",
-]
-
-[[package]]
-name = "objc2-user-notifications"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76cfcbf642358e8689af64cee815d139339f3ed8ad05103ed5eaf73db8d84cb3"
-dependencies = [
- "bitflags 2.13.2",
- "block2",
- "objc2 0.5.3",
- "objc2-core-location",
- "objc2-foundation 0.2.2",
-]
-
-[[package]]
-name = "objc2-web-kit"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68bc69301064cebefc6c4c90ce9cba69225239e4b8ff99d445a2b5563797da65"
-dependencies = [
- "bitflags 2.13.2",
- "objc2 0.5.3",
- "objc2-app-kit 0.2.2",
- "objc2-foundation 0.2.2",
-]
-
-[[package]]
-name = "once_cell"
-version = "1.21.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
-
-[[package]]
-name = "openssl-probe"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
-
-[[package]]
-name = "orbclient"
-version = "0.3.55"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5df339f526ea9a60e371768d50efc2f2508c7203290731565d1f7a6f71d21747"
-dependencies = [
- "libc",
- "libredox",
-]
-
-[[package]]
-name = "ordered-float"
-version = "4.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bb71e1b3fa6ca1c61f383464aaf2bb0e2f8e772a1f01d486832464de363b951"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
-name = "ordered-stream"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
-dependencies = [
- "futures-core",
- "pin-project-lite",
-]
-
-[[package]]
-name = "owned_ttf_parser"
-version = "0.25.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36820e9051aca1014ddc75770aab4d68bc1e9e632f0f5627c4086bc216fb583b"
-dependencies = [
- "ttf-parser",
-]
-
-[[package]]
-name = "parking"
-version = "2.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
-
-[[package]]
-name = "parking_lot"
-version = "0.12.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
-dependencies = [
- "lock_api",
- "parking_lot_core",
-]
-
-[[package]]
-name = "parking_lot_core"
-version = "0.9.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
-dependencies = [
- "cfg-if",
- "libc",
- "redox_syscall 0.5.18",
- "smallvec",
- "windows-link",
-]
-
-[[package]]
-name = "paste"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
-name = "percent-encoding"
-version = "2.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
-
-[[package]]
-name = "phf"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fd6780a80ae0c52cc120a26a1a42c1ae51b247a253e4e06113d23d2c2edd078"
-dependencies = [
- "phf_macros",
- "phf_shared 0.11.3",
-]
-
-[[package]]
-name = "phf"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "010378780309880b08997fae13be7834dba947d36393bd372f2b1556deb2a2f6"
-dependencies = [
- "phf_shared 0.14.0",
- "serde",
-]
-
-[[package]]
-name = "phf_codegen"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41b585a510fb76fdebead6897982ef2a03a21d8e6cbcca904999742a4afc6ffe"
-dependencies = [
- "phf_generator 0.14.0",
- "phf_shared 0.14.0",
-]
-
-[[package]]
-name = "phf_generator"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c80231409c20246a13fddb31776fb942c38553c51e871f8cbd687a4cfb5843d"
-dependencies = [
- "phf_shared 0.11.3",
- "rand 0.8.8",
-]
-
-[[package]]
-name = "phf_generator"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aeb62e0959d5a1bebc965f4d15d9e2b7cea002b6b0f5ba8cde6cc26738467100"
-dependencies = [
- "fastrand",
- "phf_shared 0.14.0",
-]
-
-[[package]]
-name = "phf_macros"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f84ac04429c13a7ff43785d75ad27569f2951ce0ffd30a3321230db2fc727216"
-dependencies = [
- "phf_generator 0.11.3",
- "phf_shared 0.11.3",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
- "unicase",
-]
-
-[[package]]
-name = "phf_shared"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67eabc2ef2a60eb7faa00097bd1ffdb5bd28e62bf39990626a582201b7a754e5"
-dependencies = [
- "siphasher 1.0.4",
- "unicase",
+ "openssl",
+ "openssl-probe",
+ "openssl-sys",
+ "schannel",
+ "security-framework 3.7.0",
+ "security-m«ëŒ+Š×ž®º+º$zzb¥å·6¶vUÕÐ¦æÖRÒ&÷Vç76Â×7—2 §fW'6–öâÒ#ã’ã‚ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–3C6CfV3–V&cVS3ƒ#–C3SV6#6S–csƒ3ss†Csc3V&S“#CS&f6S63cR ¦FWVæFVæ6–W2Ò°¢&62"À¢&Æ–&2"À¢&÷Vç76Â×7&2"À¢'¶rÖ6öæf–r"À¢'f7¶r"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&÷&&6Æ–VçB §fW'6–öâÒ#ã2ãSR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#VFc33–cS#fV–cS3ssc†CSVf3&c#S†3s#3#“s3ScVCcvfcsC#sCr ¦FWVæFVæ6–W2Ò°¢&Æ–&2"À¢&Æ–'&VF÷‚"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&÷&FW&VBÖfÆöB §fW'6–öâÒ#Bãbã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#v&#sS#6ff63cc3ƒ3CcFc&&#S&c†Sss&cCCƒcƒ3#CcFFS3c6#“S ¦FWVæFVæ6–W2Ò°¢&çVÒ×G&—G2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&÷&FW&VB×7G&VÒ §fW'6–öâÒ#ã"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–&#SC“cƒs–cs6S6CCCf6VSc†F&#3CfC“sv†6f6S“666VCCS ¦FWVæFVæ6–W2Ò°¢&gWGW&W2Ö6÷&R"À¢'–â×&ö¦V7BÖÆ—FR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ&÷væVE÷GFe÷'6W" §fW'6–öâÒ#ã#Rã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#3cƒ#S“S6FFF3sSss#FCc†&3S–Sc3&ccSc#v3Cƒf&3#ff#Sƒ6" ¦FWVæFVæ6–W2Ò°¢'GFb×'6W""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&¶–ær §fW'6–öâÒ#"ã"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&c3†CScS&3ffFSSV&#V6VcCS#cf#–Cc–s#sC“sc3#FCVS3svcvF6V&  ¥µ·6¶vUÕÐ¦æÖRÒ'&¶–æuöÆ÷B §fW'6–öâÒ#ã"ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#“3ƒSsCS3#SS3sv&Csfc“†#fcVVcc#–&#cSS–ƒS#Cƒ“SV3&3CV ¦FWVæFVæ6–W2Ò°¢&Æö6µö’"À¢'&¶–æuöÆ÷Eö6÷&R"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&¶–æuöÆ÷Eö6÷&R §fW'6–öâÒ#ã’ã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##c#cƒS“ƒV&V&c3Scƒƒ3#c3&3vFVf6F&3–#sƒSF3ƒS6Ff6#cF3 ¦FWVæFVæ6–W2Ò°¢&6frÖ–b"À¢&Æ–&2"À¢'&VF÷…÷7—66ÆÂãRã‚"À¢'6ÖÆÇfV2"À¢'v–æF÷w2ÖÆ–æ²"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'7FR §fW'6–öâÒ#ããR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#Sv3Cv#sF#Sc6#C–C3†FS33vCFCfFS–#C3#3ƒ&##ƒ“&cSsFFF6Ss6fC  ¥µ·6¶vUÕÐ¦æÖRÒ'W&6VçBÖVæ6öF–ær §fW'6–öâÒ#"ã2ã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–#Fcc#v6###S“s“6#S–SC–&FC†ccsc†C“s†6fCVfS†3CSVCƒs##  ¥µ·6¶vUÕÐ¦æÖRÒ'†b §fW'6–öâÒ#ãã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#fCcsƒƒS3S&63##fC&3SS##Cv#S6SFSc6C#6C&3&VFCs‚ ¦FWVæFVæ6–W2Ò°¢'†eöÖ7&÷2"À¢'†e÷6†&VBãã2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'†b §fW'6–öâÒ#ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#3sƒsƒ3“ƒƒ#ƒ““vfS6&Ssƒ3FF&“CvC3c3“6&C3s&c&#SSfFV#&&cb ¦FWVæFVæ6–W2Ò°¢'†e÷6†&VBãBã"À¢'6W&FR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'†eö6öFVvVâ §fW'6–öâÒ#ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#C#SƒVSf#sffFV&VCcƒ“s“ƒ&Vc&6#C†Sf6&66“C“““sC&Ff3fffR ¦FWVæFVæ6–W2Ò°¢'†eövVæW&F÷"ãBã"À¢'†e÷6†&VBãBã"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'†eövVæW&F÷" §fW'6–öâÒ#ãã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#63ƒ#3C–3##Cf6fFF#3ssff#“C&33ƒSS63SSƒsc†6&CcƒvF6f#SƒC6B ¦FWVæFVæ6–W2Ò°¢'†e÷6†&VBãã2"À¢'&æBã‚ã‚"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'†eövVæW&F÷" §fW'6–öâÒ#ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&V#c&S“S–CV&V&3“cVcFCVC–S&#v6V&#f#cV&†6FSf63#cs3ƒCcs ¦FWVæFVæ6–W2Ò°¢&f7G&æB"À¢'†e÷6†&VBãBã"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'†eöÖ7&÷2 §fW'6–öâÒ#ãã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&cƒF3CC#–36vfcC3sƒVCsVC#sSc–c#“S6SffC333##3F#&f3s#s#b ¦FWVæFVæ6–W2Ò°¢'†eövVæW&F÷"ãã2"À¢'†e÷6†&VBãã2"À¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â"ãã’"À¢'Væ–66R"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'†e÷6†&VB §fW'6–öâÒ#ãã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#cvV&3&Vc&cV#vf“v&CffF#V&C#†Sc&&c3“““c#fSƒ###vsSFSR ¦FWVæFVæ6–W2Ò°¢'6—†6†W"ããB"À¢'Væ–66R"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'†e÷6†&VB §fW'6–öâÒ#ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&3ffC“#vS&C“3–&Sc3C–fV&CF#FS†C&SCC“##3–#ssss#33F6ƒ’ ¦FWVæFVæ6–W2Ò°¢'6—†6†W"ããB"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'–6òÖ&w2 §fW'6–öâÒ#ãRã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#V&Scvvc3fVS#&fS3SS&3ScfSf3sSF3“3C†S#†FV#FcC–&CfcsV3R  ¥µ·6¶vUÕÐ¦æÖRÒ'–â×&ö¦V7B §fW'6–öâÒ#ãã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##Ccf##33fVC&&6F6f##“CCs#v#“V3“#3†CCV3Ff&V3“s“#&SS“#B ¦FWVæFVæ6–W2Ò°¢'–â×&ö¦V7BÖ–çFW&æÂ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'–â×&ö¦V7BÖ–çFW&æÂ §fW'6–öâÒ#ãã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&3“c3“Vc“#f&36#3sc#&FFFV6#SVCC–3†c&c“ssvSFCƒssƒC6c†" ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â"ãã’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'–â×&ö¦V7BÖÆ—FR §fW'6–öâÒ#ã"ãr §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&ƒ“3#&Fc–V&S3Ss†Ccƒ–3“#3†Ss“cvCC&#S&f&SC“Sƒs#6cFSfCV6B  ¥µ·6¶vUÕÐ¦æÖRÒ'—W" §fW'6–öâÒ#ã"ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&3ƒ3SCs–CCC6FVC3sCf3S3V6&fC†C3C“&3VC#6S“ssc&3SVSC““&63 ¦FWVæFVæ6–W2Ò°¢&FöÖ–2×v¶W""À¢&f7G&æB"À¢&gWGW&W2Ö–ò"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'¶rÖ6öæf–r §fW'6–öâÒ#ã2ã3B §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&cf#CcFf&3sFSC–3“#C3f#vCS#6csc–SSv6#cƒsvcfV3Cc†&3fcƒSC‚  ¥µ·6¶vUÕÐ¦æÖRÒ'Æ–â §fW'6–öâÒ#ã"ã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#CS“f#fCs##svS“ƒs–#FF3cFc63S†6f##“&S#Css#&fV3b  ¥µ·6¶vUÕÐ¦æÖRÒ'Æ—7B §fW'6–öâÒ#ãã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#3#vF6#&CC–F3C†FfF3–Fƒ–S#&3cFCCƒ†#S†3cvCFCs&s#–SCS##ƒR ¦FWVæFVæ6–W2Ò°¢&&6ScBã#2ã"À¢&–æFW†Ö"À¢'V–6²×†ÖÂãC"ã"À¢'6W&FR"À¢'F–ÖR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'ær §fW'6–öâÒ#ãrãb §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#ƒ#S&f3ƒc–S3S6F3Sv6c#sƒ–66#†C““f6SS&3#3–f#Sc“ssC–CsS#b ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2ã2ã""À¢&7&33&f7B"À¢&fFVfÆFR"À¢&fÆFS""À¢&Ö–æ—¥ö÷†–FRã‚ã’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'ær §fW'6–öâÒ#ã‚ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#csc–#†#3#&–c#c6FS#ssf33v###†S#Cc“C66cs–V#c“CfF#S#†c ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢&7&33&f7B"À¢&fFVfÆFR"À¢&fÆFS""À¢&Ö–æ—¥ö÷†–FRã‚ã’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'öÆÆ–ær §fW'6–öâÒ#2ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#VCSFcS“ƒVCCvCƒ#C3ƒ†VCc#sFS†6#SSc3c#S#c63VV#†FCƒ“v33C#‚ ¦FWVæFVæ6–W2Ò°¢&6frÖ–b"À¢&6öæ7W'&VçB×VWVR"À¢&†W&Ö—BÖ&’"À¢'–â×&ö¦V7BÖÆ—FR"À¢''W7F—‚ããb"À¢'v–æF÷w2×7—2ãcã""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'÷FVçF–Å÷WFb §fW'6–öâÒ#ããb §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&Cƒ6V#–&3fC†SV6cSc†SvCcVSVSƒVCSVc#fc6C†FVV#CfCscc ¦FWVæFVæ6–W2Ò°¢'¦W&÷fV2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'÷vW&f×B §fW'6–öâÒ#ã"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#Fc3“F#–S“cVSs6C#ƒ–VSSFcSƒ“ƒvS&3csfVFccƒƒV&cS&3sf#ssSC“S‚  ¥µ·6¶vUÕÐ¦æÖRÒ'bÖÆ—FSƒb §fW'6–öâÒ#ã"ã# §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#ƒVVS63FVC&cSF6fSs#cC6FF&Vf33FVF#CS†–#S“Cs#6FS&c&#S“vF’ ¦FWVæFVæ6–W2Ò°¢'¦W&ö6÷’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&V6ö×WFVBÖ†6‚ §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#“#S3ƒ6Vf3Ccs3Cs†f#Cƒ3†F&S“3vC&CscsVCsƒ–3SCfCSfSFCF#32  ¥µ·6¶vUÕÐ¦æÖRÒ'&ö2ÖÖ7&òÖ7&FR §fW'6–öâÒ#2ãRã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&Scv&vS–#&#ScCCfcCC–#Cƒs“c#s†ffcS††VC†3–F6#cVsƒcFb ¦FWVæFVæ6–W2Ò°¢'FöÖÅöVF—B"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&ö2ÖÖ7&ó" §fW'6–öâÒ#ããr §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#“ƒVSvV3–&#sCVSf6ScS3V#SCFCƒFCf6CfcvC†&Cs33“ƒ“3†S“ƒ6#“scfC’ ¦FWVæFVæ6–W2Ò°¢'Væ–6öFRÖ–FVçB"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&öf–Æ–ær §fW'6–öâÒ#ãã‚ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#6CS“VSSF3#f&3S633“v#3&C#“VSF#c–S66fV†F3ƒ&#S#–c“Cvf&f&6cR  ¥µ·6¶vUÕÐ¦æÖRÒ'†fÒ §fW'6–öâÒ#ãã3 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&CSVC“Sff“fcVV3&&S&S6cS#3“Vƒ6CfsFS6C3cƒ“S–Cf##“–V  ¥µ·6¶vUÕÐ¦æÖRÒ'V–6²ÖW'&÷" §fW'6–öâÒ#"ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&““3SSVc3SVc–ccv3&F#c#SFVF63#ƒSsc“&3C3fSff3–#&3†Sf2  ¥µ·6¶vUÕÐ¦æÖRÒ'V–6²×†ÖÂ §fW'6–öâÒ#ãCã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&SccCSSSS#Fcs“†c–Vc6cC–66f&Vf&CC“VVfC#V6c#3“6Sc3Cs6V3 ¦FWVæFVæ6–W2Ò°¢&ÖVÖ6‡""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'V–6²×†ÖÂ §fW'6–öâÒ#ãC"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#C#svfFc““–C#3#C6f#CffcCsS–C–3f#–CcfCƒs–c†3S#SCcVS–" ¦FWVæFVæ6–W2Ò°¢&Væ6öF–æu÷'2"À¢&ÖVÖ6‡""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'V–æâ §fW'6–öâÒ#ãã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#CSS#6S“ƒV3#SVvS36VcS–6F&6ƒv#&C3S“S&VV6C#&f3f#“f#3vC–C ¦FWVæFVæ6–W2Ò°¢&'—FW2"À¢&6fuöÆ–6W2"À¢'–â×&ö¦V7BÖÆ—FR"À¢'V–æâ×&÷Fò"À¢'V–æâ×VG"À¢''W7F2Ö†6‚"ãã2"À¢''W7FÇ2"À¢'6ö6¶WC""À¢'F†—6W'&÷""ãã#"À¢'Fö¶–ò"À¢'G&6–ær"À¢'vV"×F–ÖR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'V–æâ×&÷Fò §fW'6–öâÒ#ãã’ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#SsS66SVfSFcC3–VC&#S#–F“cSSs“““6S†Ss&3cƒ“–3fCCc&&Vf&R ¦FWVæFVæ6–W2Ò°¢&'—FW2"À¢&vWG&æFöÒãBã2"À¢&Ç'R×6Æ""À¢'&æBããB"À¢'&æE÷6r"À¢'&–ær"À¢''W7F2Ö†6‚"ãã2"À¢''W7FÇ2"À¢''W7FÇ2×¶’×G—W2"À¢'6Æ""À¢'F†—6W'&÷""ãã#"À¢'F–ç—fV2"À¢'G&6–ær"À¢'vV"×F–ÖR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'V–æâ×VG §fW'6–öâÒ#ãRãb §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&ccc“vFcƒc3–F6cFF#Sf6cSC“6&3F##v“vF&FC“fc#“#f66s3#“†cb ¦FWVæFVæ6–W2Ò°¢&6fuöÆ–6W2"À¢&Æ–&2"À¢&öæ6Uö6VÆÂ"À¢'6ö6¶WC""À¢'G&6–ær"À¢'v–æF÷w2×7—2ãcã""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'V÷FR §fW'6–öâÒ#ããCr §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#f&cFF#C&Cs6†Cƒ3#f&&cƒCSFVCCS†&c†C#f3ƒ#–333FV6fF&Cs“ ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'V÷FVE÷&–çF&ÆR §fW'6–öâÒ#ãRã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#Cs†SSƒScS–#&CvV#vS63SfS#C†ƒs3†&C#–c6cFƒSSVV“s"  ¥µ·6¶vUÕÐ¦æÖRÒ'"ÖVf’ §fW'6–öâÒ#Rã2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#c–6F#3F3S†6V##ƒ†FcS†#F&C3–FS““FcccSvCƒ3ƒCv&FffF&Cvc3CcsSF#b  ¥µ·6¶vUÕÐ¦æÖRÒ'"ÖVf’ §fW'6–öâÒ#bãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&c†F63–3vCS&ƒc“vC#S3sSCƒ“Sfc“&#S#C3f6cF6c#v#SvfC–&b  ¥µ·6¶vUÕÐ¦æÖRÒ'&æB §fW'6–öâÒ#ã‚ã‚ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&SS†3vFS##fcsssƒ3sc“CFCc#Ssƒ3&##Cc633ƒCsvF&3&3fSVcSFCfCF2 ¦FWVæFVæ6–W2Ò°¢&Æ–&2"À¢'&æEö6†6†ã2ã"À¢'&æEö6÷&RãbãB"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&æB §fW'6–öâÒ#ã’ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#–VcCCs“VV#vCƒCcƒV&6Fcs&c3cC–ccFSccCSC6C6†3CSƒ“ƒs#fSv#C ¦FWVæFVæ6–W2Ò°¢'&æEö6†6†ã’ã"À¢'&æEö6÷&Rã’ãR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&æB §fW'6–öâÒ#ããB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#†cff#sv3cvSfVS“CcfcF36fSƒ&6#S–cƒcFfSCscC6SSSsFS“SF–# ¦FWVæFVæ6–W2Ò°¢&6†6†#"À¢&vWG&æFöÒãBã2"À¢'&æEö6÷&Rãã"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&æEö6†6† §fW'6–öâÒ#ã2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&Sf3c6f3##S&&SC–C#Sss–CFCF&c†C#33&F&6SVƒC#–##vCƒ‚ ¦FWVæFVæ6–W2Ò°¢'bÖÆ—FSƒb"À¢'&æEö6÷&RãbãB"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&æEö6†6† §fW'6–öâÒ#ã’ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&C3#&#VcFccc#fSffFFCf3cfS†VFS3ƒ&Sc6#63&f3SFC6S6c3#V6" ¦FWVæFVæ6–W2Ò°¢'bÖÆ—FSƒb"À¢'&æEö6÷&Rã’ãR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&æEö6÷&R §fW'6–öâÒ#ãbãB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&V3&SCs“VS&cf#ƒc–&V3#Vfc6S&3–&f3“–Sf–vF33SCs““f3V3ƒc“#&2 ¦FWVæFVæ6–W2Ò°¢&vWG&æFöÒã"ãr"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&æEö6÷&R §fW'6–öâÒ#ã’ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#sff3ƒ#fFSC#3†SfS†33sFFF63f–S3sFfC†FC“ƒf#C&cC#3ss#cCƒ62 ¦FWVæFVæ6–W2Ò°¢&vWG&æFöÒã2ãB"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&æEö6÷&R §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#c6#ƒsc6S–#cC3“sƒScV6†#SSC–ccƒƒ3CC3S“C#SFF3““†63c’  ¥µ·6¶vUÕÐ¦æÖRÒ'&æE÷6r §fW'6–öâÒ#ãã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&6cC3vS3s&cF3cSCƒ“C##sf3†S†S6cƒc6#&SfC&6&VVc–Sƒf ¦FWVæFVæ6–W2Ò°¢'&æEö6÷&Rãã"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&r×v–æF÷rÖ†æFÆR §fW'6–öâÒ#ãbã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##csSSs&cfc#FS–SsfVcc3–&3SSS#ssFVCCVc33S#“SSS“–3S“ƒƒƒƒc3S3’  ¥µ·6¶vUÕÐ¦æÖRÒ'&–öâ §fW'6–öâÒ#ã"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&f#3–#ccsƒc“&CCƒ#S3FVcF#F###Sc†cC#c6#S6SV#f3cS#F6f&f3“#fB ¦FWVæFVæ6–W2Ò°¢&V—F†W""À¢'&–öâÖ6÷&R"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&–öâÖ6÷&R §fW'6–öâÒ#ã2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##&S†#cc&C3CC#3#&SƒVfcsvfFfSC3#ffV#SF#“sƒ63CcCƒC3V3†#“ ¦FWVæFVæ6–W2Ò°¢&7&÷76&VÒÖFWVR"À¢&7&÷76&VÒ×WF–Ç2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&7G&VR §fW'6–öâÒ#ãRã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#6#C&S#vVcs†33VC3““ƒC63C#fc6VfC–S3VC6SS##CƒCV63V63#sSCvcFb  ¥µ·6¶vUÕÐ¦æÖRÒ'&VF÷…÷7—66ÆÂ §fW'6–öâÒ#ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#Cs#&Csc†VfcCf#sS“ƒ–FC3FSV33S6cCc#“fSV33&Sssf6&F#Sf&Sss3 ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2ã2ã""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&VF÷…÷7—66ÆÂ §fW'6–öâÒ#ãRã‚ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&VC&&c#SCsSSsS6CffFffF6c“3ƒ“s“cCV3CCƒ&f&f6F“†fS6c3c&B ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'&VF÷…÷7—66ÆÂ §fW'6–öâÒ#ã’ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦Ú±î¸Â¸­yêë¢°k¢G§¦*^unicase",
 ]
 
 [[package]]
@@ -3015,6 +1528,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "quoted_printable"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "478e0585659a122aa407eb7e3c0e1fa51b1d8a870038bd29f0cf4a8551eea972"
+
+[[package]]
 name = "r-efi"
 version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3032,6 +1551,8 @@ version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c"
 dependencies = [
+ "libc",
+ "rand_chacha 0.3.1",
  "rand_core 0.6.4",
 ]
 
@@ -3041,7 +1562,7 @@ version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41"
 dependencies = [
- "rand_chacha",
+ "rand_chacha 0.9.0",
  "rand_core 0.9.5",
 ]
 
@@ -3054,6 +1575,16 @@ dependencies = [
  "chacha20",
  "getrandom 0.4.3",
  "rand_core 0.10.1",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -3071,6 +1602,9 @@ name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+dependencies = [
+ "getrandom 0.2.17",
+]
 
 [[package]]
 name = "rand_core"
@@ -3325,6 +1859,123 @@ dependencies = [
 name = "rustix"
 version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babam«ëŒ+Š×ž®º+º$zzb¥æÚ±î¸Â¸­yêë¢°k¢G§¦*^,
+ "percent-encoding",
+ "pin-project-lite",
+ "quinn",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sync_wrapper",
+ "tokio",
+ "tokio-rustls",
+ "tower",
+ "tower-http",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "resvg"
+version = "0.37.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cadccb3d99a9efb8e5e00c16fbb732cbe400db2ec7fc004697ee7d97d86cf1f4"
+dependencies = [
+ "log",
+ "pico-args",
+ "rgb",
+ "svgtypes",
+ "tiny-skia",
+ "usvg",
+]
+
+[[package]]
+name = "rgb"
+version = "0.8.53"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
+name = "ring"
+version = "0.17.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "getrandom 0.2.17",
+ "libc",
+ "untrusted",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "roxmltree"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cd14fd5e3b777a7422cca79358c57a8f6e3a703d9ac187448d0daf220c2407f"
+
+[[package]]
+name = "rusqlite"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7753b721174eb8ff87a9a0e799e2d7bc3749323e773db92e0984debb00019d6e"
+dependencies = [
+ "bitflags 2.13.2",
+ "fallible-iterator",
+ "fallible-streaming-iterator",
+ "hashlink",
+ "libsqlite3-sys",
+ "smallvec",
+]
+
+[[package]]
+name = "rustc-hash"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
+
+[[package]]
+name = "rustc-hash"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
+
+[[package]]
+name = "rustc_version"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
+dependencies = [
+ "semver",
+]
+
+[[package]]
+name = "rustix"
+version = "0.38.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdb5bc1ae2baa591800df16c9ca78619bf65c0488b41b96ccec5d11220d8c154"
+dependencies = [
+ "bitflags 2.13.2",
+ "errno",
+ "libc",
+ "linux-raw-sys 0.4.15",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "rustix"
+version = "1.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags 2.13.2",
@@ -3357,7 +2008,7 @@ dependencies = [
  "openssl-probe",
  "rustls-pki-types",
  "schannel",
- "security-framework",
+ "security-framework 3.7.0",
 ]
 
 [[package]]
@@ -3422,6 +2073,38 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "secret-service"
+version = "4.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4d35ad99a181be0a60ffcbe85d680d98f87bdc4d7644ade319b87076b9dbfd4"
+dependencies = [
+ "aes",
+ "cbc",
+ "futures-util",
+ "generic-array",
+ "hkdf",
+ "num",
+ "once_cell",
+ "rand 0.8.8",
+ "serde",
+ "sha2",
+ "zbus 4.4.0",
+]
+
+[[package]]
+name = "security-framework"
+version = "2.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "897b2245f0b511c87893af39b033e5ca9cce68824c4d7e7630b5a1d339658d02"
+dependencies = [
+ "bitflags 2.13.2",
+ "core-foundation 0.9.4",
+ "core-foundation-sys 0.8.7",
+ "libc",
+ "security-framework-sys",
+]
 
 [[package]]
 name = "security-framework"
@@ -3516,6 +2199,28 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest",
+]
+
+[[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest",
 ]
 
 [[package]]
@@ -3789,1569 +2494,4 @@ version = "3.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ae9ccbea3a7b0b09443036490c8f34a8b1b760fd345e5c0dae0aac718faea79"
 dependencies = [
- "proc-macro2",
- "quote",
- "unicode-ident",
-]
-
-[[package]]
-name = "sync_wrapper"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
-dependencies = [
- "futures-core",
-]
-
-[[package]]
-name = "synstructure"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "901704edd0dfe137f1987838ee4f259e4e063c31371bdb423f7ae38ec6f77f02"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.10",
-]
-
-[[package]]
-name = "sysinfo"
-version = "0.33.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fc858248ea01b66f19d8e8a6d55f41deaf91e9d495246fd01368d99935c6c01"
-dependencies = [
- "core-foundation-sys 0.8.7",
- "libc",
- "memchr",
- "ntapi",
- "rayon",
- "windows 0.57.0",
-]
-
-[[package]]
-name = "system-configuration"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a13f3d0daba03132c0aa9767f98351b3488edc2c100cda2d2ec2b04f3d8d3c8b"
-dependencies = [
- "bitflags 2.13.2",
- "core-foundation 0.9.4",
- "system-configuration-sys",
-]
-
-[[package]]
-name = "system-configuration-sys"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
-dependencies = [
- "core-foundation-sys 0.8.7",
- "libc",
-]
-
-[[package]]
-name = "tempfile"
-version = "3.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
-dependencies = [
- "fastrand",
- "getrandom 0.4.3",
- "once_cell",
- "rustix 1.1.6",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "tendril"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fed54709c5b3a53d09bb1c113ea4f5ceafd1e772ddcb0030a82e1d56c087b08"
-dependencies = [
- "new_debug_unreachable",
-]
-
-[[package]]
-name = "termcolor"
-version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
-dependencies = [
- "winapi-util",
-]
-
-[[package]]
-name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
-dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
-version = "2.0.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
-dependencies = [
- "thiserror-impl 2.0.21",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "2.0.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.10",
-]
-
-[[package]]
-name = "tiff"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b63feaf3343d35b6ca4d50483f94843803b0f51634937cc2ec519fc32232bc52"
-dependencies = [
- "fax",
- "flate2",
- "half",
- "quick-error",
- "weezl",
- "zune-jpeg",
-]
-
-[[package]]
-name = "time"
-version = "0.3.55"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdb87b95ec50ddfa440816d227a17b2ccbdda963a316a727fda0fc4334f7d134"
-dependencies = [
- "deranged",
- "libc",
- "num-conv",
- "num_threads",
- "powerfmt",
- "serde_core",
- "time-core",
- "time-macros",
-]
-
-[[package]]
-name = "time-core"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
-
-[[package]]
-name = "time-macros"
-version = "0.2.32"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
-dependencies = [
- "num-conv",
- "time-core",
-]
-
-[[package]]
-name = "tiny-skia"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83d13394d44dae3207b52a326c0c85a8bf87f1541f23b0d143811088497b09ab"
-dependencies = [
- "arrayref",
- "arrayvec",
- "bytemuck",
- "cfg-if",
- "log",
- "png 0.17.16",
- "tiny-skia-path",
-]
-
-[[package]]
-name = "tiny-skia-path"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c9e7fc0c2e86a30b117d0462aa261b72b7a99b7ebd7deb3a14ceda95c5bdc93"
-dependencies = [
- "arrayref",
- "bytemuck",
- "strict-num",
-]
-
-[[package]]
-name = "tinystr"
-version = "0.8.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abc840c238154d58f9e86b2792261edfde565a17696e1cda1a449de27979801a"
-dependencies = [
- "displaydoc",
- "zerovec",
-]
-
-[[package]]
-name = "tinyvec"
-version = "1.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
-
-[[package]]
-name = "tokio"
-version = "1.54.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3"
-dependencies = [
- "bytes",
- "libc",
- "mio",
- "pin-project-lite",
- "socket2",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "tokio-rustls"
-version = "0.26.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9cc2678c2cdd569ef8215e2afd7954ada2ae20b4fdd2c5fe6139a3b02d105db"
-dependencies = [
- "rustls",
- "tokio",
-]
-
-[[package]]
-name = "toml_datetime"
-version = "1.1.3+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "173f25c883cd2176a2d8212155638c0a60d484a9d84546d270866f40f56b6e49"
-dependencies = [
- "serde_core",
-]
-
-[[package]]
-name = "toml_edit"
-version = "0.25.19+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd43688c4858d7264ae1cf9a9f874a67c3feb74a883b1cd7bebd6a4ea8307218"
-dependencies = [
- "indexmap",
- "toml_datetime",
- "toml_parser",
- "winnow",
-]
-
-[[package]]
-name = "toml_parser"
-version = "1.1.5+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
-dependencies = [
- "winnow",
-]
-
-[[package]]
-name = "tower"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebe5ef63511595f1344e2d5cfa636d973292adc0eec1f0ad45fae9f0851ab1d4"
-dependencies = [
- "futures-core",
- "futures-util",
- "pin-project-lite",
- "sync_wrapper",
- "tokio",
- "tower-layer",
- "tower-service",
-]
-
-[[package]]
-name = "tower-http"
-version = "0.6.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
-dependencies = [
- "bitflags 2.13.2",
- "bytes",
- "futures-util",
- "http",
- "http-body",
- "pin-project-lite",
- "tower",
- "tower-layer",
- "tower-service",
- "url",
-]
-
-[[package]]
-name = "tower-layer"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "121c2a6cda46980bb0fcd1647ffaf6cd3fc79a013de288782836f6df9c48780e"
-
-[[package]]
-name = "tower-service"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
-
-[[package]]
-name = "tracing"
-version = "0.1.44"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
-dependencies = [
- "log",
- "pin-project-lite",
- "tracing-attributes",
- "tracing-core",
-]
-
-[[package]]
-name = "tracing-attributes"
-version = "0.1.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "tracing-core"
-version = "0.1.36"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
-dependencies = [
- "once_cell",
-]
-
-[[package]]
-name = "try-lock"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
-
-[[package]]
-name = "ttf-parser"
-version = "0.25.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
-
-[[package]]
-name = "type-map"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb30dbbd9036155e74adad6812e9898d03ec374946234fbcebd5dfc7b9187b90"
-dependencies = [
- "rustc-hash 2.1.3",
-]
-
-[[package]]
-name = "typenum"
-version = "1.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
-
-[[package]]
-name = "uds_windows"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
-dependencies = [
- "memoffset",
- "tempfile",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "unicase"
-version = "2.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
-
-[[package]]
-name = "unicode-ident"
-version = "1.0.27"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
-
-[[package]]
-name = "unicode-segmentation"
-version = "1.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
-
-[[package]]
-name = "unicode-width"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
-
-[[package]]
-name = "unicode-xid"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
-
-[[package]]
-name = "untrusted"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
-
-[[package]]
-name = "uom"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e76503e636584f1e10b9b3b9498538279561adcef5412927ba00c2b32c4ce5ed"
-dependencies = [
- "num-traits",
- "typenum",
-]
-
-[[package]]
-name = "url"
-version = "2.5.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
-dependencies = [
- "form_urlencoded",
- "idna",
- "percent-encoding",
- "serde",
- "serde_derive",
-]
-
-[[package]]
-name = "usvg"
-version = "0.37.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38b0a51b72ab80ca511d126b77feeeb4fb1e972764653e61feac30adc161a756"
-dependencies = [
- "base64 0.21.7",
- "log",
- "pico-args",
- "usvg-parser",
- "usvg-tree",
- "xmlwriter",
-]
-
-[[package]]
-name = "usvg-parser"
-version = "0.37.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bd4e3c291f45d152929a31f0f6c819245e2921bfd01e7bd91201a9af39a2bdc"
-dependencies = [
- "data-url",
- "flate2",
- "imagesize",
- "kurbo",
- "log",
- "roxmltree",
- "simplecss",
- "siphasher 0.3.11",
- "svgtypes",
- "usvg-tree",
-]
-
-[[package]]
-name = "usvg-tree"
-version = "0.37.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ee3d202ebdb97a6215604b8f5b4d6ef9024efd623cf2e373a6416ba976ec7d3"
-dependencies = [
- "rctree",
- "strict-num",
- "svgtypes",
- "tiny-skia-path",
-]
-
-[[package]]
-name = "utf8_iter"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af3bd9d3e571c26fcce9d033b87ea5ab061b8d2ffe9b7a5675d810d68f03edf0"
-dependencies = [
- "utf_types",
-]
-
-[[package]]
-name = "utf_types"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
-
-[[package]]
-name = "uuid"
-version = "1.29.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c14b15dffa2f4bd712103e857140aa04a4f2ff6e955c77d7eb8e53ee02a3b64"
-dependencies = [
- "getrandom 0.4.3",
- "js-sys",
- "serde_core",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "vcpkg"
-version = "0.2.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
-
-[[package]]
-name = "version_check"
-version = "0.9.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "walkdir"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
-dependencies = [
- "same-file",
- "winapi-util",
-]
-
-[[package]]
-name = "want"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec4cdd0dd910afe868b7ef477227d8d538b46b3075031afee8a9f2acb0a2ed0b"
-dependencies = [
- "try-lock",
-]
-
-[[package]]
-name = "wasi"
-version = "0.11.1+wasi-snapshot-preview1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
-
-[[package]]
-name = "wasip2"
-version = "1.0.2+wasi-0.2.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9517f9239f02c069db75e65f174b3da828fe5f5b945c4dd26bd25d89c03ebcf5"
-dependencies = [
- "wit-bindgen",
-]
-
-[[package]]
-name = "wasm-bindgen"
-version = "0.2.130"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0181c14ddd6c7b8b0b0132a5f1ea2f32be0d893cd3ea97b6e3b28886b8a3d1c"
-dependencies = [
- "cfg-if",
- "rustversion",
- "wasm-bindgen-macro",
- "wasm-bindgen-shared",
-]
-
-[[package]]
-name = "wasm-bindgen-futures"
-version = "0.4.80"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e14e0327cb5368ad60ccb22d04a9827a693c95a926d8d125e9fa39e0baec501"
-dependencies = [
- "js-sys",
- "tokio",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "wasm-bindgen-macro"
-version = "0.2.130"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e931a02a39abdbf66966fc35902b5ed58344750a70885bed4ebb3d8eaf28ed9"
-dependencies = [
- "quote",
- "wasm-bindgen-macro-support",
-]
-
-[[package]]
-name = "wasm-bindgen-macro-support"
-version = "0.2.130"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ca4b54280e455bd831e33a6b8e734baf432fe63fbc35c42ac14ce67a043a53a"
-dependencies = [
- "bumpalo",
- "proc-macro2",
- "quote",
- "syn 3.0.10",
- "wasm-bindgen-shared",
-]
-
-[[package]]
-name = "wasm-bindgen-shared"
-version = "0.2.130"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b1f9c3798725016c6ee5f2f57869ec0831e8bbc0ab0310a86e787e97f41389e"
-dependencies = [
- "unicode-ident",
-]
-
-[[package]]
-name = "wayland-backend"
-version = "0.3.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38a91b4eaddff87b1cd1074985e3713da4af2c49742d1b356b2c01670a67a078"
-dependencies = [
- "cc",
- "downcast-rs",
- "rustix 1.1.6",
- "scoped-tls",
- "smallvec",
- "wayland-sys",
-]
-
-[[package]]
-name = "wayland-client"
-version = "0.31.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3c36a0f861ad76d0901f2800b46321410d9f73f2ea88aac0650d86c32688073"
-dependencies = [
- "bitflags 2.13.2",
- "rustix 1.1.6",
- "wayland-backend",
- "wayland-scanner",
-]
-
-[[package]]
-name = "wayland-csd-frame"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "625c5029dbd43d25e6aa9615e88b829a5cad13b2819c4ae129fdbb7c31ab4c7e"
-dependencies = [
- "bitflags 2.13.2",
- "cursor-icon",
- "wayland-backend",
-]
-
-[[package]]
-name = "wayland-cursor"
-version = "0.31.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a52d18780be9b1314328a3de5f930b73d2200112e3849ca6cb11822793fb34d"
-dependencies = [
- "rustix 1.1.6",
- "wayland-client",
- "xcursor",
-]
-
-[[package]]
-name = "wayland-protocols"
-version = "0.32.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23d0c813de3daa2ed6520af85a3bd49b0e722a3078506899aa9686fea58dc4b6"
-dependencies = [
- "bitflags 2.13.2",
- "wayland-backend",
- "wayland-client",
- "wayland-scanner",
-]
-
-[[package]]
-name = "wayland-protocols-experimental"
-version = "20250721.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40a1f863128dcaaec790d7b4b396cc9b9a7a079e878e18c47e6c2d2c5a8dcbb1"
-dependencies = [
- "bitflags 2.13.2",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "wayland-scanner",
-]
-
-[[package]]
-name = "wayland-protocols-misc"
-version = "0.3.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e9567599ef23e09b8dad6e429e5738d4509dfc46b3b21f32841a304d16b29c8"
-dependencies = [
- "bitflags 2.13.2",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "wayland-scanner",
-]
-
-[[package]]
-name = "wayland-protocols-plasma"
-version = "0.3.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b6d8cf1eb2c1c31ed1f5643c88a6e53538129d4af80030c8cabd1f9fa884d91"
-dependencies = [
- "bitflags 2.13.2",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "wayland-scanner",
-]
-
-[[package]]
-name = "wayland-protocols-wlr"
-version = "0.3.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb04e52f7836d7c7976c78ca0250d61e33873c34156a2a1fc9474828ec268234"
-dependencies = [
- "bitflags 2.13.2",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "wayland-scanner",
-]
-
-[[package]]
-name = "wayland-scanner"
-version = "0.31.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "338e30461b3a2b67d70eb30a6d89f8e0c93a833e07d2ae89085cd070c4a00ac0"
-dependencies = [
- "proc-macro2",
- "quick-xml 0.41.0",
- "quote",
-]
-
-[[package]]
-name = "wayland-sys"
-version = "0.31.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8eab23fefc9e41f8e841df4a9c707e8a8c4ed26e944ef69297184de2785e3be"
-dependencies = [
- "dlib",
- "log",
- "once_cell",
- "pkg-config",
-]
-
-[[package]]
-name = "web-sys"
-version = "0.3.107"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7d179596ff5ec0f6de4db64d54011bde6289cc49603d3a6e4ce3f329207ab88"
-dependencies = [
- "js-sys",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "web-time"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
-dependencies = [
- "js-sys",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "web_atoms"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7572660c8890448ba236b7376f27e389c6a7e1c70195622faced601f855c0ada"
-dependencies = [
- "phf 0.14.0",
- "phf_codegen",
- "string_cache",
- "string_cache_codegen",
-]
-
-[[package]]
-name = "webbrowser"
-version = "1.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73e91ccd4698f2647d6137e8eb17a3f1dcfd63810be9029fb2398f507279b95b"
-dependencies = [
- "jni",
- "log",
- "ndk-context",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "url",
- "web-sys",
-]
-
-[[package]]
-name = "weezl"
-version = "0.1.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
-
-[[package]]
-name = "wgpu"
-version = "24.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b0b3436f0729f6cdf2e6e9201f3d39dc95813fad61d826c1ed07918b4539353"
-dependencies = [
- "arrayvec",
- "bitflags 2.13.2",
- "cfg_aliases",
- "document-features",
- "js-sys",
- "log",
- "parking_lot",
- "profiling",
- "raw-window-handle",
- "smallvec",
- "static_assertions",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "wgpu-core",
- "wgpu-hal",
- "wgpu-types",
-]
-
-[[package]]
-name = "wgpu-core"
-version = "24.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f0aa306497a238d169b9dc70659105b4a096859a34894544ca81719242e1499"
-dependencies = [
- "arrayvec",
- "bit-vec",
- "bitflags 2.13.2",
- "cfg_aliases",
- "document-features",
- "indexmap",
- "log",
- "naga",
- "once_cell",
- "parking_lot",
- "profiling",
- "raw-window-handle",
- "rustc-hash 1.1.0",
- "smallvec",
- "thiserror 2.0.21",
- "wgpu-hal",
- "wgpu-types",
-]
-
-[[package]]
-name = "wgpu-hal"
-version = "24.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f112f464674ca69f3533248508ee30cb84c67cf06c25ff6800685f5e0294e259"
-dependencies = [
- "android_system_properties",
- "arrayvec",
- "ash",
- "bitflags 2.13.2",
- "bytemuck",
- "cfg_aliases",
- "core-graphics-types",
- "glow",
- "glutin_wgl_sys",
- "gpu-alloc",
- "gpu-descriptor",
- "js-sys",
- "khronos-egl",
- "libc",
- "libloading",
- "log",
- "metal",
- "naga",
- "ndk-sys 0.5.0+25.2.9519653",
- "objc",
- "once_cell",
- "ordered-float",
- "parking_lot",
- "profiling",
- "raw-window-handle",
- "renderdoc-sys",
- "rustc-hash 1.1.0",
- "smallvec",
- "thiserror 2.0.21",
- "wasm-bindgen",
- "web-sys",
- "wgpu-types",
- "windows 0.58.0",
-]
-
-[[package]]
-name = "wgpu-types"
-version = "24.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50ac044c0e76c03a0378e7786ac505d010a873665e2d51383dcff8dd227dc69c"
-dependencies = [
- "bitflags 2.13.2",
- "js-sys",
- "log",
- "web-sys",
-]
-
-[[package]]
-name = "winapi"
-version = "0.3.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
-dependencies = [
- "winapi-i686-pc-windows-gnu",
- "winapi-x86_64-pc-windows-gnu",
-]
-
-[[package]]
-name = "winapi-i686-pc-windows-gnu"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
-
-[[package]]
-name = "winapi-util"
-version = "0.1.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
-dependencies = [
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "winapi-x86_64-pc-windows-gnu"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
-
-[[package]]
-name = "windows"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12342cb4d8e3b046f3d80effd474a7a02447231330ef77d71daa6fbc40681143"
-dependencies = [
- "windows-core 0.57.0",
- "windows-targets",
-]
-
-[[package]]
-name = "windows"
-version = "0.58.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd04d41d93c4992d421894c18c8b43496aa748dd4c081bac0dc93eb0489272b6"
-dependencies = [
- "windows-core 0.58.0",
- "windows-targets",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ed2439a290666cd67ecce2b0ffaad89c2a56b976b736e6ece670297897832d"
-dependencies = [
- "windows-implement 0.57.0",
- "windows-interface 0.57.0",
- "windows-result 0.1.2",
- "windows-targets",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.58.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ba6d44ec8c2591c134257ce647b7ea6b20335bf6379a27dac5f1641fcf59f99"
-dependencies = [
- "windows-implement 0.58.0",
- "windows-interface 0.58.0",
- "windows-result 0.2.0",
- "windows-strings 0.1.0",
- "windows-targets",
-]
-
-[[package]]
-name = "windows-implement"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9107ddc059d5b6fbfbffdfa7a7fe3e22a226def0b2608f72e9d552763d3e1ad7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "windows-implement"
-version = "0.58.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bbd5b46c938e506ecbce286b6628a02171d56153ba733b6c741fc627ec9579b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "windows-interface"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29bee4b38ea3cde66011baa44dba677c432a78593e202392d1e9070cf2a7fca7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "windows-interface"
-version = "0.58.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "053c4c462dc91d3b1504c6fe5a726dd15e216ba718e84a0e46a88fbe5ded3515"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "windows-link"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
-
-[[package]]
-name = "windows-registry"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02752bf7fbdcce7f2a27a742f798510f3e5ad88dbe84871e5168e2120c3d5720"
-dependencies = [
- "windows-link",
- "windows-result 0.4.1",
- "windows-strings 0.5.1",
-]
-
-[[package]]
-name = "windows-result"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e383302e8ec8515204254685643de10811af0ed97ea37210dc26fb0032647f8"
-dependencies = [
- "windows-targets",
-]
-
-[[package]]
-name = "windows-result"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d1043d8214f791817bab27572aaa8af63732e11bf84aa21a45a78d6c317ae0e"
-dependencies = [
- "windows-targets",
-]
-
-[[package]]
-name = "windows-result"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
-dependencies = [
- "windows-link",
-]
-
-[[package]]
-name = "windows-strings"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cd9b125c486025df0eabcb585e62173c6c9eddcec5d117d3b6e8c30e2ee4d10"
-dependencies = [
- "windows-result 0.2.0",
- "windows-targets",
-]
-
-[[package]]
-name = "windows-strings"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
-dependencies = [
- "windows-link",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.52.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
-dependencies = [
- "windows-targets",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.59.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
-dependencies = [
- "windows-targets",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.61.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
-dependencies = [
- "windows-link",
-]
-
-[[package]]
-name = "windows-targets"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973"
-dependencies = [
- "windows_aarch64_gnullvm",
- "windows_aarch64_msvc",
- "windows_i686_gnu",
- "windows_i686_gnullvm",
- "windows_i686_msvc",
- "windows_x86_64_gnu",
- "windows_x86_64_gnullvm",
- "windows_x86_64_msvc",
-]
-
-[[package]]
-name = "windows_aarch64_gnullvm"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3"
-
-[[package]]
-name = "windows_aarch64_msvc"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469"
-
-[[package]]
-name = "windows_i686_gnu"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e9b5ad5ab802e97eb8e295ac6720e509ee4c243f69d781394014ebfe8bbfa0b"
-
-[[package]]
-name = "windows_i686_gnullvm"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0eee52d38c090b3caa76c563b86c3a4bd71ef1a819287c19d586d7334ae8ed66"
-
-[[package]]
-name = "windows_i686_msvc"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66"
-
-[[package]]
-name = "windows_x86_64_gnu"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78"
-
-[[package]]
-name = "windows_x86_64_gnullvm"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d"
-
-[[package]]
-name = "windows_x86_64_msvc"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
-
-[[package]]
-name = "winit"
-version = "0.30.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6755fa58a9f8350bd1e472d4c3fcc25f824ec358933bba33306d0b63df5978d"
-dependencies = [
- "ahash",
- "android-activity",
- "atomic-waker",
- "bitflags 2.13.2",
- "block2",
- "bytemuck",
- "calloop 0.13.0",
- "cfg_aliases",
- "concurrent-queue",
- "core-foundation 0.9.4",
- "core-graphics",
- "cursor-icon",
- "dpi",
- "js-sys",
- "libc",
- "memmap2",
- "ndk",
- "objc2 0.5.3",
- "objc2-app-kit 0.2.2",
- "objc2-foundation 0.2.2",
- "objc2-ui-kit",
- "orbclient",
- "percent-encoding",
- "pin-project",
- "raw-window-handle",
- "redox_syscall 0.4.1",
- "rustix 0.38.44",
- "smithay-client-toolkit 0.19.2",
- "smol_str",
- "tracing",
- "unicode-segmentation",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "wayland-protocols-plasma",
- "web-sys",
- "web-time",
- "windows-sys 0.52.0",
- "x11-dl",
- "x11rb",
- "xkbcommon-dl",
-]
-
-[[package]]
-name = "winnow"
-version = "1.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c3b93199df0ab874cdf0c6a94f0a0dc3423fe41f1cafb62b8bd7b1deb277aef"
-dependencies = [
- "memchr",
-]
-
-[[package]]
-name = "wit-bindgen"
-version = "0.51.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
-
-[[package]]
-name = "writeable"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
-
-[[package]]
-name = "x11-dl"
-version = "2.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38735924fedd5314a6e548792904ed8c6de6636285cb9fec04d5b1db85c1516f"
-dependencies = [
- "libc",
- "once_cell",
- "pkg-config",
-]
-
-[[package]]
-name = "x11rb"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414"
-dependencies = [
- "as-raw-xcb-connection",
- "gethostname",
- "libc",
- "libloading",
- "once_cell",
- "rustix 1.1.6",
- "x11rb-protocol",
-]
-
-[[package]]
-name = "x11rb-protocol"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
-
-[[package]]
-name = "xcursor"
-version = "0.3.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "163b33ed8786455e2fa5d72f554057ce3f3182425434f756cd39c99839d88e23"
-
-[[package]]
-name = "xkbcommon-dl"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d039de8032a9a8856a6be89cea3e5d12fdd82306ab7c94d74e6deab2460651c5"
-dependencies = [
- "bitflags 2.13.2",
- "dlib",
- "log",
- "once_cell",
- "xkeysym",
-]
-
-[[package]]
-name = "xkeysym"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
-
-[[package]]
-name = "xml-rs"
-version = "0.8.29"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
-
-[[package]]
-name = "xmlwriter"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
-
-[[package]]
-name = "yoke"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "417ef3fcf6c300b7dbd25c85531a746931c02ad536f3cf4786ed1e88223340b3"
-dependencies = [
- "stable_deref_trait",
- "yoke-derive",
- "zerofrom",
-]
-
-[[package]]
-name = "yoke-derive"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec8ebde2db3681e8c9980cc27822030e68752690ddfa9473e739aeb4dbde6d71"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.10",
- "synstructure",
-]
-
-[[package]]
-name = "zbus"
-version = "5.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5db4be7c075cb421e4b7ee645541604239bd243ba7c357511f4ff3a74b555907"
-dependencies = [
- "async-broadcast",
- "async-executor",
- "async-io",
- "async-lock",
- "async-process",
- "async-recursion",
- "async-task",
- "async-trait",
- "blocking",
- "enumflags2",
- "event-listener",
- "futures-core",
- "futures-lite",
- "hex",
- "libc",
- "ordered-stream",
- "rustix 1.1.6",
- "serde",
- "serde_repr",
- "tracing",
- "uds_windows",
- "uuid",
- "windows-sys 0.61.2",
- "winnow",
- "zbus_macros",
- "zbus_names",
- "zvariant",
-]
-
-[[package]]
-name = "zbus_macros"
-version = "5.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2990635d09ade6df1868f72f8cac69a876a90981e8bd3c40b1be413f8dc88f40"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn 3.0.10",
- "zbus_names",
- "zvariant",
- "zvariant_utils",
-]
-
-[[package]]
-name = "zbus_names"
-version = "4.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "812a12be4ead7a59e18ea8f047d08add0066b73bc62fc1467066a2472ae088dd"
-dependencies = [
- "serde",
- "winnow",
- "zvariant",
-]
-
-[[package]]
-name = "zcheapstr"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "939f186d9ecebe044315a5cb6d6f78568bbc21152adc954d5a0c2f58bdbc9920"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "zerocopy"
-version = "0.8.63"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5fe1f8f1b06191a00962174c61aa5005e0bb391a6d80d07e24d115c01a92ed8"
-dependencies = [
- "zerocopy-derive",
-]
-
-[[package]]
-name = "zerocopy-derive"
-version = "0.8.63"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "863ad3ac83293fb4d740aedbfdc9240dd8d1a50c1099acd76ce80ce7c7230c7f"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "zerofrom"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ec05a11813ea801ff6d75110ad09cd0824ddba17dfe17128ea0d5f68e6c5272"
-dependencies = [
- "zerofrom-derive",
-]
-
-[[package]]
-name = "zerofrom-derive"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f75b4683f6c7f45248d4d64056a24298c6281e0993356d7d1b4a1a962ef10d4a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.10",
- "synstructure",
-]
-
-[[package]]
-name = "zeroize"
-version = "1.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
-
-[[package]]
-name = "zerotrie"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ea269c3bd32f0a32c321907a2ae912ba6f4649bb0fc764a15627e99a7095a3f"
-dependencies = [
- "displaydoc",
- "yoke",
- "zerofrom",
-]
-
-[[package]]
-name = "zerovec"
-version = "0.11.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f58a2799cfe9a1670c7ea8edbd52ef8edb93cb37a7f83bf31ba9e35d9dae6a40"
-dependencies = [
- "yoke",
- "zerofrom",
- "zerovec-derive",
-]
-
-[[package]]
-name = "zerovec-derive"
-version = "0.11.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3743ddbf47738d929cd1ae2e199d40d0162979dfe31aef8ae646d2bf00bf97a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.10",
-]
-
-[[package]]
-name = "zlib-rs"
-version = "0.6.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
-
-[[package]]
-name = "zmij"
-version = "1.0.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[package]]
-name = "zune-core"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d56377fd46368984a170bc5aac5567e52ca5da874caa60bea39fcbca78fb658b"
-
-[[package]]
-name = "zune-jpeg"
-version = "0.5.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
-dependencies = [
- "zune-core",
-]
-
-[[package]]
-name = "zvariant"
-version = "5.15.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80bf6d6cd6a4b601acb64cfb8284cdc643fcfa75ef26ae3c46ec8aa4e8a1fbb7"
-dependencies = [
- "endi",
- "enumflags2",
- "serde",
- "winnow",
- "zcheapstr",
- "zvariant_derive",
- "zvariant_utils",
-]
-
-[[package]]
-name = "zvariant_derive"
-version = "5.15.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef2672456ba1cb54b5eaec136e63135b3c7495fb938e53b28a62e633496d486d"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn 3.0.10",
- "zvariant_utils",
-]
-
-[[package]]
-name = "zvariant_utils"
-version = "4.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bad0294361a320b694a328460dc73add56c306150f5cb6bfafc44446120008a3"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde",
- "syn 3.0.10",
- "winnow",
-]
+ "procm«ëŒ+Š×ž®º+º$zzb¥âÖÖ7&ó""À¢'V÷FR"À¢'Væ–6öFRÖ–FVçB"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'7–æ5÷w&W" §fW'6–öâÒ#ãã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#&c#Sf6SVVfFf3s#63F&#S“3V&SC–c&3S†CVS–V3#ƒsC6#Fc#s#c2 ¦FWVæFVæ6–W2Ò°¢&gWGW&W2Ö6÷&R"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'7–ç7G'V7GW&R §fW'6–öâÒ#ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#“sFVFCFfS3vc“ƒsƒ3†VSFc#S–SFSc6333s&F#C#6cvS3†V3fcsvc" ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â2ãã"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'7—6–æfò §fW'6–öâÒ#ã32ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#Ff3ƒSƒ#C†V#cfc–C†S†fCSVcCFVc“S–CC“S#CffC3c†C“““3V3f3 ¦FWVæFVæ6–W2Ò°¢&6÷&RÖf÷VæFF–öâ×7—2ã‚ãr"À¢&Æ–&2"À¢&ÖVÖ6‡""À¢&çF’"À¢'&–öâ"À¢'v–æF÷w2ãSrã"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'7—7FVÒÖ6öæf–wW&F–öâ §fW'6–öâÒ#ãrã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&6c6CF&33&3“scvc“ƒ3S#3Cƒ†VF3&36F&C&V3&#Fc6C†C63†" ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢&6÷&RÖf÷VæFF–öâã’ãB"À¢'7—7FVÒÖ6öæf–wW&F–öâ×7—2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'7—7FVÒÖ6öæf–wW&F–öâ×7—2 §fW'6–öâÒ#ãbã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#†SC#6VCV6“#6f6#†C6S“f#†C3#cƒcVCs#CSC†3#CVfcf3f&3B ¦FWVæFVæ6–W2Ò°¢&6÷&RÖf÷VæFF–öâ×7—2ã‚ãr"À¢&Æ–&2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'FV×f–ÆR §fW'6–öâÒ#2ã#rã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#3#C“vS–F3v#3ƒS3&Vf6FV&VVcƒs“sv–cs“C#“fFc#CFcfcc–S–&3ƒSsF&B ¦FWVæFVæ6–W2Ò°¢&f7G&æB"À¢&vWG&æFöÒãBã2"À¢&öæ6Uö6VÆÂ"À¢''W7F—‚ããb"À¢'v–æF÷w2×7—2ãcã""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'FVæG&–Â §fW'6–öâÒ#ãRã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#VfVCSCs–3V#6S6C–&#36VFcV6VfCSss&FF6#3ƒ&SCSf3ƒv#‚ ¦FWVæFVæ6–W2Ò°¢&æWuöFV'Vu÷Vç&V6†&ÆR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'FW&Ö6öÆ÷" §fW'6–öâÒ#ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#cs“Fc†cf3V3ƒ“†#3#sVV&Vff#†6##F6C&3f3s“3“v#SssCƒ3v&3SsSR ¦FWVæFVæ6–W2Ò°¢'v–æ’×WF–Â"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F†—6W'&÷" §fW'6–öâÒ#ããc’ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#fcS33–#Ss†VƒV#SSƒfV##S6S†S†6f6Ffc–Cc3–V3#“F&3“#6cS" ¦FWVæFVæ6–W2Ò°¢'F†—6W'&÷"Ö–×Âããc’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F†—6W'&÷" §fW'6–öâÒ#"ãã# §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–SS&6#ƒf3f6VFSV6#&cƒ“ƒƒ3v#6SF3fSVSS–fSvfCƒV3#6f#Sc#Cƒ–R ¦FWVæFVæ6–W2Ò°¢'F†—6W'&÷"Ö–×Â"ãã#"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F†—6W'&÷"Ö–×Â §fW'6–öâÒ#ããc’ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#FfVSf3FVf3“S–ScƒSfCC&3c†cscSƒ†36CsF6#ƒ6##C&&#f3sSF3 ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â"ãã’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F†—6W'&÷"Ö–×Â §fW'6–öâÒ#"ãã# §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&fSS“s“#3#ƒvF##Sƒ#Vc&3ƒV3c&cvc&3ƒ“&FS“v#†33Sfc–Vf#F##ƒS#B ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â2ãã"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F–fb §fW'6–öâÒ#ãã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#c6fVc33C6C3V#f6FCSCƒ6c“CƒC3ƒ6#cSc3C“3v63&V3S–f33##3&&3S" ¦FWVæFVæ6–W2Ò°¢&f‚"À¢&fÆFS""À¢&†Æb"À¢'V–6²ÖW'&÷""À¢'vVW¦Â"À¢'§VæRÖ§Vr"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F–ÖR §fW'6–öâÒ#ã2ãSR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&6F#ƒv#“VV3SFFfCCƒfC##vv#&66&FF“c63fs#vfFf3C33FcvC3B ¦FWVæFVæ6–W2Ò°¢&FW&ævVB"À¢&Æ–&2"À¢&çVÒÖ6öçb"À¢&çVÕ÷F‡&VG2"À¢'÷vW&f×B"À¢'6W&FUö6÷&R"À¢'F–ÖRÖ6÷&R"À¢'F–ÖRÖÖ7&÷2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F–ÖRÖ6÷&R §fW'6–öâÒ#ãã’ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–S3“csc–C“–3ƒ†VSFSs#ƒcVFVcƒ&c†S3S†fc3#36#v3vC3VSƒ’  ¥µ·6¶vUÕÐ¦æÖRÒ'F–ÖRÖÖ7&÷2 §fW'6–öâÒ#ã"ã3" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#vScƒ“3C&C†C&V“#v3ƒvVS6&cƒS“CƒSF&c“CS“3#ƒƒC†CcƒCcc†VCƒR ¦FWVæFVæ6–W2Ò°¢&çVÒÖ6öçb"À¢'F–ÖRÖ6÷&R"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F–ç’×6¶– §fW'6–öâÒ#ããB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#ƒ6C33“FCCFFS3#v#S&3#f33ƒV†&cƒvcSCc#6#CC3ƒƒƒC“v#–" ¦FWVæFVæ6–W2Ò°¢&'&—&Vb"À¢&'&—fV2ãrãb"À¢&'—FV×V6²"À¢&6frÖ–b"À¢&Æör"À¢'ærãrãb"À¢'F–ç’×6¶–×F‚"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F–ç’×6¶–×F‚ §fW'6–öâÒ#ããB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–3–Svf33&Sƒf3#vCCc&#c#s&#v“–#vV&CvFV#6F6VF“V3V&F3“2 ¦FWVæFVæ6–W2Ò°¢&'&—&Vb"À¢&'—FV×V6²"À¢'7G&–7BÖçVÒ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F–ç—7G" §fW'6–öâÒ#ã‚ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&&3ƒC3#3ƒSFCS†c–Sƒf##s“##cVFfFSScVsc“fS6FCC–FS#s“s“ƒ ¦FWVæFVæ6–W2Ò°¢&F—7Æ–Fö2"À¢'¦W&÷fV2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F–ç—fV2 §fW'6–öâÒ#ã2ã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&fC663Fcc“&VfCf3ƒc†cƒC†cS6fSCCCc3FƒCVc“f3#†#“vC3Vcfcs–cVR  ¥µ·6¶vUÕÐ¦æÖRÒ'Fö¶–ò §fW'6–öâÒ#ãSBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#S&fC3#SS#S†C#ff3s#cF#Vsf#S6333cs3fF3C6CfCFc†VCs3“f2 ¦FWVæFVæ6–W2Ò°¢&'—FW2"À¢&Æ–&2"À¢&Ö–ò"À¢'–â×&ö¦V7BÖÆ—FR"À¢'6ö6¶WC""À¢'v–æF÷w2×7—2ãcã""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'Fö¶–ò×'W7FÇ2 §fW'6–öâÒ#ã#bãb §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&3–63#cs†3&6FCSc–Vcƒ#VS&fCs“SFF&S##FfFC&3VfSc3–6#&CVF" ¦FWVæFVæ6–W2Ò°¢''W7FÇ2"À¢'Fö¶–ò"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'FöÖÅöFFWF–ÖR §fW'6–öâÒ#ãã2·7V2Óãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#s6c#V3ƒƒ66C#sf&Cƒ##SSc3†3cCCƒF–CƒCSCfC#sƒcfcCcSf#fSC’ ¦FWVæFVæ6–W2Ò°¢'6W&FUö6÷&R"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'FöÖÅöVF—B §fW'6–öâÒ#ã#Rã’·7V2Óãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&FCC3cƒ†3CƒS†Cs#cFS6c––cƒsFcv36fV#sFƒƒ6#6Cv&V&CfFVƒ3s#‚ ¦FWVæFVæ6–W2Ò°¢&–æFW†Ö"À¢'FöÖÅöFFWF–ÖR"À¢'FöÖÅ÷'6W""À¢'v–ææ÷r"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'FöÖÅ÷'6W" §fW'6–öâÒ#ããR·7V2Óãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&&c“6ƒ3&CvS6FvCCS“c#fFc#C3s–fccCScsƒ63vc&&FCsCF2 ¦FWVæFVæ6–W2Ò°¢'v–ææ÷r"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F÷vW" §fW'6–öâÒ#ãRã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&V&SVVcc3SS“Vc3CFS&CV6fc3fC“s3#“&F3VV3cCCVfS–cƒS#CB ¦FWVæFVæ6–W2Ò°¢&gWGW&W2Ö6÷&R"À¢&gWGW&W2×WF–Â"À¢'–â×&ö¦V7BÖÆ—FR"À¢'7–æ5÷w&W""À¢'Fö¶–ò"À¢'F÷vW"ÖÆ–W""À¢'F÷vW"×6W'f–6R"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F÷vW"Ö‡GG §fW'6–öâÒ#ãbã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#F6f6cvS#sCSff3fCFCcƒ†#FVccSCf&#“FFcCs3SC63“f36–fSCƒC ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢&'—FW2"À¢&gWGW&W2×WF–Â"À¢&‡GG"À¢&‡GGÖ&öG’"À¢'–â×&ö¦V7BÖÆ—FR"À¢'F÷vW""À¢'F÷vW"ÖÆ–W""À¢'F÷vW"×6W'f–6R"À¢'W&Â"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'F÷vW"ÖÆ–W" §fW'6–öâÒ#ã2ã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##3&f6FCc“ƒ&#f6CcCvffcf6C6f3s–6FS#ƒƒsƒ#ƒ3fcfFc–3CƒsƒR  ¥µ·6¶vUÕÐ¦æÖRÒ'F÷vW"×6W'f–6R §fW'6–öâÒ#ã2ã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#†Fc–#fS6c&C3&3“#–&Cs–3C“Sƒƒ3v&3vFV3CsFC“C“S#s“†63†Sc–VVV32  ¥µ·6¶vUÕÐ¦æÖRÒ'G&6–ær §fW'6–öâÒ#ããCB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#c6Sscc&fF#&&36#fcSsc3vV#“V&#cƒS3“vc66Cƒsf6VC&c#ffC ¦FWVæFVæ6–W2Ò°¢&Æör"À¢'–â×&ö¦V7BÖÆ—FR"À¢'G&6–ærÖGG&–'WFW2"À¢'G&6–ærÖ6÷&R"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'G&6–ærÖGG&–'WFW2 §fW'6–öâÒ#ãã3 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#sC“6fVV3“c3sCcScƒsCcS3csƒcs3–3VV#Sv3S†SSvc6&†6cc–S†F ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â"ãã’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'G&6–ærÖ6÷&R §fW'6–öâÒ#ãã3b §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&F#“v6c–C“ff&FSSSVFCc&f“VFF&–VV6fCF6#3ƒ†SFcC“cfCsF6CVf#s– ¦FWVæFVæ6–W2Ò°¢&öæ6Uö6VÆÂ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'G'’ÖÆö6² §fW'6–öâÒ#ã"ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&SC#&FCCC##S#sSSFVFCcScc“#3C†#vcSSff&3–3fSƒf&s3“cF"  ¥µ·6¶vUÕÐ¦æÖRÒ'GFb×'6W" §fW'6–öâÒ#ã#Rã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&C&Fc“f#sƒScsC†f6cfSC6&CsS&CFvFCc–S#33Fcs&6VS†33fc3  ¥µ·6¶vUÕÐ¦æÖRÒ'G—RÖÖ §fW'6–öâÒ#ãRã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&6#3F&&C“3cSVSsFFCcƒ&S“ƒ“†C6V33sC“Cc#3Ff&6V&CVFf3v#“ƒv#“ ¦FWVæFVæ6–W2Ò°¢''W7F2Ö†6‚"ãã2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'G—VçVÒ §fW'6–öâÒ#ã#ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#fcVSƒs&Sf36#3s#svfSVS&f#ƒS–fC“cF#CCF3#vFSC3ƒC63FFF#  ¥µ·6¶vUÕÐ¦æÖRÒ'VG5÷v–æF÷w2 §fW'6–öâÒ#ã"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&c&cff##ƒCvccsC&6Csfcsƒ6&&3C–S“3sVC3v&Vcfcs6C–Ss3†3s&CfR ¦FWVæFVæ6–W2Ò°¢&ÖVÖöfg6WB"À¢'FV×f–ÆR"À¢'v–æF÷w2×7—2ãcã""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'Væ–66R §fW'6–öâÒ#"ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#3Sv63663f3c–fCf3“s6VC“3v3s3&CcC#Fcf3cs6S“CC“sCƒ&#†b  ¥µ·6¶vUÕÐ¦æÖRÒ'Væ–6öFRÖ–FVçB §fW'6–öâÒ#ãã#r §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&&3sSFCf333s“V33#Cs#sC#†SVvFVF#V#c“Vc“ƒ“&F&6&scC6S#CcSc2  ¥µ·6¶vUÕÐ¦æÖRÒ'Væ–6öFR×6VvÖVçFF–öâ §fW'6–öâÒ#ã2ã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&3fcVC636#&c“#vƒ†f&3“cf3C“vCcS“Sc#SCc3cc†F3ƒ#fƒv‚  ¥µ·6¶vUÕÐ¦æÖRÒ'Væ–6öFR×v–GF‚ §fW'6–öâÒ#ããB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#vFCfS3S“&fcs#Cs#ccVCCCƒ–#–6C3–F3CV#†fVFFCvccvcfb  ¥µ·6¶vUÕÐ¦æÖRÒ'Væ–6öFR×†–B §fW'6–öâÒ#ã"ãb §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&V&33F3sS3vcs&#S&#v33Ss3F3–fc#“V3CcF333V#&#ƒFf3SFcƒS2  ¥µ·6¶vUÕÐ¦æÖRÒ'VçG'W7FVB §fW'6–öâÒ#ã’ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#†V6#fF#†#†3SCss6#c†CSƒ#V33“vScƒsSc“ƒc6ƒV6C†FC#†Cv3  ¥µ·6¶vUÕÐ¦æÖRÒ'VöÒ §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&SscS6Sc3cSƒFcS#–#6#“C“ƒS3ƒ#s“ScF6VcSC#“#v&3&#3&3F6SVVB ¦FWVæFVæ6–W2Ò°¢&çVÒ×G&—G2"À¢'G—VçVÒ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'W&Â §fW'6–öâÒ#"ãRã‚ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&fccv†C3“s3s636Vcccƒ&6#3#cƒ###3S#ƒcƒV3C#Vc3†&6CVVB ¦FWVæFVæ6–W2Ò°¢&f÷&Õ÷W&ÆVæ6öFVB"À¢&–Fæ"À¢'W&6VçBÖVæ6öF–ær"À¢'6W&FR"À¢'6W&FUöFW&—fR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'W7fr §fW'6–öâÒ#ã3rã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#3†#S#s&#ƒ6SC#f#svfVVV#Ff#S“s#scCcS6ScfV33F3csSb ¦FWVæFVæ6–W2Ò°¢&&6ScBã#ãr"À¢&Æör"À¢'–6òÖ&w2"À¢'W7fr×'6W""À¢'W7fr×G&VR"À¢'†ÖÇw&—FW""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'W7fr×'6W" §fW'6–öâÒ#ã3rã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–&CFS63#“cCVCS#“#–3ccf3ƒ“#CVS#“#&fCSv&C“#–c3–&&F2 ¦FWVæFVæ6–W2Ò°¢&FF×W&Â"À¢&fÆFS""À¢&–ÖvW6—¦R"À¢&·W&&ò"À¢&Æör"À¢'&÷†ÖÇG&VR"À¢'6–×ÆV772"À¢'6—†6†W"ã2ã"À¢'7fwG—W2"À¢'W7fr×G&VR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'W7fr×G&VR §fW'6–öâÒ#ã3rã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#†VS6C#&V&F#“vc#ScF#†cV#FCfVc“#FVfCc#66c&S3s6cCf&“sfV3vC2 ¦FWVæFVæ6–W2Ò°¢'&7G&VR"À¢'7G&–7BÖçVÒ"À¢'7fwG—W2"À¢'F–ç’×6¶–×F‚"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'WFc…ö—FW" §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&c6&C–C6SSs3#ff66S–C36#ƒvVV#c#†C&ffS–#vScsVCƒCc†c6VFc ¦FWVæFVæ6–W2Ò°¢'WFe÷G—W2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'WFe÷G—W2 §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#66#C#S#ƒc“ƒ3cs#sƒCS6c6#fC#†6F6#3F#SsFSV3Sƒ#FffcVVV&CS&#b  ¥µ·6¶vUÕÐ¦æÖRÒ'WV–B §fW'6–öâÒ#ã#’ã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#63F#VFff&cF&Cs#6SƒSsCFFc&fcfS“SV3svCvV#†SS6VS&6#cB ¦FWVæFVæ6–W2Ò°¢&vWG&æFöÒãBã2"À¢&§2×7—2"À¢'6W&FUö6÷&R"À¢'v6ÒÖ&–æFvVâ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'f7¶r §fW'6–öâÒ#ã"ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&66CFVc&cv&#vƒ&fS#3cff#“SvCC†VccsvcfVV#ƒ#Vc3s&cS&SC†&#3#C#b  ¥µ·6¶vUÕÐ¦æÖRÒ'fW'6–öåö6†V6² §fW'6–öâÒ#ã’ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##“#†c36C“sVf3fC–cƒf3†c#ƒ3ƒS6C#f&FCV##vcSC&&fVS##ƒ“V  ¥µ·6¶vUÕÐ¦æÖRÒ'vÆ¶F—" §fW'6–öâÒ#"ãRã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##“s““CcCFc“C–3VCfc“ƒsFVfFFVF3f3VVfS“CSCvCcƒc3†S6VSF" ¦FWVæFVæ6–W2Ò°¢'6ÖRÖf–ÆR"À¢'v–æ’×WF–Â"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'vçB §fW'6–öâÒ#ã2ã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&V3F6FCFC“fSƒc†#vVcCss##vC†CS3†#Cf#3sS3fVS†–c&6#&VC" ¦FWVæFVæ6–W2Ò°¢'G'’ÖÆö6²"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v6’ §fW'6–öâÒ#ãã·v6’×6æ6†÷B×&Wf–Ws §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&66c6V3cSƒCvV#FSs666CVV#vC“–cƒCƒVFSC6Vf#&c3s6CcSFcFVCF"  ¥µ·6¶vUÕÐ¦æÖRÒ'v6—" §fW'6–öâÒ#ãã"·v6’Óã"ã’ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#“Svc“#3–c&3c–F#sVScVcsF#6Fƒ#†fSVcV#“CV3FFC#f&C#VCƒ–36V&6cR ¦FWVæFVæ6–W2Ò°¢'v—BÖ&–æFvVâ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v6ÒÖ&–æFvVâ §fW'6–öâÒ#ã"ã3 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&ƒ3FFFCf3v#†##3&VcV&c3&&SCƒ“66C6V“v#fS6##ƒƒƒf#†6C2 ¦FWVæFVæ6–W2Ò°¢&6frÖ–b"À¢''W7GfW'6–öâ"À¢'v6ÒÖ&–æFvVâÖÖ7&ò"À¢'v6ÒÖ&–æFvVâ×6†&VB"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v6ÒÖ&–æFvVâÖgWGW&W2 §fW'6–öâÒ#ãBãƒ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#VSFS3#v6#S3c†Cc66##&CF“ƒ#vc“63“V“#fC†C#VS–f3–S&V3S ¦FWVæFVæ6–W2Ò°¢&§2×7—2"À¢'Fö¶–ò"À¢'v6ÒÖ&–æFvVâ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v6ÒÖ&–æFvVâÖÖ7&ò §fW'6–öâÒ#ã"ã3 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#fS“3&3–&F&ccc“cff33S“&#VVCSƒ3CCsSsƒƒV&VCFV&#6C†Vc#†VC’ ¦FWVæFVæ6–W2Ò°¢'V÷FR"À¢'v6ÒÖ&–æFvVâÖÖ7&ò×7W÷'B"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v6ÒÖ&–æFvVâÖÖ7&ò×7W÷'B §fW'6–öâÒ#ã"ã3 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#&6F#SC#ƒSCSV&Cƒ3S36f#†Ss3F&cC3&fSc6f&33V3C&3Ò'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&S633fcƒcCsfC“c#ƒ#Cc3#CC–cs6c&Vƒ†3cSCƒf33#cƒƒs2 ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢''W7F—‚ããb"À¢'v–ÆæBÖ&6¶VæB"À¢'v–ÆæB×66ææW""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–ÆæBÖ76BÖg&ÖR §fW'6–öâÒ#ã2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#c#V3S#–F&CC6C#VSf“cVSƒ†#ƒ#–V6C6##ƒ–3FS#–fF&#v33#F3vR ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢&7W'6÷"Ö–6öâ"À¢'v–ÆæBÖ&6¶VæB"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–ÆæBÖ7W'6÷" §fW'6–öâÒ#ã3ãB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#FS&Cƒsƒ&S–#3C3#†6FSVc“3#s6C##&S3ƒC–6f6#ƒ##s“6f#3FB ¦FWVæFVæ6–W2Ò°¢''W7F—‚ããb"À¢'v–ÆæBÖ6Æ–VçB"À¢'†7W'6÷""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–ÆæB×&÷Fö6öÇ2 §fW'6–öâÒ#ã3"ã2 §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##6C3ƒ6FS6F&VCcS#cƒV6&CC–#Ss#&3sƒScƒ“–“cƒffVS†F3F#b ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢'v–ÆæBÖ&6¶VæB"À¢'v–ÆæBÖ6Æ–VçB"À¢'v–ÆæB×66ææW""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–ÆæB×&÷Fö6öÇ2ÖW‡W&–ÖVçFÂ §fW'6–öâÒ###Ss#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#Ccƒc3#†F6V3s“Cv#F#3“f63–#–vs–Sƒs†S†3CvSf3&C&3V†F6&# ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢'v–ÆæBÖ&6¶VæB"À¢'v–ÆæBÖ6Æ–VçB"À¢'v–ÆæB×&÷Fö6öÇ2"À¢'v–ÆæB×66ææW""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–ÆæB×&÷Fö6öÇ2ÖÖ—62 §fW'6–öâÒ#ã2ã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#fS“ScsS“–Vc#6S–#†FCfSC#–SSs3†CCS–Ff3Cf#6##c3#ƒC3FCf##–3‚ ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢'v–ÆæBÖ&6¶VæB"À¢'v–ÆæBÖ6Æ–VçB"À¢'v–ÆæB×&÷Fö6öÇ2"À¢'v–ÆæB×66ææW""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–ÆæB×&÷Fö6öÇ2×Æ6Ö §fW'6–öâÒ#ã2ã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#&#fC†6cV#&333VCcScC63ƒ†fSS3S3ƒ#–CFcƒ33†6&Cc–fƒƒFC“ ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢'v–ÆæBÖ&6¶VæB"À¢'v–ÆæBÖ6Æ–VçB"À¢'v–ÆæB×&÷Fö6öÇ2"À¢'v–ÆæB×66ææW""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–ÆæB×&÷Fö6öÇ2×vÇ" §fW'6–öâÒ#ã2ã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&V#FSS&csƒ3fCv3s“sf3s†6#SCcS33ƒs633CSf&f3“CsCƒ#†V3#cƒ#3B ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢'v–ÆæBÖ&6¶VæB"À¢'v–ÆæBÖ6Æ–VçB"À¢'v–ÆæB×&÷Fö6öÇ2"À¢'v–ÆæB×66ææW""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–ÆæB×66ææW" §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#33†S3Cc#6&#cvCsV#3fCƒ–c†S3“6ƒ36SvC&Sƒ“ƒV6Cs3F3 ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V–6²×†ÖÂãCã"À¢'V÷FR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–ÆæB×7—2 §fW'6–öâÒ#ã3ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&C†V##6fVf3–SCc†SƒCFcF–3svS††3FVC#fS“CFVcc“#“sƒFFS#sƒVS6&R ¦FWVæFVæ6–W2Ò°¢&FÆ–""À¢&Æör"À¢&öæ6Uö6VÆÂ"À¢'¶rÖ6öæf–r"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'vV"×7—2 §fW'6–öâÒ#ã2ãr §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&CvCs“S“ffcVV3cfFSFF#cFCSC&FSc#ƒ–63C“c6C6fSF6S6c3#“#v#ƒ‚ ¦FWVæFVæ6–W2Ò°¢&§2×7—2"À¢'v6ÒÖ&–æFvVâ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'vV"×F–ÖR §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#VcSƒc3†#fC“#scƒƒvcV3FSv&3svS&3†SƒFS–#FCF#&f&" ¦FWVæFVæ6–W2Ò°¢&§2×7—2"À¢'v6ÒÖ&–æFvVâ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'vV%öFö×2 §fW'6–öâÒ#ã2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#sSs#cc3ƒƒ“CC†&#3f#s3sfc#vS3ƒ–3fvS3s“Sc#&f6VCccƒSV3F ¦FWVæFVæ6–W2Ò°¢'†bãBã"À¢'†eö6öFVvVâ"À¢'7G&–æuö66†R"À¢'7G&–æuö66†Uö6öFVvVâ"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'vV&'&÷w6W" §fW'6–öâÒ#ã"ãr §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#s6S“66CCc“†c#cCvCc3vS†V#v6cF6fCc3ƒ&S“#–f##3“†cSs#s–#“V" ¦FWVæFVæ6–W2Ò°¢&¦æ’"À¢&Æör"À¢&æF²Ö6öçFW‡B"À¢&ö&¦3"ãbãR"À¢&ö&¦3"ÖÖ¶—Bã2ã""À¢&ö&¦3"Öf÷VæFF–öâã2ã""À¢'W&Â"À¢'vV"×7—2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'vVW¦Â §fW'6–öâÒ#ãã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#†3“†FF3†#“#sF6#C&#FC–CFCV3C#V#c#3S3Cfc#SSS“““Sc#Fƒ‚  ¥µ·6¶vUÕÐ¦æÖRÒ'vwR §fW'6–öâÒ##BããR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#f##3C3fcs#–cf6Fc&SfS“#c6C3–F3“Sƒ6fCcCƒ#f3VCs“†#CS3“3S2 ¦FWVæFVæ6–W2Ò°¢&'&—fV2ãrãb"À¢&&—FfÆw2"ã2ã""À¢&6fuöÆ–6W2"À¢&Fö7VÖVçBÖfVGW&W2"À¢&§2×7—2"À¢&Æör"À¢'&¶–æuöÆ÷B"À¢'&öf–Æ–ær"À¢'&r×v–æF÷rÖ†æFÆR"À¢'6ÖÆÇfV2"À¢'7FF–5ö76W'F–öç2"À¢'v6ÒÖ&–æFvVâ"À¢'v6ÒÖ&–æFvVâÖgWGW&W2"À¢'vV"×7—2"À¢'vwRÖ6÷&R"À¢'vwRÖ†Â"À¢'vwR×G—W2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'vwRÖ6÷&R §fW'6–öâÒ##BããR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#vc3cC“v#3†Cc–#–F3scS“V#F“cƒS–3Cƒ“CSCF6ƒs“#C&SC“’ ¦FWVæFVæ6–W2Ò°¢&'&—fV2ãrãb"À¢&&—B×fV2"À¢&&—FfÆw2"ã2ã""À¢&6fuöÆ–6W2"À¢&Fö7VÖVçBÖfVGW&W2"À¢&–æFW†Ö"À¢&Æör"À¢&æv"À¢&öæ6Uö6VÆÂ"À¢'&¶–æuöÆ÷B"À¢'&öf–Æ–ær"À¢'&r×v–æF÷rÖ†æFÆR"À¢''W7F2Ö†6‚ãã"À¢'6ÖÆÇfV2"À¢'F†—6W'&÷""ãã#"À¢'vwRÖ†Â"À¢'vwR×G—W2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'vwRÖ†Â §fW'6–öâÒ##BããB §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&c&cCcCcsF6c–c3S33#CƒS†VS36#ƒF3cv6cf3#VfccƒcƒVcVS#“FS#S’ ¦FWVæFVæ6–W2Ò°¢&æG&ö–E÷7—7FVÕ÷&÷W'F–W2"À¢&'&—fV2ãrãb"À¢&6‚"À¢&&—FfÆw2"ã2ã""À¢&'—FV×V6²"À¢&6fuöÆ–6W2"À¢&6÷&RÖw&†–72×G—W2"À¢&vÆ÷r"À¢&vÇWF–å÷vvÅ÷7—2"À¢&wRÖÆÆö2"À¢&wRÖFW67&—F÷""À¢&§2×7—2"À¢&¶‡&öæ÷2ÖVvÂ"À¢&Æ–&2"À¢&Æ–&ÆöF–ær"À¢&Æör"À¢&ÖWFÂ"À¢&æv"À¢&æF²×7—2ãRã³#Rã"ã“S“cS2"À¢&ö&¦2"À¢&öæ6Uö6VÆÂ"À¢&÷&FW&VBÖfÆöB"À¢'&¶–æuöÆ÷B"À¢'&öf–Æ–ær"À¢'&r×v–æF÷rÖ†æFÆR"À¢'&VæFW&Fö2×7—2"À¢''W7F2Ö†6‚ãã"À¢'6ÖÆÇfV2"À¢'F†—6W'&÷""ãã#"À¢'v6ÒÖ&–æFvVâ"À¢'vV"×7—2"À¢'vwR×G—W2"À¢'v–æF÷w2ãS‚ã"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'vwR×G—W2 §fW'6–öâÒ##Bãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#S3CF3Ssf363s†Sssƒf3SVCƒs3ccVS&CS3ƒ6F6fc†FC##vF3c–2 ¦FWVæFVæ6–W2Ò°¢&&—FfÆw2"ã2ã""À¢&§2×7—2"À¢&Æör"À¢'vV"×7—2"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æ’ §fW'6–öâÒ#ã2ã’ §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#V3ƒ3–csFf6Cv“ƒ“S&SS“3#C&VC&S“3““#sCcscS3ƒcCCVC#†#cC’ ¦FWVæFVæ6–W2Ò°¢'v–æ’Ö“cƒb×2×v–æF÷w2ÖvçR"À¢'v–æ’×ƒƒeócB×2×v–æF÷w2ÖvçR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æ’Ö“cƒb×2×v–æF÷w2ÖvçR §fW'6–öâÒ#ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&36#ƒv3c3c#C#fFC–#““SV6S3#–VfcSCV&66&&#3Fc6&S–fcff#f#S#v#b  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æ’×WF–Â §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&3&v#363ƒsc#&C6c3#Sf3636VSV3Sƒ3–s3–fcsS6V&C#" ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2×7—2ãcã""À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æ’×ƒƒeócB×2×v–æF÷w2ÖvçR §fW'6–öâÒ#ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#s&S##sƒCCSv3VS6C&f##&fvSVSCcS†SC†f&6s–V3C&6f3“3ƒ6b  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2 §fW'6–öâÒ#ãSrã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##3C&6#FC†S6#Cfc6CƒVffCCsFv#CCs#333VcsvCsFff&3CcƒC2 ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2Ö6÷&RãSrã"À¢'v–æF÷w2×F&vWG2ãS"ãb"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2 §fW'6–öâÒ#ãS‚ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&FCFCCC“63C““&CC#ƒ“F3†3†#C3C“fsC†FCF3ƒ&3F3“6V#Cƒ“#s&#b ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2Ö6÷&RãS‚ã"À¢'v–æF÷w2×F&vWG2ãS"ãb"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2Ö6÷&R §fW'6–öâÒ#ãSrã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&C&VC#C3–#“ccf6CcvV66S&#ffCƒ–3&Sf#“sf#s3fSfV6Scs#“sƒ“sƒ3&B ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2Ö–×ÆVÖVçBãSrã"À¢'v–æF÷w2Ö–çFW&f6RãSrã"À¢'v–æF÷w2×&W7VÇBãã""À¢'v–æF÷w2×F&vWG2ãS"ãb"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2Ö6÷&R §fW'6–öâÒ#ãS‚ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#f&fCCFV3†3#S“33C#Sv6ScCv#vVf##33V&cc3s–#vF3VccCf6cS–c“’ ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2Ö–×ÆVÖVçBãS‚ã"À¢'v–æF÷w2Ö–çFW&f6RãS‚ã"À¢'v–æF÷w2×&W7VÇBã"ã"À¢'v–æF÷w2×7G&–æw2ãã"À¢'v–æF÷w2×F&vWG2ãS"ãb"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2Ö–×ÆVÖVçB §fW'6–öâÒ#ãSrã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#“vFF3S–CV#ff&f&ffFfvvfS6S#&##fFVc##c†cs&S–CSS#sc6C6SCr ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â"ãã’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2Ö–×ÆVÖVçB §fW'6–öâÒ#ãS‚ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#&&&CV#Cf3“3†SSfV6&6S#ƒf#cc#†#sCScS6&s36#f3sCf3c#vV3“Ss–" ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â"ãã’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2Ö–çFW&f6R §fW'6–öâÒ#ãSrã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##–&VSF#3†V66FScc&CFF&csv3C3&sƒS“6S##3“&CS“s6c&vf6r ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â"ãã’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2Ö–çFW&f6R §fW'6–öâÒ#ãS‚ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#S63F3Cc&F3“C6#SF3ffSVs#fFCVS#f&s†SƒFSCfƒ†f&SVFVC3SR ¦FWVæFVæ6–W2Ò°¢'&ö2ÖÖ7&ó""À¢'V÷FR"À¢'7–â"ãã’"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2ÖÆ–æ² §fW'6–öâÒ#ã"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&cƒS##&SSvcsS#Cfc&S3ff“c6&3ƒ“6CC#&c“sFVfS“vCcFSsCFfSR  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×&Vv—7G'’ §fW'6–öâÒ#ãbã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##sS&&cvf&F66Svc&#vsC&cs“ƒSc6SVCƒ†F&SƒCƒsSSc†S##36CSs# ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2ÖÆ–æ²"À¢'v–æF÷w2×&W7VÇBãBã"À¢'v–æF÷w2×7G&–æw2ãRã"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×&W7VÇB §fW'6–öâÒ#ãã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#VS3ƒ33&S†V3ƒSS#C#SCcƒScC6FSƒcVC“vV3s#F3#ff#3#cCvc‚ ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2×F&vWG2ãS"ãb"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×&W7VÇB §fW'6–öâÒ#ã"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#CC6Cƒ#Fcs“ƒv&##sSs&†cc3s3&S&cƒF#CVs†Cf33vSR ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2×F&vWG2ãS"ãb"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×&W7VÇB §fW'6–öâÒ#ãBã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#ssƒfƒ–VccƒS36C&Fvc†SS#C&VVs†C3C–&c#“&#Vs3ƒS6V#R ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2ÖÆ–æ²"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×7G&–æw2 §fW'6–öâÒ#ãã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#F6C–##V3Cƒc#VFcV&6#SƒVSc#s63f3–VFF6V3VCvC6#fS†33S&VSFC ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2×&W7VÇBã"ã"À¢'v–æF÷w2×F&vWG2ãS"ãb"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×7G&–æw2 §fW'6–öâÒ#ãRã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#sƒ3vC†cc–3sv6cf#scƒ“SCCS3†Sv3&f6cSvS3F#F3fcS†Sf3&6C6#3s“ ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2ÖÆ–æ²"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×7—2 §fW'6–öâÒ#ãS"ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##ƒ&&SVc3f†6SsƒfC†3†S†f6c–&VfcSvV3#S&6#6FSsƒ“#C#VC–36B ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2×F&vWG2ãS"ãb"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×7—2 §fW'6–öâÒ#ãS’ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#S3†&3FCs–VCcvfCsV&63#S33–#3&ssf&&S“&SV&Vcc&cc†3S3ƒS6" ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2×F&vWG2ãS"ãb"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×7—2 §fW'6–öâÒ#ãcã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&c&cSSFC#ƒ#3Fcs#C““V3–C3–S6f#“Sc–c#&C6F&ƒCf33Sƒƒ#c&&6" ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2×F&vWG2ãS2ãR"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×7—2 §fW'6–öâÒ#ãcã" §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&S3s##–&6&Cf6Fccv#ƒ3FccsccCSsvFFcC“Cfs#†#&6#3“#fc6f2 ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2ÖÆ–æ²"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×F&vWG2 §fW'6–öâÒ#ãS"ãb §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–#s#Fcs#s“fS3f#“3#CCsƒCFC6CcC†6S–SC“Sf#“†Ss#V#ƒFS“““s2 ¦FWVæFVæ6–W2Ò°¢'v–æF÷w5ö&6ƒcEövçVÆÇfÒãS"ãb"À¢'v–æF÷w5ö&6ƒcEö×7f2ãS"ãb"À¢'v–æF÷w5ö“cƒeövçRãS"ãb"À¢'v–æF÷w5ö“cƒeövçVÆÇfÒãS"ãb"À¢'v–æF÷w5ö“cƒeö×7f2ãS"ãb"À¢'v–æF÷w5÷ƒƒeócEövçRãS"ãb"À¢'v–æF÷w5÷ƒƒeócEövçVÆÇfÒãS"ãb"À¢'v–æF÷w5÷ƒƒeócEö×7f2ãS"ãb"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w2×F&vWG2 §fW'6–öâÒ#ãS2ãR §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#C“CVc–cSS#ƒ†SCcVc6F#&3#V336#†6VFC–SCc6VFc“F6C#–c“c–c2 ¦FWVæFVæ6–W2Ò°¢'v–æF÷w2ÖÆ–æ²"À¢'v–æF÷w5ö&6ƒcEövçVÆÇfÒãS2ã"À¢'v–æF÷w5ö&6ƒcEö×7f2ãS2ã"À¢'v–æF÷w5ö“cƒeövçRãS2ã"À¢'v–æF÷w5ö“cƒeövçVÆÇfÒãS2ã"À¢'v–æF÷w5ö“cƒeö×7f2ãS2ã"À¢'v–æF÷w5÷ƒƒeócEövçRãS2ã"À¢'v–æF÷w5÷ƒƒeócEövçVÆÇfÒãS2ã"À¢'v–æF÷w5÷ƒƒeócEö×7f2ãS2ã"À¥Ð ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w5ö&6ƒcEövçVÆÇfÒ §fW'6–öâÒ#ãS"ãb §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#3&Cc##ƒSvV3CF&#SSSCF3ƒ&3–fC–V3#c&V3CvVFCS“ƒ–66C3&6C2  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w5ö&6ƒcEövçVÆÇfÒ §fW'6–öâÒ#ãS2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&–CƒCff†#C&cV3“CvcƒCƒ&3C6SvCƒ–Ss6s66VCSfCCFcfScFfC#S2  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w5ö&6ƒcEö×7f2 §fW'6–öâÒ#ãS"ãb §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#–V3&v&#S&S##S&#S6fsƒ3Ssƒs“SC†&3s–33–Fcsc#v6&&CVCCc’  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w5ö&6ƒcEö×7f2 §fW'6–öâÒ#ãS2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&#–Csƒ&SƒF3&cc3&S3“Ss†S“–“C#sS“V#“##CcSSCsCFS–##Sb  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w5ö“cƒeövçR §fW'6–öâÒ#ãS"ãb §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#†S–#VCV#ƒ&S“vV#†S#“V3cs#SS–VSF3#C6cc–Csƒ3“CFV&fS†&&f"  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w5ö“cƒeövçR §fW'6–öâÒ#ãS2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#“cSfFc–CƒS–&V6#6SvcS##FFfcffc&Cfcf##66c3s&ScS“62  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w5ö“cƒeövçVÆÇfÒ §fW'6–öâÒ#ãS"ãb §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#VVSS&C3†3“#66sf3Sc6#ƒf36F&CsVcƒ“#ƒv3–CSƒfCs33FS†VCcb  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w5ö“cƒeövçVÆÇfÒ §fW'6–öâÒ#ãS2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ&fs3S–CC†cc†#†#–fs36F66f#S–#SS–VCcC††c“SCc–3#sSsƒ2  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w5ö“cƒeö×7f2 §fW'6–öâÒ#ãS"ãb §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ##C“C†&3V3VSv3fF&&#†&cƒ–Cƒ–ff6S6S33##ƒ–Ss6FVVfSFcfV3Sf3cb  ¥µ·6¶vUÕÐ¦æÖRÒ'v–æF÷w5ö“cƒeö×7f2 §fW'6–öâÒ#ãS2ã §6÷W&6RÒ'&Vv—7G'’¶‡GG3¢òöv—F‡V"æ6öÒ÷'W7BÖÆærö7&FW2æ–òÖ–æFW‚ ¦6†V6·7VÒÒ#Sv3sSs–cƒ#3&fS–3#ƒS

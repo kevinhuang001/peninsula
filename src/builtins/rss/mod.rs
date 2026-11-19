@@ -1,5 +1,5 @@
 mod feed;
-mod reader;
+pub(crate) mod reader;
 mod view;
 
 use crate::extension::{
