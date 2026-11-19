@@ -125,19 +125,7 @@ impl RuntimeExtension for PerformanceExtension {
             SettingSchema::new("sample_seconds", SettingValue::Integer(1), "采样间隔（秒）")
                 .range(1.0, 60.0),
         );
-        descriptor.settings_version = 3;
         descriptor
-    }
-    fn migrate_settings(
-        &self,
-        _id: &ExtensionId,
-        from_version: u32,
-        settings: &mut Settings,
-    ) -> Result<(), String> {
-        if from_version < 3 && settings.get("sample_seconds") == Some(&SettingValue::Integer(3)) {
-            settings.insert("sample_seconds".into(), SettingValue::Integer(1));
-        }
-        Ok(())
     }
     fn on_start(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {
         self.snapshots = Some(MetricsSampler::start(self.sample_interval));
@@ -372,30 +360,6 @@ fn compact_view(id: &'static str, content: ViewNode, width: f32) -> CompactView 
         fit_width: false,
         priority: 0,
         tooltip: None,
-    }
-}
-
-#[cfg(test)]
-mod sampling_tests {
-    use super::*;
-
-    #[test]
-    fn default_and_previous_three_second_sampling_become_one_second() {
-        let extension = PerformanceExtension::default();
-        let descriptor = extension.descriptor();
-        assert_eq!(extension.sample_interval.as_secs(), 1);
-        let mut settings = crate::core::settings::SettingsStore::defaults(&descriptor);
-        assert_eq!(settings["sample_seconds"], SettingValue::Integer(1));
-        settings.insert("sample_seconds".into(), SettingValue::Integer(3));
-        extension
-            .migrate_settings(&descriptor.id, 2, &mut settings)
-            .unwrap();
-        assert_eq!(settings["sample_seconds"], SettingValue::Integer(1));
-        settings.insert("sample_seconds".into(), SettingValue::Integer(10));
-        extension
-            .migrate_settings(&descriptor.id, 1, &mut settings)
-            .unwrap();
-        assert_eq!(settings["sample_seconds"], SettingValue::Integer(10));
     }
 }
 

@@ -54,33 +54,13 @@ impl SettingsStore {
             .collect()
     }
 
-    pub fn load(
-        &mut self,
-        descriptor: &ExtensionDescriptor,
-        legacy: Settings,
-        migrate: impl FnOnce(u32, &mut Settings) -> Result<(), String>,
-    ) -> Result<Settings, String> {
+    pub fn load(&mut self, descriptor: &ExtensionDescriptor) -> Result<Settings, String> {
         let stored = self.records.get(descriptor.id.as_str());
-        let mut legacy = legacy;
-        for contribution in &descriptor.contributions {
-            if let Some(record) = self.records.get(contribution.id.as_str()) {
-                legacy.extend(record.values.clone());
-            }
-        }
         let seed = match stored {
             None if !self.writable => return Err("extension settings file is unreadable".into()),
-            None => legacy,
-            Some(record) if record.version > descriptor.settings_version => {
-                return Err(format!(
-                    "settings for {} were saved by a newer extension",
-                    descriptor.id
-                ))
-            }
-            Some(record) if record.version < descriptor.settings_version => {
-                let mut values = record.values.clone();
-                migrate(record.version, &mut values)?;
-                values.retain(|key, _| descriptor.settings.iter().any(|field| field.key == *key));
-                values
+            None => Self::defaults(descriptor),
+            Some(record) if record.version != descriptor.settings_version => {
+                Self::defaults(descriptor)
             }
             Some(record) => record.values.clone(),
         };
@@ -114,13 +94,6 @@ impl SettingsStore {
         Ok(changed)
     }
 
-    pub fn is_current(&self, descriptor: &ExtensionDescriptor) -> bool {
-        self.records.get(descriptor.id.as_str()).is_some_and(|r| {
-            r.version == descriptor.settings_version
-                && Self::normalized(descriptor, r.values.clone())
-                    .is_ok_and(|normalized| normalized == r.values)
-        })
-    }
     pub fn values(&self, id: &ExtensionId) -> Option<&Settings> {
         self.records.get(id.as_str()).map(|record| &record.values)
     }
@@ -153,9 +126,6 @@ impl SettingsStore {
         }
         let mut next = self.records.clone();
         next.insert(id.to_owned(), record);
-        for contribution in &descriptor.contributions {
-            next.remove(contribution.id.as_str());
-        }
         self.write(&next).map_err(|error| error.to_string())?;
         self.records = next;
         Ok(())
@@ -217,15 +187,9 @@ mod tests {
         let path = dir.path().join("settings.json");
         let descriptor = descriptor(1, "interval");
         let mut host = SettingsStore::open(path.clone());
-        let values = host
-            .load(
-                &descriptor,
-                [("interval".into(), V::Integer(500))].into(),
-                |_, _| unreachable!(),
-            )
-            .unwrap();
+        let values = host.load(&descriptor).unwrap();
         assert_eq!(values["mode"], V::Enum("compact".into()));
-        assert_eq!(values["interval"], V::Integer(500));
+        assert_eq!(values["interval"], V::Integer(1000));
         let before = fs::read(&path).unwrap();
         assert!(host
             .update(
@@ -256,51 +220,29 @@ mod tests {
                 ("mode".into(), ReloadPolicy::Reload),
             ]
         );
-        let values = SettingsStore::open(path)
-            .load(
-                &descriptor,
-                [("interval".into(), V::Integer(500))].into(),
-                |_, _| unreachable!(),
-            )
-            .unwrap();
+        let values = SettingsStore::open(path).load(&descriptor).unwrap();
         assert_eq!(values["interval"], V::Integer(2000));
         assert_eq!(values["mode"], V::Enum("detailed".into()));
         assert_eq!(values["startup_mode"], V::Boolean(true));
     }
 
     #[test]
-    fn failed_migration_and_downgrade_leave_storage_intact() {
+    fn settings_version_change_resets_values_to_current_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         let mut host = SettingsStore::open(path.clone());
         let old = descriptor(1, "interval");
         let new = descriptor(2, "refresh_interval");
-        host.load(
-            &old,
-            [("interval".into(), V::Integer(2500))].into(),
-            |_, _| unreachable!(),
-        )
-        .unwrap();
-        let initial = fs::read(&path).unwrap();
-        assert!(host
-            .load(&new, Settings::new(), |_, _| Err("migration failed".into()))
-            .is_err());
-        assert_eq!(fs::read(&path).unwrap(), initial);
-        let values = host
-            .load(&new, Settings::new(), |version, values| {
-                assert_eq!(version, 1);
-                let interval = values.remove("interval").unwrap();
-                values.insert("refresh_interval".into(), interval);
-                Ok(())
-            })
+        host.load(&old).unwrap();
+        host.update(&old, [("interval".into(), V::Integer(2500))].into())
             .unwrap();
-        assert_eq!(values["refresh_interval"], V::Integer(2500));
+        let initial = fs::read(&path).unwrap();
+        let values = host.load(&new).unwrap();
+        assert_eq!(values["refresh_interval"], V::Integer(1000));
         let upgraded = fs::read(&path).unwrap();
-        assert!(host
-            .load(&old, Settings::new(), |_, _| unreachable!())
-            .is_err());
+        assert_ne!(upgraded, initial);
         assert!(host.update(&old, Settings::new()).is_err());
-        assert_eq!(fs::read(&path).unwrap(), upgraded);
+        assert_eq!(fs::read(path).unwrap(), upgraded);
     }
 
     #[test]
@@ -310,9 +252,7 @@ mod tests {
         fs::write(&path, b"{damaged").unwrap();
         let mut host = SettingsStore::open(path.clone());
         let mut descriptor = descriptor(1, "interval");
-        assert!(host
-            .load(&descriptor, Settings::new(), |_, _| unreachable!())
-            .is_err());
+        assert!(host.load(&descriptor).is_err());
         assert_eq!(fs::read(path).unwrap(), b"{damaged");
         descriptor.settings[0].default = Some(V::Float(f64::NAN));
         assert!(ExtensionRegistry::default().register(descriptor).is_err());

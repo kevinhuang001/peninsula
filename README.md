@@ -100,9 +100,9 @@ Widget 注册后默认为可见。扩展可通过 `RuntimeExtension::widget_visi
 
 ### 扩展设置
 
-在 `ExtensionDescriptor::with_settings` 声明配置版本、字段类型、默认值和约束。Core 验证配置并原子写入用户配置目录的 `extension-settings.json`；改动后通过 `on_settings_changed` 给扩展传递验证过的快照。需要改变旧值结构时，可在 `migrate_settings` 中按旧版本转换。标记为 `Restart` 的值保存后在下次启动生效。时长以毫秒表示，颜色是四个 sRGBA 通道。
+在 `ExtensionDescriptor::with_settings` 声明配置版本、字段类型、默认值和约束。Core 验证配置并原子写入用户配置目录的 `extension-settings.json`；改动后通过 `on_settings_changed` 给扩展传递验证过的快照。配置版本变化后，Core 使用当前默认值重新初始化设置，不转换旧值。标记为 `Restart` 的值保存后在下次启动生效。时长以毫秒表示，颜色是四个 sRGBA 通道。
 
-番茄钟时长和 Bilibili 的轮询间隔通过 Schema 保存。旧版 `preferences.conf` 中的 OpenCLI 路径会迁移至扩展配置，默认自动检测。性能监控的 `show_download`、`show_upload` 和下载胶囊的 `show_rate` 是额外的布尔配置，未新增设置页面。启用状态、顺序和免打扰仍由 Core 管理；登录信息沿用现有认证方式。
+番茄钟时长、Bilibili 的 OpenCLI 命令路径和轮询间隔通过 Schema 保存；命令路径留空时使用系统 `PATH` 查找。性能监控的 `show_download`、`show_upload` 和下载胶囊的 `show_rate` 是额外的布尔配置，未新增设置页面。启用状态、顺序和免打扰仍由 Core 管理；登录信息沿用现有认证方式。
 
 ## Linux 音乐显示演示
 

@@ -45,24 +45,12 @@ pub struct ExtensionManager {
 }
 
 impl ExtensionManager {
-    pub fn new(
-        extensions: Vec<Box<dyn RuntimeExtension>>,
-        legacy: HashMap<ExtensionId, Settings>,
-        legacy_enabled: HashMap<ExtensionId, bool>,
-    ) -> Self {
+    pub fn new(extensions: Vec<Box<dyn RuntimeExtension>>) -> Self {
         let context = ExtensionContext::new(user_data_dir(), user_config_dir());
-        Self::with_context(
-            extensions,
-            legacy,
-            legacy_enabled,
-            context,
-            Some(lifecycle_path()),
-        )
+        Self::with_context(extensions, context, Some(lifecycle_path()))
     }
     fn with_context(
         extensions: Vec<Box<dyn RuntimeExtension>>,
-        mut legacy: HashMap<ExtensionId, Settings>,
-        legacy_enabled: HashMap<ExtensionId, bool>,
         context: ExtensionContext,
         lifecycle_path: Option<PathBuf>,
     ) -> Self {
@@ -101,40 +89,19 @@ impl ExtensionManager {
                 if descriptor.settings.is_empty() {
                     continue;
                 }
-                let mut seed = legacy.remove(&descriptor.id).unwrap_or_default();
-                for c in &descriptor.contributions {
-                    seed.extend(legacy.remove(&c.id).unwrap_or_default());
-                }
-                let settings = host
-                    .settings
-                    .load(&descriptor, seed.clone(), |version, values| {
-                        extension.migrate_settings(&descriptor.id, version, values)
-                    })
-                    .unwrap_or_else(|error| {
-                        host.context
-                            .log(&descriptor.id, &format!("Unable to load settings: {error}"));
-                        let mut values = SettingsStore::defaults(&descriptor);
-                        values.extend(seed.into_iter().filter(|(key, value)| {
-                            descriptor
-                                .settings
-                                .iter()
-                                .any(|field| field.key == *key && field.validate(value).is_ok())
-                        }));
-                        values
-                    });
+                let settings = host.settings.load(&descriptor).unwrap_or_else(|error| {
+                    host.context
+                        .log(&descriptor.id, &format!("Unable to load settings: {error}"));
+                    SettingsStore::defaults(&descriptor)
+                });
                 host.effective_settings
                     .insert(descriptor.id.clone(), settings);
             }
         }
-        host.start_enabled_extensions(&legacy_enabled);
+        host.start_enabled_extensions();
         host
     }
 
-    pub fn settings_persisted(&self, id: &ExtensionId) -> bool {
-        self.registry
-            .extension(id)
-            .is_some_and(|d| d.settings.is_empty() || self.settings.is_current(d))
-    }
     pub fn configured_settings(&self, id: &ExtensionId) -> Option<&Settings> {
         self.settings
             .values(id)
@@ -284,26 +251,12 @@ impl ExtensionManager {
     pub fn set_visible(&mut self, visible: bool) {
         self.visible = visible;
     }
-    fn start_enabled_extensions(&mut self, legacy: &HashMap<ExtensionId, bool>) {
+    fn start_enabled_extensions(&mut self) {
         for descriptor in self.registry.extensions().to_vec() {
             let enabled = self
                 .lifecycle
                 .record(&descriptor.id)
-                .or_else(|| {
-                    descriptor
-                        .contributions
-                        .iter()
-                        .find_map(|c| self.lifecycle.record(&c.id))
-                })
-                .map_or_else(
-                    || {
-                        legacy
-                            .get(&descriptor.id)
-                            .copied()
-                            .unwrap_or(descriptor.default_enabled)
-                    },
-                    |r| r.enabled,
-                );
+                .map_or(descriptor.default_enabled, |r| r.enabled);
             if enabled {
                 if let Err(error) = self.set_enabled(&descriptor.id, true) {
                     self.context.log(&descriptor.id, &error);
@@ -927,8 +880,6 @@ mod tests {
     fn host(root: &std::path::Path, probe: Probe) -> ExtensionManager {
         ExtensionManager::with_context(
             vec![Box::new(probe)],
-            Default::default(),
-            Default::default(),
             ExtensionContext::new(root.into(), root.join("config")),
             Some(root.join("lifecycle.tsv")),
         )
