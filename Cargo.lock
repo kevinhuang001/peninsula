@@ -2011,6 +2011,7 @@ name = "island-lab"
 version = "0.1.0"
 dependencies = [
  "ammonia",
+ "arboard",
  "base64 0.22.1",
  "battery",
  "block2",

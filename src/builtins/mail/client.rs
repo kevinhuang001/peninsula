@@ -3,7 +3,7 @@ use imap::{types::Flag, Session};
 use mailparse::{MailHeaderMap, ParsedMail};
 use native_tls::{TlsConnector, TlsStream};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap},
     net::{TcpStream, ToSocketAddrs},
     time::Duration,
 };
@@ -11,6 +11,7 @@ use std::{
 const MESSAGE_WINDOW: usize = 80;
 const NEW_MESSAGE_BATCH: usize = 100;
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
+const MAX_OTP_SCAN_BYTES: usize = 20 * 1024 * 1024;
 
 pub(super) struct MailboxSnapshot {
     pub messages: Vec<EmailMessage>,
@@ -82,6 +83,7 @@ pub(super) fn fetch_mailbox(
         selected.extend(new_uids.iter().copied());
 
         let mut messages = Vec::new();
+        let mut message_sizes = HashMap::new();
         if !selected.is_empty() {
             let uid_set = selected
                 .iter()
@@ -89,14 +91,56 @@ pub(super) fn fetch_mailbox(
                 .collect::<Vec<_>>()
                 .join(",");
             let fetched = session
-                .uid_fetch(uid_set, "UID FLAGS INTERNALDATE BODY.PEEK[HEADER]")
+                .uid_fetch(
+                    uid_set,
+                    "UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER]",
+                )
                 .map_err(|error| format!("读取邮件标题失败：{error}"))?;
             for item in fetched.iter() {
                 let (Some(uid), Some(header)) = (item.uid, item.header()) else {
                     continue;
                 };
                 if let Some(message) = parse_headers(uid, header, item.flags()) {
+                    message_sizes.insert(uid, item.size.map(|size| size as usize));
                     messages.push(message);
+                }
+            }
+        }
+
+        // Inspect only new messages. BODY.PEEK leaves the server's unread flag
+        // untouched, just like the header-only inbox refresh above.
+        let mut scan_bytes = 0usize;
+        let mut otp_uids = Vec::new();
+        for uid in new_uids.iter().rev() {
+            let Some(size) = message_sizes.get(uid).copied().flatten() else {
+                continue;
+            };
+            if size > MAX_BODY_BYTES || scan_bytes.saturating_add(size) > MAX_OTP_SCAN_BYTES {
+                continue;
+            }
+            scan_bytes += size;
+            otp_uids.push(*uid);
+        }
+        if !otp_uids.is_empty() {
+            let uid_set = otp_uids
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            if let Ok(fetched) = session.uid_fetch(uid_set, "UID BODY.PEEK[]") {
+                for item in fetched.iter() {
+                    let (Some(uid), Some(raw)) = (item.uid, item.body()) else {
+                        continue;
+                    };
+                    if raw.len() > MAX_BODY_BYTES {
+                        continue;
+                    }
+                    let Some(code) = detect_verification_code(raw) else {
+                        continue;
+                    };
+                    if let Some(message) = messages.iter_mut().find(|message| message.uid == uid) {
+                        message.verification_code = Some(code);
+                    }
                 }
             }
         }
@@ -203,7 +247,84 @@ fn parse_headers(uid: u32, bytes: &[u8], flags: &[Flag<'_>]) -> Option<EmailMess
         date,
         timestamp,
         is_read: flags.iter().any(|flag| matches!(flag, Flag::Seen)),
+        verification_code: None,
     })
+}
+
+fn detect_verification_code(raw: &[u8]) -> Option<String> {
+    let parsed = mailparse::parse_mail(raw).ok()?;
+    let subject = parsed
+        .headers
+        .get_first_value("Subject")
+        .unwrap_or_default();
+    let body = extract_text(&parsed);
+    super::otp::detect(&subject, &body)
+}
+
+fn extract_text(message: &ParsedMail<'_>) -> String {
+    let mut text = String::new();
+    collect_text(message, &mut text);
+    text
+}
+
+fn collect_text(part: &ParsedMail<'_>, text: &mut String) {
+    if part
+        .headers
+        .get_first_value("Content-Disposition")
+        .is_some_and(|value| value.to_ascii_lowercase().starts_with("attachment"))
+    {
+        return;
+    }
+    if !part.subparts.is_empty() {
+        for child in &part.subparts {
+            collect_text(child, text);
+        }
+        return;
+    }
+    if !matches!(part.ctype.mimetype.as_str(), "text/plain" | "text/html") {
+        return;
+    }
+    let Ok(body) = part.get_body() else {
+        return;
+    };
+    if part.ctype.mimetype == "text/html" {
+        text.push_str(&html_text(&body));
+    } else {
+        text.push_str(&body);
+    }
+    text.push('\n');
+}
+
+fn html_text(html: &str) -> String {
+    let mut text = String::with_capacity(html.len());
+    let mut in_tag = false;
+    let mut tag = String::new();
+    for character in html.chars() {
+        match character {
+            '<' if !in_tag => {
+                in_tag = true;
+                tag.clear();
+            }
+            '>' if in_tag => {
+                let normalized_tag = tag.trim().to_ascii_lowercase();
+                let name = normalized_tag
+                    .trim_start_matches('/')
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("");
+                if matches!(name, "br" | "p" | "div" | "li" | "tr" | "hr" | "h1" | "h2" | "h3") {
+                    text.push('\n');
+                } else {
+                    text.push(' ');
+                }
+                in_tag = false;
+            }
+            _ if in_tag => tag.push(character),
+            '&' => text.push(' '),
+            _ => text.push(character),
+        }
+    }
+    text
 }
 
 fn extract_body(message: &ParsedMail<'_>) -> String {

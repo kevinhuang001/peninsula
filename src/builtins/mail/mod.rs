@@ -1,4 +1,5 @@
 mod client;
+mod otp;
 mod view;
 
 use crate::{
@@ -49,6 +50,7 @@ struct EmailMessage {
     date: String,
     timestamp: i64,
     is_read: bool,
+    verification_code: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -218,7 +220,22 @@ impl NotificationPresentationProvider for MailExtension {
         notification: &Notification,
         action: &NotificationAction,
     ) -> Result<(), String> {
-        if !self.handles_notification(&notification.source_id) || action.id != "view" {
+        if !self.handles_notification(&notification.source_id) {
+            return Err("未知的邮件通知操作".into());
+        }
+        if action.id == "copy-code" {
+            let code = action
+                .data
+                .as_deref()
+                .filter(|code| !code.is_empty())
+                .ok_or("通知中没有验证码")?;
+            let mut clipboard = arboard::Clipboard::new()
+                .map_err(|error| format!("无法访问系统剪贴板：{error}"))?;
+            return clipboard
+                .set_text(code.to_owned())
+                .map_err(|error| format!("复制验证码失败：{error}"));
+        }
+        if action.id != "view" {
             return Err("未知的邮件通知操作".into());
         }
         let target: NotificationTarget =
@@ -444,6 +461,19 @@ impl MailExtension {
     }
 
     fn notification(account: &Account, message: &EmailMessage) -> Notification {
+        let action = if let Some(code) = &message.verification_code {
+            NotificationAction {
+                id: "copy-code".into(),
+                label: "复制验证码".into(),
+                data: Some(code.clone()),
+            }
+        } else {
+            NotificationAction {
+                id: "view".into(),
+                label: "查看邮件".into(),
+                data: Self::target_data(&account.id, message.uid),
+            }
+        };
         Notification {
             source_id: ExtensionId::builtin(NOTIFICATION_ID),
             id: format!("mail-{}-{}", account.id, message.uid),
@@ -451,11 +481,7 @@ impl MailExtension {
             body: message.subject.clone(),
             icon: Some("mail".into()),
             priority: NotificationPriority::Normal,
-            actions: vec![NotificationAction {
-                id: "view".into(),
-                label: "查看邮件".into(),
-                data: Self::target_data(&account.id, message.uid),
-            }],
+            actions: vec![action],
             created_at: SystemTime::now(),
         }
     }
