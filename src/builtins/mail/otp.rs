@@ -262,7 +262,7 @@ fn find_nearby_code(
             } else {
                 0
             };
-            (distance <= 180).then_some((*start < term_start, distance, code.clone()))
+            (distance <= 180).then_some((*start < term_start, distance, code.as_str().to_owned()))
         })
         .min_by_key(|(before_term, distance, code)| {
             (*before_term, *distance, std::cmp::Reverse(code.chars().count()))
@@ -315,7 +315,7 @@ fn code_tokens(sentence: &str) -> Vec<(usize, usize, String)> {
         if valid_code(first, false, first.chars().count()) {
             continue;
         }
-        let mut value = first.clone();
+        let mut value = first.as_str().to_owned();
         let mut end = *original_end;
         for (next_start, next_end, next_value) in numeric_fragments.iter().skip(start_index + 1) {
             let separator = &sentence[end..*next_start];
