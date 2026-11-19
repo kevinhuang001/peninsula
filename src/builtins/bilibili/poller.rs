@@ -1,7 +1,4 @@
-use crate::{
-    core::external::opencli::{parse_json, OpenCli},
-    sdk::tasks::CancellationToken,
-};
+use crate::core::external::opencli::{parse_json, OpenCli};
 use serde_json::Value;
 use std::{collections::BTreeMap, time::Duration};
 
@@ -15,16 +12,12 @@ const CATEGORIES: &[&str] = &[
     "疑似不良消息",
 ];
 
-pub fn collect(
-    cli: &OpenCli,
-    cancellation: &CancellationToken,
-) -> Result<BTreeMap<String, u64>, String> {
+pub fn collect(cli: &OpenCli) -> Result<BTreeMap<String, u64>, String> {
     // Explicitly keep the adapter in the background so polling never steals
     // focus or opens a foreground browser window.
-    let output = cli.run_with_cancellation(
+    let output = cli.run(
         &["bilibili", "unread", "-f", "json", "--window", "background"],
         Duration::from_secs(45),
-        cancellation,
     )?;
     let value = parse_json(&output)?;
     parse_counts(&value)
@@ -69,19 +62,11 @@ pub fn parse_counts(value: &Value) -> Result<BTreeMap<String, u64>, String> {
 }
 
 pub fn is_installed(cli: &OpenCli) -> Result<bool, String> {
-    is_installed_with_cancellation(cli, &CancellationToken::default())
+    Ok(plugin_list(cli)?.contains("bilibili-unread"))
 }
 
-pub fn is_installed_with_cancellation(
-    cli: &OpenCli,
-    cancellation: &CancellationToken,
-) -> Result<bool, String> {
-    Ok(plugin_list(cli, cancellation)?.contains("bilibili-unread"))
-}
-
-fn plugin_list(cli: &OpenCli, cancellation: &CancellationToken) -> Result<String, String> {
-    let output =
-        cli.run_with_cancellation(&["plugin", "list"], Duration::from_secs(20), cancellation)?;
+fn plugin_list(cli: &OpenCli) -> Result<String, String> {
+    let output = cli.run(&["plugin", "list"], Duration::from_secs(20))?;
     if output.status != 0 {
         return Err(format!(
             "opencli plugin list failed: {}",
