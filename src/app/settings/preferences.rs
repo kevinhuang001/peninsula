@@ -1,16 +1,12 @@
 use super::{
     quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS},
-    theme::{parse_accent, WidgetTheme, DEFAULT_WIDGET_ACCENT},
+    theme::{parse_preset_accent, WidgetTheme, DEFAULT_WIDGET_ACCENT},
 };
 use crate::{
     builtins::registry,
     extension::{ContributionKind, ExtensionDescriptor, ExtensionId, Settings},
 };
-use std::{
-    collections::{HashMap, HashSet},
-    fs, io,
-    path::PathBuf,
-};
+use std::{fs, io, path::PathBuf};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompactItemPreference {
@@ -39,7 +35,6 @@ pub struct CompactPreferences {
     pub widget_accent: [u8; 3],
     pub widget_order: Vec<ExtensionId>,
     pub pages: Vec<ExtensionPage>,
-    migration_complete: bool,
 }
 impl Default for CompactPreferences {
     fn default() -> Self {
@@ -67,7 +62,6 @@ impl Default for CompactPreferences {
                 .into_iter()
                 .map(|d| d.id.clone())
                 .collect(),
-            migration_complete: true,
             pages: registry
                 .extensions()
                 .iter()
@@ -85,26 +79,14 @@ impl Default for CompactPreferences {
 impl CompactPreferences {
     pub fn parse(source: &str) -> Self {
         let mut settings = Self::default();
-        let mut explicit_ids = HashSet::new();
-        let mut legacy_values = HashMap::new();
-        let mut legacy_order = None;
         for line in source.lines() {
             let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
             match key.trim() {
-                "bilibili_enabled" => {
-                    if let Some(page) = settings
-                        .pages
-                        .iter_mut()
-                        .find(|p| p.descriptor.id.as_str() == "builtin.bilibili")
-                    {
-                        page.enabled = parse_bool(value).unwrap_or(false);
-                    }
-                }
                 "reduced_motion" => settings.reduced_motion = value.trim() == "true",
                 "motion_off" => settings.motion_off = value.trim() == "true",
-                "mascot" | "mascot_enabled" => {
+                "mascot_enabled" => {
                     if let Some(v) = parse_bool(value) {
                         settings.mascot_enabled = v;
                     }
@@ -125,8 +107,8 @@ impl CompactPreferences {
                     }
                 }
                 "widget_accent" => {
-                    if let Some(accent) = parse_accent(value) {
-                        settings.widget_accent = super::theme::preset_accent(accent);
+                    if let Some(accent) = parse_preset_accent(value) {
+                        settings.widget_accent = accent;
                     }
                 }
                 "widget_order" => {
@@ -145,28 +127,19 @@ impl CompactPreferences {
                     if fields.len() != 3 {
                         continue;
                     }
-                    let (Ok(mut id), Some(enabled), Ok(order)) = (
+                    let (Ok(id), Some(enabled), Ok(order)) = (
                         ExtensionId::new(fields[0].trim()),
                         parse_bool(fields[1]),
                         fields[2].trim().parse::<u32>(),
                     ) else {
                         continue;
                     };
-                    if id.as_str() == "builtin.mascot/face" {
-                        settings.mascot_enabled = enabled;
-                        continue;
-                    }
-                    if id.as_str() == "builtin.system-monitor/battery" {
-                        id = ExtensionId::builtin("builtin.battery/status");
-                    }
-                    explicit_ids.insert(id.clone());
                     if let Some(item) = settings.compact_items.iter_mut().find(|item| item.id == id)
                     {
                         item.enabled = enabled;
                         item.order = order;
                     }
                 }
-                "compact_order" => legacy_order = Some(parse_legacy_order(value)),
                 "quiet_periods" => {
                     let manual = settings.quiet_hours.manual_enabled;
                     settings.quiet_hours = parse_periods(value);
@@ -175,43 +148,8 @@ impl CompactPreferences {
                 "quiet_manual" => {
                     settings.quiet_hours.manual_enabled = parse_bool(value).unwrap_or(false)
                 }
-                key => {
-                    if let (Some(id), Some(v)) = (legacy_compact_id(key), parse_bool(value)) {
-                        legacy_values.insert(id, v);
-                    }
-                }
+                _ => {}
             }
-        }
-        for (id, enabled) in legacy_values {
-            if let Some(item) = settings
-                .compact_items
-                .iter_mut()
-                .find(|item| item.id == id && !explicit_ids.contains(&id))
-            {
-                item.enabled = enabled;
-            }
-        }
-        if let Some(ids) = legacy_order {
-            for (order, id) in ids.into_iter().enumerate() {
-                if let Some(item) = settings
-                    .compact_items
-                    .iter_mut()
-                    .find(|item| item.id == id && !explicit_ids.contains(&id))
-                {
-                    item.order = order as u32;
-                }
-            }
-        }
-        // A hidden legacy clock had no other contribution; avoid starting it after upgrade.
-        if let Some(clock) = settings
-            .pages
-            .iter_mut()
-            .find(|p| p.descriptor.id.as_str() == "builtin.clock")
-        {
-            clock.enabled = settings
-                .compact_items
-                .iter()
-                .any(|i| i.id.as_str() == "builtin.clock/time" && i.enabled);
         }
         settings.normalize_order();
         settings
@@ -246,14 +184,11 @@ impl CompactPreferences {
         ]);
         format!("{}\n", lines.join("\n"))
     }
-    pub fn load() -> (Self, HashMap<ExtensionId, Settings>) {
+    pub fn load() -> Self {
         let source = preference_path()
             .and_then(|p| fs::read_to_string(p).ok())
             .unwrap_or_default();
-        (
-            Self::parse(&source),
-            super::migration::legacy_settings(&source),
-        )
+        Self::parse(&source)
     }
     pub fn refresh_status(&mut self, host: &crate::core::extension_manager::ExtensionManager) {
         for page in &mut self.pages {
@@ -265,10 +200,6 @@ impl CompactPreferences {
         &mut self,
         host: &crate::core::extension_manager::ExtensionManager,
     ) {
-        self.migration_complete = self
-            .pages
-            .iter()
-            .all(|p| host.settings_persisted(&p.descriptor.id));
         for page in &mut self.pages {
             if let Some(values) = host.configured_settings(&page.descriptor.id) {
                 page.values = values.clone();
@@ -290,18 +221,7 @@ impl CompactPreferences {
         }
         let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
         use std::io::Write;
-        let mut encoded = self.encode();
-        if !self.migration_complete {
-            if let Ok(previous) = fs::read_to_string(path) {
-                for line in previous
-                    .lines()
-                    .filter(|line| super::migration::is_legacy_setting(line))
-                {
-                    encoded.push_str(line);
-                    encoded.push('\n');
-                }
-            }
-        }
+        let encoded = self.encode();
         file.write_all(encoded.as_bytes())?;
         file.as_file().sync_all()?;
         file.persist(path).map_err(|e| e.error)?;
@@ -384,48 +304,6 @@ impl CompactPreferences {
             }
         }
     }
-}
-
-fn legacy_compact_id(key: &str) -> Option<ExtensionId> {
-    Some(ExtensionId::builtin(match key {
-        "mascot" => "builtin.mascot/face",
-        "battery" => "builtin.battery/status",
-        "cpu" => "builtin.system-monitor/cpu",
-        "gpu" => "builtin.system-monitor/gpu",
-        "network" => "builtin.system-monitor/network",
-        "downloads" => "builtin.downloads/status",
-        "time" => "builtin.clock/time",
-        _ => return None,
-    }))
-}
-
-fn parse_legacy_order(value: &str) -> Vec<ExtensionId> {
-    let defaults = [
-        "builtin.mascot/face",
-        "builtin.battery/status",
-        "builtin.system-monitor/cpu",
-        "builtin.system-monitor/gpu",
-        "builtin.system-monitor/network",
-        "builtin.downloads/status",
-        "builtin.clock/time",
-    ];
-    let mut ids = Vec::new();
-    for index in value
-        .split(',')
-        .filter_map(|part| part.trim().parse::<usize>().ok())
-    {
-        if let Some(id) = defaults.get(index).map(|id| ExtensionId::builtin(id)) {
-            if !ids.contains(&id) {
-                ids.push(id);
-            }
-        }
-    }
-    for id in defaults.map(ExtensionId::builtin) {
-        if !ids.contains(&id) {
-            ids.push(id);
-        }
-    }
-    ids
 }
 
 fn parse_periods(value: &str) -> QuietHours {

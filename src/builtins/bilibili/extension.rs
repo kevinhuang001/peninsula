@@ -213,14 +213,6 @@ impl RuntimeExtension for BilibiliExtension {
     fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
         BilibiliExtension::descriptor(self)
     }
-    fn on_install(&mut self, _ctx: &ExtensionContext) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn on_upgrade(&mut self, _ctx: &ExtensionContext, _old_version: &str) -> Result<(), String> {
-        Ok(())
-    }
-
     fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
         self.enabled = true;
         self.begin_polling(ctx)

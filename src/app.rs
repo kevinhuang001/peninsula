@@ -101,19 +101,11 @@ struct IslandApp {
 
 impl IslandApp {
     fn new(context: &egui::Context) -> Self {
-        let (mut preferences, legacy) = CompactPreferences::load();
+        let mut preferences = CompactPreferences::load();
         preferences
             .widget_theme
             .install(context, preferences.widget_accent);
-        let extensions = ExtensionManager::new(
-            crate::builtins::runtimes(),
-            legacy,
-            preferences
-                .pages
-                .iter()
-                .map(|p| (p.descriptor.id.clone(), p.enabled))
-                .collect(),
-        );
+        let extensions = ExtensionManager::new(crate::builtins::runtimes());
         preferences.read_extension_settings(&extensions);
         let active_widget = extensions.widget_ids()[0].clone();
         let window_size = Vec2::from(INITIAL_WINDOW_SIZE);

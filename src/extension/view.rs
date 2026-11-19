@@ -186,15 +186,6 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
     fn on_action(&mut self, _action: Action, _now: std::time::Instant) -> ExtensionOutput {
         ExtensionOutput::default()
     }
-    /// Convert persisted values from an older schema before validation.
-    fn migrate_settings(
-        &self,
-        _id: &ExtensionId,
-        _from_version: u32,
-        _settings: &mut Settings,
-    ) -> Result<(), String> {
-        Ok(())
-    }
     /// Receives a validated snapshot. Restart-only changes take effect at the
     /// next launch; Reload lets the extension reload any owned resources.
     fn on_settings_changed(

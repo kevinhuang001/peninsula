@@ -1,5 +1,4 @@
 mod forms;
-mod migration;
 mod model;
 mod preferences;
 pub(super) mod quiet_hours;
