@@ -1101,7 +1101,8 @@ impl DataSourceManager {
             if source.config.origin != source.definition.origin()? {
                 return Err("请求目标没有获得授权".into());
             }
-            let inputs = source.config.inputs.clone();
+            let mut inputs = source.config.inputs.clone();
+            resolve_input_secret_refs(&mut inputs, &store)?;
             let secrets = load_secrets(&source.definition, &source.config, &store, id)?;
             validate_required_inputs(&source.definition, &inputs, &secrets)?;
             let cancellation = crate::sdk::tasks::CancellationToken::default();
@@ -1653,6 +1654,34 @@ fn load_secrets(
     Ok(secrets)
 }
 
+fn resolve_input_secret_refs(
+    inputs: &mut BTreeMap<String, Value>,
+    store: &SecretStore,
+) -> Result<(), String> {
+    replace_input_secret_refs(inputs, |name| {
+        store.get(name).map_err(|_| "Secret 存储不可用".to_owned())
+    })
+}
+
+fn replace_input_secret_refs(
+    inputs: &mut BTreeMap<String, Value>,
+    mut lookup: impl FnMut(&str) -> Result<Option<String>, String>,
+) -> Result<(), String> {
+    for value in inputs.values_mut() {
+        let Some(name) = value
+            .as_str()
+            .and_then(|text| text.strip_prefix('$'))
+            .and_then(|text| text.strip_suffix('$'))
+            .filter(|name| !name.is_empty() && !name.contains('$'))
+        else {
+            continue;
+        };
+        let secret = lookup(name)?.ok_or_else(|| format!("找不到 Secret：{name}"))?;
+        *value = Value::String(secret);
+    }
+    Ok(())
+}
+
 fn validate_required_inputs(
     definition: &Definition,
     inputs: &BTreeMap<String, Value>,
@@ -2146,6 +2175,21 @@ fn expand_alert_template(template: &str, value: &str, inputs: &BTreeMap<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn string_input_secret_reference_is_resolved_only_for_the_request() {
+        let mut inputs = BTreeMap::from([
+            ("token".to_owned(), Value::String("$API_KEY$".into())),
+            ("label".to_owned(), Value::String("price $5".into())),
+        ]);
+        replace_input_secret_refs(&mut inputs, |name| {
+            assert_eq!(name, "API_KEY");
+            Ok(Some("private-value".into()))
+        })
+        .unwrap();
+        assert_eq!(inputs["token"], "private-value");
+        assert_eq!(inputs["label"], "price $5");
+    }
 
     fn definition() -> Definition {
         Definition::parse(include_str!(

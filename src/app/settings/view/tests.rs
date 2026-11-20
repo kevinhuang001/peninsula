@@ -79,6 +79,36 @@ fn click(
 }
 
 #[test]
+fn secret_editor_buttons_respond_to_clicks() {
+    let ctx = egui::Context::default();
+    let mut prefs = CompactPreferences::default();
+    let mut view = SettingsView {
+        section: Section::Secrets,
+        secret_dialog_open: true,
+        secret_key: "example".into(),
+        secret_value: "token".into(),
+        ..Default::default()
+    };
+    frame(&ctx, &mut view, &mut prefs, vec![]);
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    click(
+        &ctx,
+        &mut view,
+        &mut prefs,
+        text_rect(&output, "保存 Secret").center(),
+    );
+    assert_eq!(view.secret_status, "秘密存储不可用");
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    click(
+        &ctx,
+        &mut view,
+        &mut prefs,
+        text_rect(&output, "取消").center(),
+    );
+    assert!(!view.secret_dialog_open);
+}
+
+#[test]
 fn plugin_names_remain_in_second_column_and_configuration_is_in_the_right_panel() {
     let ctx = egui::Context::default();
     let mut prefs = CompactPreferences::default();

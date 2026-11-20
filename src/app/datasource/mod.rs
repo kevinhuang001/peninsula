@@ -6,19 +6,165 @@ use crate::{
     },
     sdk::secrets::SecretStore,
 };
-use eframe::egui::{self, Align, Layout, Vec2};
+use eframe::egui::{self, Align, Color32, Layout, RichText, Stroke, Vec2};
 use serde_json::Value;
 use std::{collections::HashMap, fs, time::Duration};
 
 const VIEWPORT_ID: &str = "peninsula-datasources";
 const OPEN_REQUEST_ID: &str = "datasource-open-request";
-const LEFT_WIDTH: f32 = 254.0;
+const LEFT_WIDTH: f32 = 175.0;
+const COLUMN_GAP: f32 = 28.0;
+const CARD_CONTENT_WIDTH: f32 = 430.0;
+
+fn surface(ui: &egui::Ui) -> egui::Frame {
+    let visuals = ui.visuals();
+    let fill = if visuals.dark_mode {
+        Color32::from_rgb(25, 29, 36)
+    } else {
+        Color32::WHITE
+    };
+    let border = if visuals.dark_mode {
+        Color32::from_rgb(48, 55, 66)
+    } else {
+        Color32::from_rgb(211, 217, 225)
+    };
+    egui::Frame::new()
+        .fill(fill)
+        .stroke(Stroke::new(1.0, border))
+        .corner_radius(12.0)
+        .inner_margin(egui::Margin::same(16))
+}
+
+fn form_surface(ui: &egui::Ui) -> egui::Frame {
+    surface(ui).inner_margin(egui::Margin::symmetric(12, 7))
+}
+
+fn accent(ui: &egui::Ui) -> Color32 {
+    ui.visuals().hyperlink_color
+}
+
+fn section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
+    ui.label(RichText::new(title).size(16.0).strong());
+    if !subtitle.is_empty() {
+        ui.label(
+            RichText::new(subtitle)
+                .size(11.0)
+                .color(ui.visuals().weak_text_color()),
+        );
+    }
+    ui.add_space(8.0);
+}
+
+fn switch(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        let (rect, response) = ui.allocate_exact_size(Vec2::new(36.0, 20.0), egui::Sense::click());
+        if response.clicked() {
+            *value = !*value;
+            changed = true;
+        }
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *value, label)
+        });
+        ui.painter().rect_filled(
+            rect,
+            10.0,
+            if *value {
+                accent(ui)
+            } else {
+                ui.visuals().widgets.inactive.bg_fill
+            },
+        );
+        ui.painter().circle_filled(
+            egui::pos2(
+                if *value {
+                    rect.right() - 10.0
+                } else {
+                    rect.left() + 10.0
+                },
+                rect.center().y,
+            ),
+            7.0,
+            Color32::WHITE,
+        );
+        ui.label(label);
+    });
+    changed
+}
+
+fn switch_row(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
+    let (rect, response) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width().min(CARD_CONTENT_WIDTH), 28.0),
+        egui::Sense::click(),
+    );
+    if response.clicked() {
+        *value = !*value;
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *value, label)
+    });
+    ui.painter().text(
+        rect.left_center(),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(12.0),
+        ui.visuals().text_color(),
+    );
+    let track = egui::Rect::from_center_size(
+        rect.right_center() - Vec2::new(18.0, 0.0),
+        Vec2::new(36.0, 20.0),
+    );
+    ui.painter().rect_filled(
+        track,
+        10.0,
+        if *value {
+            accent(ui)
+        } else {
+            ui.visuals().widgets.inactive.bg_fill
+        },
+    );
+    ui.painter().circle_filled(
+        egui::pos2(
+            if *value {
+                track.right() - 10.0
+            } else {
+                track.left() + 10.0
+            },
+            track.center().y,
+        ),
+        7.0,
+        Color32::WHITE,
+    );
+    response.clicked()
+}
+
+fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) {
+    form_surface(ui).show(ui, |ui| {
+        let (rect, _) = ui.allocate_exact_size(
+            Vec2::new(ui.available_width().min(CARD_CONTENT_WIDTH), 28.0),
+            egui::Sense::hover(),
+        );
+        ui.painter().text(
+            rect.left_center(),
+            egui::Align2::LEFT_CENTER,
+            label,
+            egui::FontId::proportional(12.0),
+            ui.visuals().weak_text_color(),
+        );
+        ui.painter().text(
+            rect.right_center(),
+            egui::Align2::RIGHT_CENTER,
+            value,
+            egui::FontId::proportional(value_size),
+            ui.visuals().text_color(),
+        );
+    });
+}
 
 #[derive(Default)]
 pub struct DataSourceWindow {
     open: bool,
     selected: Option<String>,
-    search: String,
     candidate: Option<Definition>,
     allow_private_network: bool,
     allow_plaintext_secrets: bool,
@@ -30,7 +176,7 @@ pub struct DataSourceWindow {
     secret_drafts: HashMap<String, String>,
     secret_ref_drafts: HashMap<String, String>,
     secret_status: HashMap<String, Result<bool, String>>,
-    runtime_drafts: HashMap<String, (String, DurationUnit)>,
+    runtime_drafts: HashMap<String, String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -82,8 +228,8 @@ impl DataSourceWindow {
         }
         let builder = egui::ViewportBuilder::default()
             .with_title("Peninsula 数据源")
-            .with_inner_size([1040.0, 700.0])
-            .with_min_inner_size([720.0, 480.0]);
+            .with_inner_size([720.0, 780.0])
+            .with_min_inner_size([680.0, 480.0]);
         let close = context.show_viewport_immediate(
             egui::ViewportId::from_hash_of(VIEWPORT_ID),
             builder,
@@ -129,6 +275,15 @@ impl DataSourceWindow {
         secrets: &SecretStore,
         notifications: &mut NotificationManager,
     ) {
+        if ui.visuals().dark_mode {
+            let visuals = ui.visuals_mut();
+            visuals.extreme_bg_color = Color32::from_rgb(31, 37, 46);
+            visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 47, 58);
+            visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(40, 47, 58);
+            visuals.widgets.hovered.bg_fill = Color32::from_rgb(51, 61, 74);
+            visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(51, 61, 74);
+            visuals.widgets.active.bg_fill = Color32::from_rgb(58, 70, 85);
+        }
         let sources = manager.snapshots();
         if self
             .selected
@@ -138,20 +293,28 @@ impl DataSourceWindow {
             self.selected = sources.first().map(|source| source.id.clone());
         }
         ui.horizontal(|ui| {
-            ui.heading("数据源");
+            ui.label(RichText::new("数据源").size(23.0).strong());
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.button("＋ 导入 .pds.json").clicked() {
+                if ui
+                    .add(
+                        egui::Button::new("＋  导入数据源")
+                            .min_size(Vec2::new(120.0, 32.0))
+                            .fill(Color32::from_rgb(28, 92, 154)),
+                    )
+                    .on_hover_text("选择 .pds.json 文件")
+                    .clicked()
+                {
                     self.pick_definition();
                 }
             });
         });
-        ui.separator();
+        ui.add_space(12.0);
         if let Some(error) = manager.storage_error() {
             ui.colored_label(ui.visuals().error_fg_color, format!("存储诊断：{error}"));
             ui.add_space(6.0);
         }
-        ui.horizontal(|ui| {
-            let height = ui.available_height();
+        let height = ui.available_height().max(1.0);
+        ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(
                 Vec2::new(LEFT_WIDTH, height),
                 Layout::top_down(Align::Min),
@@ -159,9 +322,9 @@ impl DataSourceWindow {
                     self.source_list(ui, &sources, manager);
                 },
             );
-            ui.separator();
+            ui.add_space(COLUMN_GAP);
             ui.allocate_ui_with_layout(
-                Vec2::new((ui.available_width() - 8.0).max(1.0), height),
+                Vec2::new(ui.available_width().max(1.0), height),
                 Layout::top_down(Align::Min),
                 |ui| {
                     if let Some(selected) = self
@@ -170,12 +333,20 @@ impl DataSourceWindow {
                         .and_then(|id| sources.iter().find(|source| &source.id == id))
                         .cloned()
                     {
-                        self.source_detail(ui, &selected, manager, preferences, secrets);
+                        egui::ScrollArea::vertical()
+                            .id_salt(("datasource-detail", &selected.id))
+                            .auto_shrink([false; 2])
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                self.source_detail(ui, &selected, manager, preferences, secrets);
+                            });
                     } else {
                         ui.vertical_centered(|ui| {
-                            ui.add_space(80.0);
+                            ui.add_space(100.0);
+                            ui.label(RichText::new("◈").size(36.0).color(accent(ui)));
+                            ui.add_space(8.0);
                             ui.heading("还没有数据源");
-                            ui.label("导入一个 .pds.json 文件以开始。 ");
+                            ui.label("导入 .pds.json 文件，开始获取和展示数据。 ");
                         });
                     }
                 },
@@ -199,69 +370,69 @@ impl DataSourceWindow {
         sources: &[SourceSnapshot],
         manager: &DataSourceManager,
     ) {
-        ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("搜索数据源"));
-        ui.add_space(5.0);
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for source in sources.iter().filter(|source| {
-                let search = self.search.trim().to_lowercase();
-                search.is_empty()
-                    || source.name.to_lowercase().contains(&search)
-                    || source.id.to_lowercase().contains(&search)
-            }) {
-                let selected = self.selected.as_deref() == Some(&source.id);
-                let response = ui
-                    .allocate_response(Vec2::new(ui.available_width(), 56.0), egui::Sense::click());
-                if response.clicked() {
-                    self.selected = Some(source.id.clone());
-                }
-                let rect = response.rect;
-                if selected || response.hovered() {
-                    ui.painter().rect_filled(
+        egui::ScrollArea::vertical()
+            .id_salt("datasource-list")
+            .auto_shrink([false; 2])
+            .show(ui, |ui| {
+                for source in sources {
+                    let selected = self.selected.as_deref() == Some(&source.id);
+                    let response = ui.allocate_response(
+                        Vec2::new(ui.available_width(), 42.0),
+                        egui::Sense::click(),
+                    );
+                    if response.clicked() {
+                        self.selected = Some(source.id.clone());
+                    }
+                    let rect = response.rect;
+                    let fill = if selected {
+                        ui.visuals().widgets.inactive.bg_fill
+                    } else if response.hovered() {
+                        ui.visuals().widgets.hovered.bg_fill
+                    } else {
+                        Color32::TRANSPARENT
+                    };
+                    ui.painter().rect_filled(rect, 8.0, fill);
+                    ui.painter().rect_stroke(
                         rect,
                         8.0,
-                        ui.visuals().widgets.noninteractive.bg_fill,
+                        Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+                        egui::StrokeKind::Inside,
                     );
-                }
-                if let Some(texture) = manager.icon_texture(&source.id) {
-                    ui.painter().image(
-                        texture.id(),
-                        egui::Rect::from_min_size(
-                            rect.left_top() + Vec2::new(10.0, 16.0),
-                            Vec2::splat(24.0),
-                        ),
-                        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
+                    if let Some(icon) = manager.icon_texture(&source.id) {
+                        ui.painter().image(
+                            icon.id(),
+                            egui::Rect::from_min_size(
+                                rect.left_center() + Vec2::new(10.0, -10.0),
+                                Vec2::splat(20.0),
+                            ),
+                            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
+                            ui.visuals().text_color(),
+                        );
+                    }
+                    let painter = ui.painter().with_clip_rect(egui::Rect::from_min_max(
+                        rect.min + Vec2::new(36.0, 0.0),
+                        rect.max - Vec2::new(11.0, 0.0),
+                    ));
+                    painter.text(
+                        rect.left_center() + Vec2::new(38.0, 0.0),
+                        egui::Align2::LEFT_CENTER,
+                        &source.name,
+                        egui::FontId::proportional(13.0),
                         ui.visuals().text_color(),
                     );
-                } else {
-                    ui.painter().text(
-                        rect.left_top() + Vec2::new(14.0, 19.0),
-                        egui::Align2::LEFT_TOP,
-                        "◈",
-                        egui::FontId::proportional(20.0),
-                        ui.visuals().text_color(),
-                    );
+                    response.context_menu(|ui| {
+                        ui.label(&source.name);
+                        ui.separator();
+                        if ui.button("删除数据源…").clicked() {
+                            self.delete_candidate = Some(source.id.clone());
+                            self.delete_secrets = false;
+                            self.delete_history = false;
+                            ui.close_menu();
+                        }
+                    });
+                    ui.add_space(5.0);
                 }
-                ui.painter().text(
-                    rect.left_top() + Vec2::new(46.0, 10.0),
-                    egui::Align2::LEFT_TOP,
-                    &source.name,
-                    egui::FontId::proportional(14.0),
-                    ui.visuals().text_color(),
-                );
-                let status = source
-                    .formatted
-                    .as_deref()
-                    .map(|value| format!("{value}  ·  {}", status_text(source)))
-                    .unwrap_or_else(|| status_text(source).to_owned());
-                ui.painter().text(
-                    rect.left_top() + Vec2::new(46.0, 32.0),
-                    egui::Align2::LEFT_TOP,
-                    status,
-                    egui::FontId::proportional(11.0),
-                    ui.visuals().weak_text_color(),
-                );
-            }
-        });
+            });
     }
 
     fn source_detail(
@@ -272,108 +443,89 @@ impl DataSourceWindow {
         preferences: &mut CompactPreferences,
         secrets: &SecretStore,
     ) {
-        egui::Frame::group(ui.style())
-            .inner_margin(egui::Margin::same(12))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.heading(&source.name);
-                        ui.label(egui::RichText::new(&source.id).small().weak().monospace());
-                    });
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.button("删除").clicked() {
-                            self.delete_candidate = Some(source.id.clone());
-                            self.delete_secrets = false;
-                            self.delete_history = false;
-                        }
-                        let mut enabled = source.enabled;
-                        if ui.checkbox(&mut enabled, "启用").changed() {
-                            self.set_status(manager.set_enabled(&source.id, enabled));
-                        }
-                    });
-                });
-                if !source.description.is_empty() {
-                    ui.add_space(4.0);
-                    ui.label(egui::RichText::new(&source.description).weak());
-                }
-                ui.add_space(8.0);
-                ui.horizontal_wrapped(|ui| {
-                    let mut compact = source.compact;
-                    if ui.checkbox(&mut compact, "显示在 Compact").changed() {
-                        self.set_status(manager.set_compact(&source.id, compact));
-                        let id = compact_item_id(&source.id);
-                        preferences.set_compact_item_enabled(&id, compact);
-                        self.save_preferences(preferences);
-                    }
-                    if source.alert_enabled {
-                        let mut alerts = source.alerts;
-                        if ui.checkbox(&mut alerts, "启用提醒").changed() {
-                            self.set_status(manager.set_alerts(&source.id, alerts));
-                        }
-                    }
-                    if ui
-                        .button(if source.in_flight {
-                            "请求中…"
-                        } else {
-                            "立即刷新"
-                        })
-                        .clicked()
-                        && !source.in_flight
-                    {
-                        self.set_status(manager.request_now(&source.id));
-                    }
-                });
-                if source
-                    .input_schema
-                    .values()
-                    .any(|input| input.kind == InputType::Secret)
-                {
-                    let mut allow_fallback = source.allow_plaintext_secrets;
-                    if ui
-                        .checkbox(
-                            &mut allow_fallback,
-                            "允许系统 Keyring 不可用时使用权限受限的本地 Secret 回退存储",
-                        )
-                        .changed()
-                    {
-                        self.set_status(
-                            manager.set_plaintext_secret_fallback(&source.id, allow_fallback),
-                        );
-                    }
+        ui.horizontal(|ui| {
+            if let Some(icon) = manager.icon_texture(&source.id) {
+                ui.image((icon.id(), Vec2::splat(24.0)));
+            }
+            ui.label(RichText::new(&source.name).size(20.0).strong());
+        });
+        if !source.description.is_empty() {
+            ui.add_space(4.0);
+            ui.label(RichText::new(&source.description).weak());
+        }
+        ui.add_space(14.0);
+        info_card(
+            ui,
+            "当前值",
+            source.formatted.as_deref().unwrap_or("—"),
+            13.0,
+        );
+        ui.add_space(8.0);
+        let updated = source
+            .updated_ms
+            .map(updated_time_text)
+            .unwrap_or_else(|| "等待首次更新".into());
+        info_card(ui, "更新时间", &updated, 12.0);
+        ui.add_space(12.0);
+        let mut enabled = source.enabled;
+        form_surface(ui).show(ui, |ui| {
+            if switch_row(ui, &mut enabled, "启用") {
+                self.set_status(manager.set_enabled(&source.id, enabled));
+            }
+        });
+        ui.add_space(8.0);
+        let mut compact = source.compact;
+        form_surface(ui).show(ui, |ui| {
+            if switch_row(ui, &mut compact, "显示在 Compact") {
+                self.set_status(manager.set_compact(&source.id, compact));
+                let id = compact_item_id(&source.id);
+                preferences.set_compact_item_enabled(&id, compact);
+                self.save_preferences(preferences);
+            }
+        });
+        if source.alert_enabled {
+            ui.add_space(8.0);
+            let mut alerts = source.alerts;
+            form_surface(ui).show(ui, |ui| {
+                if switch_row(ui, &mut alerts, "启用提醒") {
+                    self.set_status(manager.set_alerts(&source.id, alerts));
                 }
             });
+        }
+        if source
+            .input_schema
+            .values()
+            .any(|input| input.kind == InputType::Secret)
+        {
+            ui.add_space(8.0);
+            let mut allow_fallback = source.allow_plaintext_secrets;
+            form_surface(ui).show(ui, |ui| {
+                if switch_row(ui, &mut allow_fallback, "允许本地 Secret 回退存储") {
+                    self.set_status(
+                        manager.set_plaintext_secret_fallback(&source.id, allow_fallback),
+                    );
+                }
+            });
+        }
+        ui.add_space(12.0);
+        self.inputs_form(ui, source, manager, secrets);
+        ui.add_space(12.0);
+        self.runtime_settings(ui, source, manager);
+        ui.add_space(12.0);
+        if let Some(error) = &source.last_error {
+            ui.colored_label(egui::Color32::from_rgb(239, 132, 112), error);
+        }
+        if let Some(status) = source.http_status {
+            ui.label(format!("HTTP 状态：{status}"));
+        }
+        if !self.status.is_empty() {
+            ui.colored_label(ui.visuals().warn_fg_color, &self.status);
+        }
         ui.add_space(10.0);
-        ui.separator();
-        egui::ScrollArea::vertical()
-            .id_salt(("datasource-detail", &source.id))
-            .auto_shrink([false; 2])
+        egui::CollapsingHeader::new("诊断详情")
+            .id_salt(("datasource-doctor-open", &source.id))
             .show(ui, |ui| {
-                self.runtime_settings(ui, source, manager);
-                ui.add_space(10.0);
-                self.inputs_form(ui, source, manager, secrets);
-                ui.add_space(10.0);
                 self.status_panel(ui, source, manager, secrets);
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    ui.label("最后一次成功");
-                    ui.label(source.formatted.as_deref().unwrap_or("—"));
-                    if let Some(updated) = source.updated_ms {
-                        ui.label(
-                            egui::RichText::new(format!("· {}", timestamp_text(updated)))
-                                .small()
-                                .weak(),
-                        );
-                    }
-                });
-                if let Some(error) = &source.last_error {
-                    ui.colored_label(egui::Color32::from_rgb(239, 132, 112), error);
-                }
-                if let Some(status) = source.http_status {
-                    ui.label(format!("HTTP 状态：{status}"));
-                }
-                if !self.status.is_empty() {
-                    ui.colored_label(ui.visuals().warn_fg_color, &self.status);
-                }
             });
     }
 
@@ -384,22 +536,16 @@ impl DataSourceWindow {
         manager: &mut DataSourceManager,
         secrets: &SecretStore,
     ) {
-        ui.heading("参数");
+        section_title(ui, "参数", "");
         if source.input_schema.is_empty() {
             ui.label("此数据源没有用户参数。");
             return;
         }
-        let columns_count = if ui.available_width() < 700.0 {
-            1
-        } else if ui.available_width() < 1100.0 {
-            2
-        } else {
-            3
-        }
-        .min(source.input_schema.len());
+        let columns_count = 1;
 
         let spacing = 10.0;
-        let card_width = ((ui.available_width() - spacing * (columns_count - 1) as f32)
+        let card_width = ((ui.available_width().min(CARD_CONTENT_WIDTH + 24.0)
+            - spacing * (columns_count - 1) as f32)
             / columns_count as f32)
             .max(220.0);
         egui::Grid::new(("datasource-input-cards", &source.id))
@@ -430,158 +576,151 @@ impl DataSourceWindow {
                     let mut set_secret_ref = None;
                     let mut invalid_number = false;
 
-                    egui::Frame::group(ui.style())
-                        .inner_margin(egui::Margin::same(12))
-                        .show(ui, |ui| {
-                            ui.set_width((card_width - 24.0).max(180.0));
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(&schema.label).strong());
-                                if schema.required {
-                                    ui.label(egui::RichText::new("必填").small().weak());
-                                }
-                            });
-                            if !schema.description.is_empty() {
-                                ui.add_space(2.0);
-                                ui.label(egui::RichText::new(&schema.description).small().weak());
-                            }
-                            ui.add_space(8.0);
-
-                            match schema.kind {
-                                InputType::Secret => {
-                                    let exists =
-                                        secret_exists.as_ref().expect("Secret state was read");
-                                    ui.label(
-                                        egui::RichText::new(match exists {
-                                            Ok(true) => "已保存到系统凭证存储",
-                                            Ok(false) => "尚未填写",
-                                            Err(_) => "凭证存储暂不可用",
-                                        })
-                                        .small()
-                                        .weak(),
-                                    );
-                                    let draft =
-                                        self.secret_drafts.entry(draft_id.clone()).or_default();
-                                    ui.add_sized(
-                                        [ui.available_width(), 30.0],
-                                        egui::TextEdit::singleline(draft)
-                                            .password(true)
-                                            .hint_text("输入后保存"),
-                                    );
-                                    ui.horizontal_wrapped(|ui| {
-                                        if ui.small_button("保存 Secret").clicked() {
-                                            save_secret = Some(draft.clone());
-                                        }
-                                        if matches!(exists, Ok(true))
-                                            && ui.small_button("清除").clicked()
-                                        {
-                                            clear_secret = true;
-                                        }
-                                    });
-
-                                    let reference = source.secret_refs.get(key).cloned();
-                                    let ref_draft = self
-                                        .secret_ref_drafts
-                                        .entry(draft_id.clone())
-                                        .or_insert_with(|| reference.clone().unwrap_or_default());
-                                    ui.add_sized(
-                                        [ui.available_width(), 30.0],
-                                        egui::TextEdit::singleline(ref_draft)
-                                            .hint_text("已保存的 Secret 名称"),
-                                    );
-                                    if reference.as_deref().is_some_and(|value| value == ref_draft)
-                                    {
-                                        if ui.small_button("解除引用").clicked() {
-                                            set_secret_ref = Some(None);
-                                        }
-                                    } else if ui.small_button("引用此 Secret").clicked() {
-                                        set_secret_ref = Some(Some(ref_draft.trim().to_owned()));
-                                    }
-                                }
-                                InputType::Boolean => {
-                                    let mut value = current.as_bool().unwrap_or(false);
-                                    if ui.checkbox(&mut value, "开启").changed() {
-                                        input_update = Some(Value::Bool(value));
-                                    }
-                                }
-                                InputType::Enum => {
-                                    let mut value = current.as_str().unwrap_or("").to_owned();
-                                    egui::ComboBox::from_id_salt((&source.id, key))
-                                        .selected_text(if value.is_empty() {
-                                            "选择…"
-                                        } else {
-                                            &value
-                                        })
-                                        .show_ui(ui, |ui| {
-                                            for option in &schema.options {
-                                                ui.selectable_value(
-                                                    &mut value,
-                                                    option.clone(),
-                                                    option,
-                                                );
-                                            }
-                                        });
-                                    if value != current.as_str().unwrap_or("") {
-                                        input_update = Some(Value::String(value));
-                                    }
-                                }
-                                InputType::String
-                                | InputType::Number
-                                | InputType::Integer
-                                | InputType::Duration => {
-                                    let initial = match schema.kind {
-                                        InputType::String | InputType::Duration => {
-                                            current.as_str().map(str::to_owned).unwrap_or_default()
-                                        }
-                                        _ => current
-                                            .as_number()
-                                            .map(ToString::to_string)
-                                            .unwrap_or_default(),
-                                    };
-                                    let draft = self
-                                        .text_drafts
-                                        .entry(draft_id.clone())
-                                        .or_insert_with(|| initial.clone());
-                                    let response = ui.add_sized(
-                                        [ui.available_width(), 30.0],
-                                        egui::TextEdit::singleline(draft),
-                                    );
-                                    if response.changed() && schema.kind == InputType::String {
-                                        input_update = Some(Value::String(draft.clone()));
-                                    }
-                                    let commit = response.lost_focus()
-                                        || (response.has_focus()
-                                            && ui.input(|input| {
-                                                input.key_pressed(egui::Key::Enter)
-                                            }));
-                                    if commit
-                                        && draft != &initial
-                                        && schema.kind != InputType::String
-                                    {
-                                        let parsed = match schema.kind {
-                                            InputType::Number => draft
-                                                .parse::<f64>()
-                                                .ok()
-                                                .filter(|value| value.is_finite())
-                                                .map(Value::from),
-                                            InputType::Integer => {
-                                                draft.parse::<i64>().ok().map(Value::from)
-                                            }
-                                            InputType::Duration
-                                                if datasource::parse_duration(draft).is_ok() =>
-                                            {
-                                                Some(Value::String(draft.clone()))
-                                            }
-                                            _ => None,
-                                        };
-                                        if let Some(value) = parsed {
-                                            input_update = Some(value);
-                                        } else {
-                                            invalid_number = true;
-                                        }
-                                    }
-                                }
+                    form_surface(ui).show(ui, |ui| {
+                        ui.set_width((card_width - 24.0).max(180.0));
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(&schema.label).strong());
+                            if schema.required {
+                                ui.label(egui::RichText::new("必填").small().weak());
                             }
                         });
+                        if !schema.description.is_empty() {
+                            ui.add_space(2.0);
+                            ui.label(egui::RichText::new(&schema.description).small().weak());
+                        }
+                        ui.add_space(2.0);
+
+                        match schema.kind {
+                            InputType::Secret => {
+                                let exists = secret_exists.as_ref().expect("Secret state was read");
+                                ui.label(
+                                    egui::RichText::new(match exists {
+                                        Ok(true) => "已保存到系统凭证存储",
+                                        Ok(false) => "尚未填写",
+                                        Err(_) => "凭证存储暂不可用",
+                                    })
+                                    .small()
+                                    .weak(),
+                                );
+                                let draft = self.secret_drafts.entry(draft_id.clone()).or_default();
+                                ui.add_sized(
+                                    [ui.available_width().min(300.0), 30.0],
+                                    egui::TextEdit::singleline(draft)
+                                        .password(true)
+                                        .hint_text("输入后保存"),
+                                );
+                                ui.horizontal_wrapped(|ui| {
+                                    if ui.small_button("保存 Secret").clicked() {
+                                        save_secret = Some(draft.clone());
+                                    }
+                                    if matches!(exists, Ok(true))
+                                        && ui.small_button("清除").clicked()
+                                    {
+                                        clear_secret = true;
+                                    }
+                                });
+
+                                let reference = source.secret_refs.get(key).cloned();
+                                let ref_draft = self
+                                    .secret_ref_drafts
+                                    .entry(draft_id.clone())
+                                    .or_insert_with(|| reference.clone().unwrap_or_default());
+                                ui.add_sized(
+                                    [ui.available_width().min(300.0), 30.0],
+                                    egui::TextEdit::singleline(ref_draft)
+                                        .hint_text("已保存的 Secret 名称"),
+                                );
+                                if reference.as_deref().is_some_and(|value| value == ref_draft) {
+                                    if ui.small_button("解除引用").clicked() {
+                                        set_secret_ref = Some(None);
+                                    }
+                                } else if ui.small_button("引用此 Secret").clicked() {
+                                    set_secret_ref = Some(Some(ref_draft.trim().to_owned()));
+                                }
+                            }
+                            InputType::Boolean => {
+                                let mut value = current.as_bool().unwrap_or(false);
+                                if switch(ui, &mut value, "开启") {
+                                    input_update = Some(Value::Bool(value));
+                                }
+                            }
+                            InputType::Enum => {
+                                let mut value = current.as_str().unwrap_or("").to_owned();
+                                ui.add_space((ui.available_width() - 220.0).max(0.0));
+                                egui::ComboBox::from_id_salt((&source.id, key))
+                                    .width(220.0)
+                                    .selected_text(if value.is_empty() {
+                                        "选择…"
+                                    } else {
+                                        &value
+                                    })
+                                    .show_ui(ui, |ui| {
+                                        for option in &schema.options {
+                                            ui.selectable_value(&mut value, option.clone(), option);
+                                        }
+                                    });
+                                if value != current.as_str().unwrap_or("") {
+                                    input_update = Some(Value::String(value));
+                                }
+                            }
+                            InputType::String
+                            | InputType::Number
+                            | InputType::Integer
+                            | InputType::Duration => {
+                                let initial = match schema.kind {
+                                    InputType::String | InputType::Duration => {
+                                        current.as_str().map(str::to_owned).unwrap_or_default()
+                                    }
+                                    _ => current
+                                        .as_number()
+                                        .map(ToString::to_string)
+                                        .unwrap_or_default(),
+                                };
+                                let draft = self
+                                    .text_drafts
+                                    .entry(draft_id.clone())
+                                    .or_insert_with(|| initial.clone());
+                                let mut editor = egui::TextEdit::singleline(draft);
+                                if schema.kind == InputType::String {
+                                    editor = editor.hint_text("输入值，或 $Secret名称$");
+                                }
+                                ui.add_space((ui.available_width() - 220.0).max(0.0));
+                                let response = ui.add_sized(
+                                    [ui.available_width().min(220.0), 28.0],
+                                    editor.horizontal_align(Align::RIGHT),
+                                );
+                                if response.changed() && schema.kind == InputType::String {
+                                    input_update = Some(Value::String(draft.clone()));
+                                }
+                                let commit = response.lost_focus()
+                                    || (response.has_focus()
+                                        && ui.input(|input| input.key_pressed(egui::Key::Enter)));
+                                if commit && draft != &initial && schema.kind != InputType::String {
+                                    let parsed = match schema.kind {
+                                        InputType::Number => draft
+                                            .parse::<f64>()
+                                            .ok()
+                                            .filter(|value| value.is_finite())
+                                            .map(Value::from),
+                                        InputType::Integer => {
+                                            draft.parse::<i64>().ok().map(Value::from)
+                                        }
+                                        InputType::Duration
+                                            if datasource::parse_duration(draft).is_ok() =>
+                                        {
+                                            Some(Value::String(draft.clone()))
+                                        }
+                                        _ => None,
+                                    };
+                                    if let Some(value) = parsed {
+                                        input_update = Some(value);
+                                    } else {
+                                        invalid_number = true;
+                                    }
+                                }
+                            }
+                        }
+                    });
 
                     if let Some(value) = input_update {
                         self.set_status(manager.set_input(&source.id, key, value));
@@ -638,14 +777,9 @@ impl DataSourceWindow {
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
     ) {
-        ui.heading("运行设置");
-        ui.label(
-            egui::RichText::new("仅影响 Peninsula 中此数据源实例，不会改写导入的定义文件。")
-                .small()
-                .weak(),
-        );
+        section_title(ui, "运行设置", "");
         egui::Grid::new(("datasource-runtime-settings", &source.id))
-            .num_columns(if ui.available_width() < 680.0 { 1 } else { 2 })
+            .num_columns(1)
             .spacing([12.0, 8.0])
             .show(ui, |ui| {
                 self.duration_setting(
@@ -659,9 +793,7 @@ impl DataSourceWindow {
                     Duration::from_secs(24 * 60 * 60),
                     true,
                 );
-                if ui.available_width() < 680.0 {
-                    ui.end_row();
-                }
+                ui.end_row();
                 if source.alert_enabled {
                     self.duration_setting(
                         ui,
@@ -674,8 +806,8 @@ impl DataSourceWindow {
                         Duration::from_secs(30 * 24 * 60 * 60),
                         false,
                     );
+                    ui.end_row();
                 }
-                ui.end_row();
             });
     }
 
@@ -696,70 +828,41 @@ impl DataSourceWindow {
         let draft = self
             .runtime_drafts
             .entry(draft_key.clone())
-            .or_insert_with(|| {
-                let (unit, value) = duration_parts(current_ms);
-                (value.to_string(), unit)
-            });
-        let mut save = false;
-        egui::Frame::group(ui.style())
-            .inner_margin(egui::Margin::same(10))
-            .show(ui, |ui| {
-                ui.set_min_width(280.0);
+            .or_insert_with(|| current_ms.div_ceil(60_000).to_string());
+        let mut changed = false;
+        form_surface(ui).show(ui, |ui| {
+            ui.set_width(
+                (ui.available_width() - 24.0)
+                    .min(CARD_CONTENT_WIDTH)
+                    .max(280.0),
+            );
+            ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(label).strong());
-                ui.horizontal(|ui| {
-                    ui.add_sized(
-                        [90.0, 28.0],
-                        egui::TextEdit::singleline(&mut draft.0)
-                            .desired_width(90.0)
-                            .hint_text("数值"),
-                    );
-                    egui::ComboBox::from_id_salt(("datasource-time-unit", &source.id, key))
-                        .selected_text(draft.1.label())
-                        .show_ui(ui, |ui| {
-                            for unit in [
-                                DurationUnit::Seconds,
-                                DurationUnit::Minutes,
-                                DurationUnit::Hours,
-                                DurationUnit::Days,
-                            ] {
-                                ui.selectable_value(&mut draft.1, unit, unit.label());
-                            }
-                        });
-                    save = ui.button("保存").clicked();
-                });
-                ui.label(
-                    egui::RichText::new(format!(
-                        "允许范围：{} – {}",
-                        display_duration(min),
-                        display_duration(max)
-                    ))
-                    .small()
-                    .weak(),
-                );
+                ui.add_space((ui.available_width() - 120.0).max(0.0));
+                changed = ui
+                    .add_sized(
+                        [72.0, 26.0],
+                        egui::TextEdit::singleline(draft)
+                            .desired_width(72.0)
+                            .horizontal_align(Align::RIGHT),
+                    )
+                    .changed();
+                ui.label("分钟");
             });
-        if save {
-            let draft_value = self
-                .runtime_drafts
-                .get(&draft_key)
-                .map(|(value, unit)| (value.trim().to_owned(), *unit));
-            match draft_value
-                .and_then(|(value, unit)| value.parse::<u64>().ok().map(|value| (value, unit)))
-            {
-                Some((value, unit)) => {
-                    let millis = value.saturating_mul(unit.multiplier());
-                    let interval = Duration::from_millis(millis);
-                    let result = if refresh {
-                        manager.set_refresh_interval(&source.id, interval)
-                    } else {
-                        manager.set_min_alert_interval(&source.id, interval)
-                    };
-                    let saved = result.is_ok();
-                    self.set_status(result);
-                    if saved {
-                        self.runtime_drafts.remove(&draft_key);
+        });
+        if changed {
+            if let Some(minutes) = draft.trim().parse::<u64>().ok().filter(|value| *value > 0) {
+                if let Some(seconds) = minutes.checked_mul(60) {
+                    let interval = Duration::from_secs(seconds);
+                    if interval >= min && interval <= max {
+                        let result = if refresh {
+                            manager.set_refresh_interval(&source.id, interval)
+                        } else {
+                            manager.set_min_alert_interval(&source.id, interval)
+                        };
+                        self.set_status(result);
                     }
                 }
-                None => self.status = "请输入有效的正整数时间间隔。".into(),
             }
         }
     }
@@ -771,7 +874,7 @@ impl DataSourceWindow {
         manager: &DataSourceManager,
         secrets: &SecretStore,
     ) {
-        ui.heading("Doctor");
+        ui.label(RichText::new("运行诊断").strong());
         let now_ms = current_timestamp_ms();
         egui::Grid::new(("datasource-doctor", &source.id))
             .num_columns(2)
@@ -973,14 +1076,16 @@ impl DataSourceWindow {
                         secret_inputs.join("、")
                     ));
                 }
-                ui.checkbox(
+                switch(
+                    ui,
                     &mut self.allow_private_network,
                     "允许 HTTP 或 localhost / 私有网络请求目标",
                 );
                 if !secret_inputs.is_empty() {
-                    ui.checkbox(
+                    switch(
+                        ui,
                         &mut self.allow_plaintext_secrets,
-                        "若系统 Keyring 不可用，允许 Secret 写入权限受限的本地回退存储",
+                        "允许本地 Secret 回退存储",
                     );
                 }
                 if origin.starts_with("http://") {
@@ -1050,8 +1155,8 @@ impl DataSourceWindow {
             .open(&mut open)
             .show(context, |ui| {
                 ui.label(format!("确定删除“{name}”吗？"));
-                ui.checkbox(&mut self.delete_secrets, "同时清除此数据源的 Secret");
-                ui.checkbox(&mut self.delete_history, "同时清除此数据源的通知历史");
+                switch(ui, &mut self.delete_secrets, "同时清除此数据源的 Secret");
+                switch(ui, &mut self.delete_history, "同时清除此数据源的通知历史");
                 ui.horizontal(|ui| {
                     if ui.button("取消").clicked() {
                         self.delete_candidate = None;
@@ -1123,18 +1228,6 @@ fn compact_item_id_result(id: &str) -> Result<crate::extension::ExtensionId, Str
         .map_err(|_| "数据源 ID 无效".to_owned())
 }
 
-fn status_text(source: &SourceSnapshot) -> &str {
-    if source.in_flight {
-        "刷新中"
-    } else if source.last_error.is_some() {
-        "请求失败"
-    } else if source.value.is_some() {
-        "已更新"
-    } else {
-        "等待首次刷新"
-    }
-}
-
 fn required_inputs_ready(source: &SourceSnapshot) -> bool {
     source.input_schema.iter().all(|(key, schema)| {
         if !schema.required || schema.kind == InputType::Secret {
@@ -1165,8 +1258,49 @@ fn method_text(method: datasource::HttpMethod) -> &'static str {
 
 fn timestamp_text(milliseconds: u64) -> String {
     time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(milliseconds) * 1_000_000)
-        .map(|value| value.to_offset(time::UtcOffset::UTC).to_string())
+        .map(|value| {
+            let value = value.to_offset(time::UtcOffset::UTC);
+            format!(
+                "{:04}-{:02}-{:02} {:02}:{:02} UTC",
+                value.year(),
+                u8::from(value.month()),
+                value.day(),
+                value.hour(),
+                value.minute()
+            )
+        })
         .unwrap_or_else(|_| milliseconds.to_string())
+}
+
+fn updated_time_text(milliseconds: u64) -> String {
+    let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+    let Ok(value) =
+        time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(milliseconds) * 1_000_000)
+    else {
+        return timestamp_text(milliseconds);
+    };
+    let value = value.to_offset(offset);
+    let now = time::OffsetDateTime::now_utc().to_offset(offset);
+    if value.date() == now.date() {
+        format!("今天 {:02}:{:02}", value.hour(), value.minute())
+    } else if value.year() == now.year() {
+        format!(
+            "{}月{}日 {:02}:{:02}",
+            u8::from(value.month()),
+            value.day(),
+            value.hour(),
+            value.minute()
+        )
+    } else {
+        format!(
+            "{}年{}月{}日 {:02}:{:02}",
+            value.year(),
+            u8::from(value.month()),
+            value.day(),
+            value.hour(),
+            value.minute()
+        )
+    }
 }
 
 fn current_timestamp_ms() -> u64 {
@@ -1189,10 +1323,6 @@ fn duration_parts(milliseconds: u64) -> (DurationUnit, u64) {
         }
     }
     (DurationUnit::Seconds, milliseconds.div_ceil(1000))
-}
-
-fn display_duration(duration: Duration) -> String {
-    display_millis(duration.as_millis().min(u128::from(u64::MAX)) as u64)
 }
 
 fn display_millis(milliseconds: u64) -> String {

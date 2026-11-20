@@ -37,6 +37,77 @@ fn panel(mut node: ViewNode) -> ViewNode {
     node
 }
 
+fn subscribe_modal(base: ViewNode, rss: &RssExtension) -> ViewNode {
+    let mut field = ViewNode::new(Node::TextInput {
+        key: "rss-url".into(),
+        value: rss.draft.clone(),
+        hint: "https://example.com/feed.xml".into(),
+    })
+    .sized(Size::Fill(1.0), Size::Fixed(34.0));
+    field.style.normal.background = Some(ColorSpec::Surface);
+    field.style.normal.border_color = Some(ColorSpec::Border);
+    field.style.normal.border_width = Some(1.0);
+    field.style.normal.corner_radius = Some(8.0);
+    field.style.padding = [7.0; 4];
+    let mut dialog = column(
+        vec![
+            ViewNode::row(
+                vec![
+                    text("新增订阅", 16.0, ColorSpec::PrimaryText)
+                        .sized(Size::Fill(1.0), Size::Auto),
+                    button("×", "cancel"),
+                ],
+                Flow {
+                    align: Align::Center,
+                    ..Default::default()
+                },
+            )
+            .sized(Size::Fill(1.0), Size::Auto),
+            text(
+                "添加 RSS 或 Atom 链接，开始阅读文章",
+                10.5,
+                ColorSpec::SecondaryText,
+            ),
+            text("订阅链接", 10.5, ColorSpec::SecondaryText),
+            field,
+            ViewNode::row(
+                vec![button("取消", "cancel"), button("添加订阅", "subscribe")],
+                Flow {
+                    gap: Some(7.0),
+                    justify: Justify::End,
+                    ..Default::default()
+                },
+            )
+            .sized(Size::Fill(1.0), Size::Auto),
+        ],
+        9.0,
+    )
+    .sized(Size::Fixed(390.0), Size::Auto);
+    dialog.style.padding = [18.0; 4];
+    dialog.style.normal.background = Some(ColorSpec::SurfaceVariant);
+    dialog.style.normal.border_color = Some(ColorSpec::Border);
+    dialog.style.normal.border_width = Some(1.0);
+    dialog.style.normal.corner_radius = Some(12.0);
+    let mut backdrop = ViewNode::new(Node::ActionArea {
+        action: Action::Custom("cancel".into()),
+        label: "关闭新增订阅弹窗".into(),
+        content: Box::new(ViewNode::new(Node::Spacer)),
+        context_menu: None,
+    })
+    .sized(Size::Fill(1.0), Size::Fill(1.0));
+    backdrop.style.normal.background = Some(ColorSpec::Rgba {
+        r: 10,
+        g: 13,
+        b: 20,
+        a: 190,
+    });
+    ViewNode::new(Node::Stack(
+        [Align::Center; 2],
+        vec![base, backdrop, dialog],
+    ))
+    .sized(Size::Fill(1.0), Size::Fill(1.0))
+}
+
 pub(super) fn build(rss: &RssExtension) -> WidgetView {
     let selected = rss
         .feeds
@@ -236,28 +307,6 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
         },
     )
     .sized(Size::Fill(1.0), Size::Auto)];
-    if rss.adding {
-        reader.push(panel(column(
-            vec![
-                ViewNode::new(Node::TextInput {
-                    key: "rss-url".into(),
-                    value: rss.draft.clone(),
-                    hint: "https://example.com/feed.xml".into(),
-                })
-                .sized(Size::Fill(1.0), Size::Fixed(30.0)),
-                ViewNode::row(
-                    vec![button("添加订阅", "subscribe"), button("取消", "cancel")],
-                    Flow {
-                        gap: Some(7.0),
-                        justify: Justify::End,
-                        ..Default::default()
-                    },
-                )
-                .sized(Size::Fill(1.0), Size::Auto),
-            ],
-            8.0,
-        )));
-    }
     reader.push(
         ViewNode::new(Node::Scroll(
             ScrollAxes::Vertical,
@@ -287,7 +336,12 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
         )
         .sized(Size::Fill(1.0), Size::Fill(1.0)),
     );
-    let root = column(children, 10.0).sized(Size::Fill(1.0), Size::Fill(1.0));
+    let base = column(children, 10.0).sized(Size::Fill(1.0), Size::Fill(1.0));
+    let root = if rss.adding {
+        subscribe_modal(base, rss)
+    } else {
+        base
+    };
     let mut view = WidgetView::new(root, [720.0, 450.0]);
     view.bounds = WidgetBounds {
         min: [500.0, 300.0],
