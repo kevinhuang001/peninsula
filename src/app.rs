@@ -1100,7 +1100,7 @@ impl eframe::App for IslandApp {
 
 impl IslandApp {
     fn show_unlock_capsule(&mut self, context: &egui::Context) {
-        let size = egui::vec2(360.0, 86.0);
+        let size = egui::vec2(320.0, 64.0);
         if !self.lock_window_sized {
             context.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
             self.window_size = size;
@@ -1112,7 +1112,7 @@ impl IslandApp {
                 ui.set_min_size(size);
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
-                    let width = 344.0;
+                    let width = 300.0;
                     let height = compact_layout::CAPSULE_HEIGHT;
                     let (rect, _) =
                         ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
@@ -1140,8 +1140,8 @@ impl IslandApp {
                         1.0,
                     );
                     let input_rect = egui::Rect::from_min_size(
-                        egui::pos2(rect.left() + 57.0, rect.top() + 9.0),
-                        egui::vec2(202.0, 30.0),
+                        egui::pos2(rect.left() + 55.0, rect.top() + 9.0),
+                        egui::vec2(160.0, 26.0),
                     );
                     let response = ui.put(
                         input_rect,
@@ -1157,8 +1157,8 @@ impl IslandApp {
                         response.request_focus();
                     }
                     let confirm = egui::Rect::from_min_size(
-                        egui::pos2(rect.right() - 75.0, rect.top() + 9.0),
-                        egui::vec2(64.0, 30.0),
+                        egui::pos2(rect.left() + 223.0, rect.top() + 9.0),
+                        egui::vec2(56.0, 26.0),
                     );
                     if ui.put(confirm, egui::Button::new("确认")).clicked()
                         || (response.lost_focus()
@@ -1169,10 +1169,7 @@ impl IslandApp {
                                 self.unlock_password.clear();
                                 self.unlock_error = false;
                                 self.lock_window_sized = false;
-                                context.send_viewport_cmd(egui::ViewportCommand::InnerSize(
-                                    INITIAL_WINDOW_SIZE.into(),
-                                ));
-                                self.window_size = Vec2::from(INITIAL_WINDOW_SIZE);
+                                self.state.begin_unlock_transition(300.0);
                                 context.request_repaint();
                             }
                             Err(_) => {
