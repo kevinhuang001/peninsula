@@ -55,14 +55,6 @@ struct SourceConfig {
     origin: String,
     #[serde(default)]
     inputs: BTreeMap<String, Value>,
-    // Legacy fields from the pre-`$名称$` store format. They are still accepted so
-    // existing instances.json files load, but are never written or consulted again.
-    #[serde(default, skip_serializing)]
-    #[allow(dead_code)]
-    allow_plaintext_secrets: bool,
-    #[serde(default, skip_serializing)]
-    #[allow(dead_code)]
-    secret_refs: BTreeMap<String, String>,
 }
 
 fn default_true() -> bool {
@@ -1111,8 +1103,6 @@ fn new_config(
             .iter()
             .filter_map(|(key, input)| input.default.clone().map(|value| (key.clone(), value)))
             .collect(),
-        allow_plaintext_secrets: false,
-        secret_refs: BTreeMap::new(),
     }
 }
 
