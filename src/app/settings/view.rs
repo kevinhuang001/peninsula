@@ -160,7 +160,7 @@ impl SettingsView {
                 .min_rect()
                 .width()
                 .max(if self.section == Section::Secrets {
-                    410.0
+                    320.0
                 } else {
                     0.0
                 })
