@@ -667,8 +667,9 @@ impl DataSourceManager {
             token.cancel();
         }
         // A user edit should refresh immediately and drop any backoff caused by the previous
-        // value, such as the "required parameter is empty" preflight failure.
-        source.force_refresh = true;
+        // value, such as the "required parameter is empty" preflight failure. Disabled sources
+        // keep the new value and request once they are enabled again.
+        source.force_refresh = source.config.enabled;
         source.state.retry_at_ms = None;
         source.retry_count = 0;
         // String fields save on every keystroke, so wait briefly for typing to settle before
@@ -1980,6 +1981,24 @@ mod tests {
         assert!(source.state.retry_at_ms.is_none());
         assert_eq!(source.retry_count, 0);
         assert!(source.next_refresh <= Instant::now());
+
+        manager
+            .set_enabled("open-meteo-shanghai-temperature", false)
+            .unwrap();
+        manager
+            .set_input(
+                "open-meteo-shanghai-temperature",
+                "alert_threshold",
+                Value::from(13),
+            )
+            .unwrap();
+        assert!(
+            !manager
+                .sources
+                .get("open-meteo-shanghai-temperature")
+                .unwrap()
+                .force_refresh
+        );
     }
 
     #[test]
