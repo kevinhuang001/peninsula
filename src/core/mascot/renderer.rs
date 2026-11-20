@@ -69,20 +69,25 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, pose: MascotPose, dark: bool)
             );
         }
     }
-    if pose.mouth > 0.12 {
+    let open = super::animation::ease(pose.mouth / 0.24);
+    if open > 0.0 {
         painter.add(Shape::ellipse_filled(
             point(0.0, 0.25),
             vec2(0.13, 0.06 + 0.11 * pose.mouth) * unit,
-            eye,
+            eye.linear_multiply(open),
         ));
-    } else {
+    }
+    if open < 1.0 {
         let mouth = (0..=8)
             .map(|i| {
                 let x = i as f32 / 4.0 - 1.0;
                 point(x * 0.21, 0.22 + (1.0 - x * x) * 0.17 * pose.smile)
             })
             .collect();
-        painter.add(Shape::line(mouth, Stroke::new(unit * 0.064, eye)));
+        painter.add(Shape::line(
+            mouth,
+            Stroke::new(unit * 0.064, eye.linear_multiply(1.0 - open)),
+        ));
     }
     if pose.heart > 0.02 {
         let color = coral.linear_multiply(pose.heart);

@@ -136,6 +136,7 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
     let (widget_ids, widget_view) = widget_fixture();
 
     let mut frame = |events: Vec<Event>| {
+        let mut capsule = Rect::NOTHING;
         let mut actions = (false, false, false);
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(420.0, 214.0))),
@@ -171,14 +172,16 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
                                 do_not_disturb: false,
                             },
                         );
+                        capsule = result.0;
                         actions = (result.4, result.8, result.2);
                     });
                 });
         });
-        actions
+        (capsule, actions)
     };
-    let mut click = |x| {
-        let point = pos2(x, 30.0);
+    let (capsule, _) = frame(Vec::new());
+    let mut click = |from_right| {
+        let point = pos2(capsule.right() - from_right, capsule.top() + 26.0);
         let button = |pressed| Event::PointerButton {
             pos: point,
             button: PointerButton::Primary,
@@ -187,10 +190,10 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
         };
         frame(vec![Event::PointerMoved(point)]);
         frame(vec![button(true)]);
-        frame(vec![button(false)])
+        frame(vec![button(false)]).1
     };
-    assert_eq!(click(265.0), (false, true, false));
-    assert_eq!(click(294.0), (true, false, false));
+    assert_eq!(click(82.0), (false, true, false));
+    assert_eq!(click(60.0), (true, false, false));
 }
 
 #[test]

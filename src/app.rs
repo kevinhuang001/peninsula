@@ -358,11 +358,6 @@ impl IslandApp {
         now: Instant,
         context: &egui::Context,
     ) {
-        if invocation.source_extension_id.as_str() == crate::core::mascot::MASCOT_SLOT_ID {
-            self.mascot.advance(Instant::now());
-            context.request_repaint();
-            return;
-        }
         if invocation.source_extension_id.as_str() == NOTIFICATION_CENTER_ID {
             let mut opened = false;
             let (dispatcher, notifications) =
@@ -743,13 +738,7 @@ impl eframe::App for IslandApp {
             context.request_repaint_after(delay);
         }
         if self.preferences.mascot_enabled && !prompt_active {
-            available_views.insert(
-                0,
-                Arc::new(
-                    self.mascot
-                        .compact_slot(f32::from(self.preferences.mascot_size)),
-                ),
-            );
+            available_views.insert(0, Arc::new(self.mascot.compact_slot()));
         }
         let mut compact_views = compact_layout::measure_views(
             context,

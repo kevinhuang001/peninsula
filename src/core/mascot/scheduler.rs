@@ -9,15 +9,22 @@ use std::{
 const CAPACITY: usize = 16;
 const MERGE_WINDOW: Duration = Duration::from_millis(220);
 const IDLE_ACTIONS: &[(MascotMotion, u8)] = &[
-    (MascotMotion::LookAround, 5),
-    (MascotMotion::Blink, 2),
-    (MascotMotion::Sleepy, 2),
-    (MascotMotion::Happy, 4),
-    (MascotMotion::Excited, 1),
-    (MascotMotion::Thinking, 4),
-    (MascotMotion::Surprised, 2),
-    (MascotMotion::Love, 2),
+    (MascotMotion::LookAround, 30),
+    (MascotMotion::Happy, 20),
+    (MascotMotion::Thinking, 15),
+    (MascotMotion::Sleepy, 15),
+    (MascotMotion::Surprised, 10),
+    (MascotMotion::Love, 7),
+    (MascotMotion::Excited, 3),
 ];
+
+pub(super) fn first_pause() -> Duration {
+    Duration::from_millis(rand::rng().random_range(3000..=5000))
+}
+
+pub(super) fn idle_pause() -> Duration {
+    Duration::from_millis(rand::rng().random_range(8000..=18000))
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Registration(ExtensionId, String);
@@ -71,7 +78,7 @@ struct Pending {
 #[derive(Default)]
 pub(super) struct Scheduler {
     events: VecDeque<Pending>,
-    previous: Option<MascotMotion>,
+    idle_ticket: Option<u16>,
     last_played_event: Option<(Action, Instant)>,
 }
 
@@ -155,39 +162,47 @@ impl Scheduler {
                 })
             })
             .collect::<Vec<_>>();
-        let select_extension = !extensions.is_empty() && rng.random_bool(0.75);
-        let mut pool = if select_extension {
-            extensions
-        } else {
-            IDLE_ACTIONS
+        if extensions.is_empty() || !rng.random_bool(0.75) {
+            // A uniform rotation preserves the weighted ticket distribution.
+            // A shift of at least the largest weight in either direction cannot repeat a motion.
+            let largest = IDLE_ACTIONS
                 .iter()
-                .map(|&(motion, weight)| {
-                    (
-                        Action {
-                            motion,
-                            duration: motion.duration(),
-                            registration: None,
-                            event: false,
-                        },
-                        weight,
-                    )
-                })
-                .collect()
-        };
-        if !select_extension {
-            pool.retain(|(action, _)| Some(action.motion) != self.previous);
+                .map(|&(_, weight)| u16::from(weight))
+                .max()
+                .unwrap();
+            let total: u16 = IDLE_ACTIONS
+                .iter()
+                .map(|&(_, weight)| u16::from(weight))
+                .sum();
+            let ticket = match self.idle_ticket {
+                Some(previous) => (previous + rng.random_range(largest..=total - largest)) % total,
+                None => rng.random_range(0..total),
+            };
+            self.idle_ticket = Some(ticket);
+            let mut remaining = ticket;
+            for &(motion, weight) in IDLE_ACTIONS {
+                let weight = u16::from(weight);
+                if remaining < weight {
+                    return Action {
+                        motion,
+                        duration: motion.duration(),
+                        registration: None,
+                        event: false,
+                    };
+                }
+                remaining -= weight;
+            }
+            unreachable!("ticket within the idle pool");
         }
         let weight = |weight: u8| u32::from(weight.clamp(1, 10));
-        let mut choice = rng.random_range(0..pool.iter().map(|(_, w)| weight(*w)).sum::<u32>());
-        for (action, w) in pool {
+        let mut choice =
+            rng.random_range(0..extensions.iter().map(|(_, w)| weight(*w)).sum::<u32>());
+        for (action, w) in extensions {
             if choice < weight(w) {
-                if !select_extension {
-                    self.previous = Some(action.motion);
-                }
                 return action;
             }
             choice -= weight(w);
         }
-        unreachable!("nonempty weighted action pool")
+        unreachable!("nonempty weighted extension pool")
     }
 }

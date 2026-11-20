@@ -233,9 +233,7 @@ impl IslandApp {
                                 (edit + TYPING_TIMEOUT).saturating_duration_since(now),
                             );
                         }
-                        let size = f32::from(self.preferences.mascot_size)
-                            .min(height - 6.0)
-                            .min(45.0);
+                        let size = (crate::core::mascot::SLOT_WIDTH - 6.0).min(height - 6.0);
                         let mascot_rect = egui::Rect::from_center_size(
                             rect.left_center() + egui::vec2(27.0, 0.0),
                             egui::Vec2::splat(size),

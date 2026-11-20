@@ -32,9 +32,9 @@ Data-source definitions, instance settings and values/alert state are stored sep
 
 ## Mascot
 
-`core::mascot` owns the independent leading slot and its renderer. Its enabled state, size and Full/Reduced/Off motion settings live under Capsule, separately from ordinary Compact order.
+`core::mascot` owns the independent leading slot and its renderer. Its visibility and Full/Reduced/Off motion settings live under Capsule. The passive slot is 38 logical pixels wide and uses the same character scale as vault unlock.
 
-Extensions declare owner-local IDs, typed motions, playback duration, bounded weights and either a state conjunction or an event trigger with its own expiry. When state expressions are active, scheduling selects their category 75% of the time. Events enter a bounded FIFO and can interrupt ordinary actions. Stopping an owner removes its pending and active actions. A hidden slot pauses playback while queued events retain their wall-clock expiry.
+Independent blinks recur every 3–7 seconds. Full expressions start after 3–5 seconds of visibility, then wait 8–18 seconds after the last expression ends. Extensions declare owner-local IDs, typed motions, playback duration, bounded weights and either a state conjunction or an event trigger with its own expiry. When state expressions are active, scheduling selects their category 75% of the time. Events enter a bounded FIFO and can interrupt ordinary actions. Stopping an owner removes its pending and active actions. A hidden slot pauses playback while queued events retain their wall-clock expiry.
 
 Compact and vault unlock share a procedural egui renderer. The unlock view supplies interaction states and has precedence over extension actions. Reduced scales body movement and removes particles. Off draws immediate static expressions without animation repaint requests.
 

@@ -6,8 +6,8 @@ mod scheduler;
 mod tests;
 
 use crate::{
-    extension::{Action, CompactView, ExtensionId},
-    ui::declarative::{CompactLayout, Node, Size, ViewNode},
+    extension::{CompactView, ExtensionId},
+    ui::declarative::{Node, Size, ViewNode},
 };
 pub use animation::MascotPose;
 pub use expression::{MascotExpression, MascotMotion, Trigger};
@@ -18,6 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub const SLOT_WIDTH: f32 = 38.0;
 pub const MASCOT_SLOT_ID: &str = "core.mascot/slot";
 pub type MascotSource = (ExtensionId, Vec<MascotExpression>, BTreeMap<String, String>);
 
@@ -62,6 +63,7 @@ pub struct MascotHost {
     scheduler: scheduler::Scheduler,
     playback: Option<Playback>,
     idle_at: Option<Instant>,
+    settling: Option<(Instant, MascotPose)>,
     idle_clock: BreathClock,
     unlock_clock: BreathClock,
     paused_at: Option<Instant>,
@@ -74,38 +76,19 @@ impl MascotHost {
         ViewNode::new(Node::CoreMascot(self.pose)).sized(Size::Fill(1.0), Size::Fill(1.0))
     }
 
-    pub fn compact_slot(&self, size: f32) -> CompactView {
+    pub fn compact_slot(&self) -> CompactView {
         let id = ExtensionId::builtin(MASCOT_SLOT_ID);
-        let leading = ViewNode::new(Node::ActionArea {
-            action: Action::Advance,
-            label: "切换吉祥物表情".into(),
-            content: Box::new(self.node()),
-            context_menu: None,
-        })
-        .sized(Size::Fill(1.0), Size::Fill(1.0));
         CompactView {
             id: id.clone(),
             source_extension_id: id,
-            content: ViewNode::compact(
-                leading,
-                ViewNode::new(Node::Spacer),
-                CompactLayout {
-                    leading_size: [(size - 4.0).max(1.0), 38.0],
-                    gap: 0.0,
-                    ..Default::default()
-                },
-            ),
+            content: self.node(),
             visibility: Default::default(),
-            min_width: size,
-            preferred_width: size,
+            min_width: SLOT_WIDTH,
+            preferred_width: SLOT_WIDTH,
             fit_width: false,
             priority: 0,
-            tooltip: Some("点击切换吉祥物表情".into()),
+            tooltip: None,
         }
-    }
-
-    pub fn advance(&mut self, now: Instant) {
-        self.idle_at = Some(now);
     }
 
     pub fn event(&mut self, event: &str, sources: &[MascotSource], now: Instant) {
@@ -121,6 +104,9 @@ impl MascotHost {
             let gap = now.saturating_duration_since(paused);
             if let Some(playback) = &mut self.playback {
                 playback.start += gap;
+            }
+            if let Some((start, _)) = &mut self.settling {
+                *start += gap;
             }
             if let Some(at) = &mut self.idle_at {
                 *at += gap;
@@ -156,6 +142,8 @@ impl MascotHost {
             .is_some_and(|p| !p.action.valid(sources))
         {
             self.playback = None;
+            self.settling = Some((self.paused_at.unwrap_or(now), self.pose));
+            self.idle_at = Some(self.paused_at.unwrap_or(now) + scheduler::idle_pause());
         }
         if !visible {
             self.pause(now);
@@ -175,7 +163,9 @@ impl MascotHost {
             self.playback = None;
             self.pose = idle;
         }
-        let idle_at = *self.idle_at.get_or_insert_with(|| now + random_pause());
+        let idle_at = *self
+            .idle_at
+            .get_or_insert_with(|| now + scheduler::first_pause());
         let event = if self.playback.as_ref().is_none_or(|p| !p.action.event) {
             self.scheduler.pop_event()
         } else {
@@ -186,7 +176,8 @@ impl MascotHost {
                 .then(|| self.scheduler.choose(sources, &mut rand::rng()))
         });
         if let Some(action) = next {
-            self.idle_at = Some(now + action.duration + random_pause());
+            self.settling = None;
+            self.idle_at = Some(now + action.duration + scheduler::idle_pause());
             self.playback = Some(Playback {
                 action,
                 start: now,
@@ -208,12 +199,23 @@ impl MascotHost {
             Some(p.start + p.action.duration)
         } else {
             self.pose = idle;
+            if let Some((start, from)) = self.settling {
+                let elapsed = now.saturating_duration_since(start).as_secs_f32();
+                if policy != MotionPolicy::Off && elapsed < 0.20 {
+                    self.pose = from.blend(idle, animation::ease(elapsed / 0.20));
+                } else {
+                    self.settling = None;
+                }
+            }
             (policy != MotionPolicy::Off).then_some(idle_at)
         };
         deadline
             .map(|at| at.saturating_duration_since(now))
             .into_iter()
-            .chain(Self::frame(policy, self.playback.is_some() || blink > 0.0))
+            .chain(Self::frame(
+                policy,
+                self.playback.is_some() || self.settling.is_some() || self.idle_clock.blinking(now),
+            ))
             .chain(self.idle_clock.next_blink(now, policy))
             .min()
     }
@@ -250,7 +252,7 @@ impl MascotHost {
         };
         Self::frame(
             policy,
-            blink > 0.0
+            self.unlock_clock.blinking(now)
                 || !matches!(
                     state,
                     UnlockMascotState::Idle | UnlockMascotState::Attentive
@@ -262,10 +264,6 @@ impl MascotHost {
     }
 }
 
-fn random_pause() -> Duration {
-    Duration::from_millis(rand::rng().random_range(4000..=9000))
-}
-
 #[derive(Default)]
 struct BreathClock {
     epoch: Option<Instant>,
@@ -273,6 +271,13 @@ struct BreathClock {
 }
 
 impl BreathClock {
+    const BLINK_DURATION: Duration = Duration::from_millis(190);
+
+    fn blinking(&self, now: Instant) -> bool {
+        self.blink_at
+            .is_some_and(|start| now >= start && now - start < Self::BLINK_DURATION)
+    }
+
     fn next_blink(&self, now: Instant, policy: MotionPolicy) -> Option<Duration> {
         self.blink_at
             .filter(|at| *at > now && policy != MotionPolicy::Off)
@@ -286,13 +291,15 @@ impl BreathClock {
         let mut rng = rand::rng();
         let blink = *self
             .blink_at
-            .get_or_insert_with(|| now + Duration::from_millis(rng.random_range(2200..5200)));
+            .get_or_insert_with(|| now + Duration::from_millis(rng.random_range(3000..=7000)));
         let elapsed = now.saturating_duration_since(blink);
-        if elapsed >= Duration::from_millis(190) {
-            self.blink_at = Some(now + Duration::from_millis(rng.random_range(2200..5200)));
+        if elapsed >= Self::BLINK_DURATION {
+            let interval = Duration::from_millis(rng.random_range(3000..=7000));
+            let next = blink + interval;
+            self.blink_at = Some(if next > now { next } else { now + interval });
         }
-        let amount = if now >= blink && elapsed < Duration::from_millis(190) {
-            (elapsed.as_secs_f32() / 0.19 * std::f32::consts::PI).sin()
+        let amount = if self.blinking(now) {
+            animation::blink_amount(elapsed.as_secs_f32() / Self::BLINK_DURATION.as_secs_f32())
         } else {
             0.0
         };

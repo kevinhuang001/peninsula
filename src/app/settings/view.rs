@@ -1022,14 +1022,6 @@ fn capsule_options(
     }
     if section == CapsuleSection::Mascot {
         changed |= forms::boolean(ui, "显示 Mascot", &mut prefs.mascot_enabled);
-        changed |= forms::row(ui, "Mascot 大小", |ui| {
-            ui.add(
-                egui::DragValue::new(&mut prefs.mascot_size)
-                    .range(24..=64)
-                    .suffix(" px"),
-            )
-            .changed()
-        });
         changed |= forms::row(ui, "Mascot 动画", |ui| {
             let before = prefs.mascot_motion.clone();
             let mut value = prefs.mascot_motion.as_str();

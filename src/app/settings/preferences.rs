@@ -29,7 +29,6 @@ pub struct CompactPreferences {
     pub reduced_motion: bool,
     pub motion_off: bool,
     pub mascot_enabled: bool,
-    pub mascot_size: u16,
     pub mascot_motion: String,
     pub quiet_hours: QuietHours,
     pub widget_theme: WidgetTheme,
@@ -53,7 +52,6 @@ impl Default for CompactPreferences {
             reduced_motion: false,
             motion_off: false,
             mascot_enabled: true,
-            mascot_size: 38,
             mascot_motion: "Full".into(),
             quiet_hours: QuietHours::default(),
             widget_theme: WidgetTheme::default(),
@@ -91,11 +89,6 @@ impl CompactPreferences {
                 "mascot_enabled" => {
                     if let Some(v) = parse_bool(value) {
                         settings.mascot_enabled = v;
-                    }
-                }
-                "mascot_size" => {
-                    if let Ok(v) = value.trim().parse::<u16>() {
-                        settings.mascot_size = v.clamp(24, 64);
                     }
                 }
                 "mascot_motion" => {
@@ -166,7 +159,6 @@ impl CompactPreferences {
             format!("reduced_motion={}", self.reduced_motion),
             format!("motion_off={}", self.motion_off),
             format!("mascot_enabled={}", self.mascot_enabled),
-            format!("mascot_size={}", self.mascot_size),
             format!("mascot_motion={}", self.mascot_motion),
             format!("widget_theme={}", self.widget_theme.name()),
             format!(

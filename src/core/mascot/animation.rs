@@ -38,6 +38,10 @@ impl Default for MascotPose {
     }
 }
 
+pub(super) fn blink_amount(phase: f32) -> f32 {
+    (phase * std::f32::consts::PI).sin()
+}
+
 pub(super) fn ease(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
@@ -85,7 +89,7 @@ pub(super) fn sample(
     let mut pose = MascotPose::default();
     match motion {
         Idle => pose.tilt = 0.025 * (time * 0.95).sin(),
-        Blink => pose.eyes = [1.0 - (phase * std::f32::consts::PI).sin(); 2],
+        Blink => pose.eyes = [1.0 - blink_amount(phase); 2],
         LookAround => pose.gaze = [keyframes(phase, &[0.0, -0.85, -0.85, 0.9, 0.9, 0.0]), -0.15],
         Sleepy => {
             pose.eyes = [0.33; 2];
@@ -94,7 +98,8 @@ pub(super) fn sample(
         }
         Happy => {
             pose.smile = 0.95;
-            pose.lift = 0.55 * bounce;
+            pose.lift = 0.88 * bounce;
+            pose.squash = -0.08 * bounce;
         }
         Excited => {
             pose.smile = 1.0;
@@ -124,8 +129,12 @@ pub(super) fn sample(
             pose.smile = 1.0;
         }
         Listening => {
-            pose.tilt = 0.16 * (phase * TAU * 3.0).sin();
-            pose.eyes = [0.75; 2];
+            let rhythm = (phase * TAU * 2.0).sin();
+            pose.tilt = 0.27 * rhythm;
+            pose.eyes = [0.18 + 0.12 * rhythm.abs(); 2];
+            pose.smile = 0.83;
+            pose.lift = 0.19 * rhythm.abs();
+            pose.squash = 0.04 * (phase * TAU * 4.0).cos();
         }
         Focused => {
             pose.eyes = [0.8; 2];
