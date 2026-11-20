@@ -200,6 +200,8 @@ pub struct TableColumn {
     pub title: String,
     /// Relative share of the width available for cells.
     pub weight: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_align: Option<Align>,
 }
 
 impl TableColumn {
@@ -207,7 +209,13 @@ impl TableColumn {
         Self {
             title: title.into(),
             weight,
+            header_align: None,
         }
+    }
+
+    pub fn with_header_align(mut self, align: Align) -> Self {
+        self.header_align = Some(align);
+        self
     }
 }
 

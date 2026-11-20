@@ -519,7 +519,10 @@ impl Renderer<'_> {
                 ui,
                 Rect::from_min_size(pos2(x, rect.top()), vec2(width, TABLE_HEADER_HEIGHT)),
                 &column.title,
-                table_header_style(),
+                TextStyle {
+                    align: column.header_align.unwrap_or(Align::Start),
+                    ..table_header_style()
+                },
                 color(ColorSpec::SecondaryText),
             );
             x += width + TABLE_GAP;
