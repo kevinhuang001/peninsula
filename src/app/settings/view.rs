@@ -5,7 +5,7 @@ use super::{
     theme::{WidgetTheme, ACCENT, ACCENT_SELECTED, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT},
     CompactPreferences,
 };
-use crate::extension::{ContributionKind, ExtensionId};
+use crate::extension::ExtensionId;
 use crate::sdk::secrets::SecretStore;
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
 use std::{
@@ -462,34 +462,15 @@ impl SettingsView {
             Sense::click(),
         );
         ui.painter().rect_filled(panel, 9.0, PANEL);
-        ui.painter().rect_filled(
-            card,
-            12.0,
-            if error_active {
-                Color32::from_rgb(75, 39, 45)
-            } else {
-                ROW
-            },
-        );
+        ui.painter().rect_filled(card, 12.0, ROW);
         ui.painter().rect_stroke(
             card,
             12.0,
-            Stroke::new(
-                1.0,
-                if error_active {
-                    Color32::from_rgb(235, 88, 96)
-                } else {
-                    BORDER
-                },
-            ),
+            Stroke::new(1.0, BORDER),
             egui::StrokeKind::Inside,
         );
         let mut editor = child(ui, card.shrink(14.0), "secret-encryption-editor");
-        editor.visuals_mut().extreme_bg_color = if error_active {
-            Color32::from_rgb(75, 39, 45)
-        } else {
-            ROW
-        };
+        editor.visuals_mut().extreme_bg_color = ROW;
         editor.label(
             egui::RichText::new(if enable {
                 "设置加密密码"
@@ -501,62 +482,96 @@ impl SettingsView {
             .color(TEXT),
         );
         editor.add_space(8.0);
-        if self.encryption_in_progress {
-            editor.horizontal(|ui| {
-                ui.add(egui::Spinner::new().size(16.0));
-                ui.label(if enable {
-                    "正在加密…"
-                } else {
-                    "正在解密…"
-                });
-            });
-            ui.ctx().request_repaint_after(Duration::from_millis(16));
+        let input_stroke = if error_active {
+            Stroke::new(1.5, Color32::from_rgb(235, 88, 96))
         } else {
-            editor.add_sized(
-                [editor.available_width(), 28.0],
-                egui::TextEdit::singleline(&mut self.encryption_password)
-                    .password(true)
-                    .hint_text(if enable { "密码" } else { "当前密码" }),
+            Stroke::NONE
+        };
+        let password_response = editor.add_sized(
+            [editor.available_width(), 28.0],
+            egui::TextEdit::singleline(&mut self.encryption_password)
+                .password(true)
+                .hint_text(if enable { "密码" } else { "当前密码" }),
+        );
+        if error_active {
+            editor.painter().rect_stroke(
+                password_response.rect,
+                5.0,
+                input_stroke,
+                egui::StrokeKind::Inside,
             );
-            if enable {
-                editor.add_space(7.0);
-                editor.add_sized(
-                    [editor.available_width(), 28.0],
-                    egui::TextEdit::singleline(&mut self.encryption_confirmation)
-                        .password(true)
-                        .hint_text("确认密码"),
+        }
+        if enable {
+            editor.add_space(7.0);
+            let confirmation_response = editor.add_sized(
+                [editor.available_width(), 28.0],
+                egui::TextEdit::singleline(&mut self.encryption_confirmation)
+                    .password(true)
+                    .hint_text("确认密码"),
+            );
+            if error_active {
+                editor.painter().rect_stroke(
+                    confirmation_response.rect,
+                    5.0,
+                    input_stroke,
+                    egui::StrokeKind::Inside,
                 );
             }
-            editor.add_space(9.0);
-            editor.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(if enable { "确认" } else { "解密" }).clicked() {
-                    if enable && self.encryption_password != self.encryption_confirmation {
-                        self.encryption_error_at = Some(Instant::now());
-                    } else {
-                        let password = self.encryption_password.clone();
-                        let store = store.clone();
-                        let (sender, receiver) = mpsc::channel();
-                        self.encryption_task = Some(receiver);
-                        self.encryption_in_progress = true;
-                        std::thread::spawn(move || {
-                            let result = if enable {
-                                store.enable_encryption(&password)
-                            } else {
-                                store.disable_encryption(&password)
-                            }
-                            .map_err(|error| error.to_string());
-                            let _ = sender.send(result);
-                        });
-                    }
-                }
-                if ui.button("取消").clicked() {
-                    self.encryption_dialog = None;
-                    self.encryption_password.clear();
-                    self.encryption_confirmation.clear();
-                    self.encryption_error_at = None;
-                }
-            });
         }
+        editor.add_space(9.0);
+        editor.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let confirm = ui.add_enabled(
+                !self.encryption_in_progress,
+                egui::Button::new(if self.encryption_in_progress {
+                    ""
+                } else if enable {
+                    "确认"
+                } else {
+                    "解密"
+                })
+                .min_size(egui::vec2(52.0, 26.0)),
+            );
+            if self.encryption_in_progress {
+                let mut spinner = ui.new_child(
+                    egui::UiBuilder::new()
+                        .id_salt("encryption-spinner")
+                        .max_rect(confirm.rect),
+                );
+                spinner.centered_and_justified(|ui| {
+                    ui.add(egui::Spinner::new().size(15.0));
+                });
+                ui.ctx().request_repaint_after(Duration::from_millis(16));
+            }
+            if confirm.clicked() {
+                if enable && self.encryption_password != self.encryption_confirmation {
+                    self.encryption_error_at = Some(Instant::now());
+                } else {
+                    let password = self.encryption_password.clone();
+                    let store = store.clone();
+                    let (sender, receiver) = mpsc::channel();
+                    self.encryption_task = Some(receiver);
+                    self.encryption_in_progress = true;
+                    std::thread::spawn(move || {
+                        let result = if enable {
+                            store.enable_encryption(&password)
+                        } else {
+                            store.disable_encryption(&password)
+                        }
+                        .map_err(|error| error.to_string());
+                        let _ = sender.send(result);
+                    });
+                }
+            }
+            if ui
+                .add_enabled(!self.encryption_in_progress, egui::Button::new("取消"))
+                .clicked()
+            {
+                self.encryption_dialog = None;
+                self.encryption_password.clear();
+                self.encryption_confirmation.clear();
+                self.encryption_error_at = None;
+            }
+        });
     }
 
     fn poll_encryption(&mut self) {
@@ -764,8 +779,6 @@ impl SettingsView {
         forms::section(ui, "系统管理");
         let mut changed = forms::boolean(ui, "启用扩展", &mut page.enabled);
         forms::value(ui, "当前状态", &page.status);
-        forms::section(ui, "Doctor 自检");
-        forms::doctor(ui, &page.doctor);
         forms::section(ui, "插件设置");
         if page.descriptor.settings.is_empty() {
             forms::value(ui, "配置", "无需额外配置");
@@ -786,23 +799,8 @@ impl SettingsView {
                 });
             }
         }
-        let compact: Vec<_> = page
-            .descriptor
-            .contributions
-            .iter()
-            .filter(|c| c.kind == ContributionKind::Compact)
-            .map(|c| (c.id.clone(), c.title.clone()))
-            .collect();
-        if !compact.is_empty() {
-            forms::section(ui, "Compact 显示");
-        }
-        for (id, name) in compact {
-            if let Some(item) = prefs.compact_items.iter_mut().find(|i| i.id == id) {
-                ui.push_id(id, |ui| {
-                    changed |= forms::boolean(ui, &name, &mut item.enabled);
-                });
-            }
-        }
+        forms::section(ui, "Doctor 自检");
+        forms::doctor(ui, &page.doctor);
         changed
     }
 
@@ -1040,12 +1038,18 @@ fn capsule_options(
                 .find(|c| c.id == id)
                 .map_or_else(|| id.to_string(), |c| c.title.clone());
             let mut direction = 0;
+            let mut enabled = prefs.is_enabled(&id);
+            let mut toggled = false;
             ui.push_id(&id, |ui| {
                 forms::row(ui, &name, |ui| {
+                    toggled = forms::toggle(ui, &mut enabled, &format!("{name} 显示在 Compact"));
                     direction = forms::reorder(ui);
-                    false
+                    toggled
                 });
             });
+            if toggled {
+                changed |= prefs.set_compact_item_enabled(&id, enabled);
+            }
             if direction != 0 {
                 changed |= prefs.move_compact_item(&id, direction as isize);
             }
