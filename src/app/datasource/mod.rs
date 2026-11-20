@@ -604,6 +604,9 @@ impl DataSourceWindow {
                                 } else {
                                     response
                                 };
+                                if response.changed() && schema.kind == InputType::String {
+                                    input_update = Some(Value::String(draft.clone()));
+                                }
                                 let commit = response.lost_focus()
                                     || (response.has_focus()
                                         && ui.input(|input| input.key_pressed(egui::Key::Enter)));

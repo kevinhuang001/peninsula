@@ -656,6 +656,7 @@ impl DataSourceManager {
             .get(key)
             .ok_or_else(|| "参数不存在".to_owned())?;
         validate_runtime_input(input, &value)?;
+        let input_kind = input.kind;
         let previous = source.config.inputs.insert(key.to_owned(), value);
         let previous_next_refresh = source.next_refresh;
         let previous_force_refresh = source.force_refresh;
@@ -670,7 +671,14 @@ impl DataSourceManager {
         source.force_refresh = true;
         source.state.retry_at_ms = None;
         source.retry_count = 0;
-        source.next_refresh = Instant::now();
+        // String fields save on every keystroke, so wait briefly for typing to settle before
+        // the forced request; other field types already commit on Enter/blur.
+        source.next_refresh = Instant::now()
+            + if input_kind == InputType::String {
+                Duration::from_millis(350)
+            } else {
+                Duration::ZERO
+            };
         if let Err(error) = self.save_all() {
             if let Some(source) = self.sources.get_mut(id) {
                 if let Some(previous) = previous {
