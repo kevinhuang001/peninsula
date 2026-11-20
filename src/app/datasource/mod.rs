@@ -586,7 +586,13 @@ impl DataSourceWindow {
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
     ) {
-        section_title(ui, "参数", "");
+        let secret_hint = source
+            .input_schema
+            .values()
+            .any(|schema| schema.kind == InputType::String)
+            .then_some("字符串参数可使用 $secret$ 引用「秘密」中的 Secret")
+            .unwrap_or("");
+        section_title(ui, "参数", secret_hint);
         if source.input_schema.is_empty() {
             ui.label("此数据源没有用户参数。");
             return;
@@ -1053,11 +1059,6 @@ impl DataSourceWindow {
                         ui,
                         &mut self.allow_private_network,
                         "允许 HTTP / localhost / 私有网络目标",
-                    );
-                    ui.label(
-                        RichText::new("仅授权可信的数据源；私有网络访问请谨慎。")
-                            .size(10.0)
-                            .weak(),
                     );
                 });
 
