@@ -57,6 +57,10 @@ impl Icons {
                 include_str!("../../assets/icons/compact/battery.svg"),
             ),
             (
+                "compact/bolt",
+                include_str!("../../assets/icons/compact/bolt.svg"),
+            ),
+            (
                 "compact/check",
                 include_str!("../../assets/icons/compact/check.svg"),
             ),

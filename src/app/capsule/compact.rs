@@ -7,7 +7,7 @@ use crate::{
     extension::{ActionInvocation, Prompt},
     ui::renderer,
 };
-use eframe::egui::{self, Color32, Pos2, Rect, Sense, Vec2};
+use eframe::egui::{self, Pos2, Rect, Sense, Vec2};
 
 use super::draw_compact_chip;
 
@@ -142,26 +142,6 @@ fn show_prompt(
     if !reduced && elapsed < 1.2 {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(33));
-    }
-    let accent = prompt
-        .accent
-        .map_or(ui.visuals().selection.bg_fill, |[r, g, b]| {
-            Color32::from_rgb(r, g, b)
-        });
-    // A brief halo stays behind the leading icon and settles to transparent.
-    // Keep the capsule silhouette quiet; the event content owns the animation.
-    if !reduced && elapsed < 1.2 {
-        let reveal = (elapsed / 0.2).clamp(0.0, 1.0);
-        let fade = (1.0 - elapsed / 1.2).clamp(0.0, 1.0);
-        let center = Pos2::new(rect.left() + rect.width() * 0.15, rect.center().y);
-        let painter = ui.painter().with_clip_rect(rect.shrink(3.0));
-        for ring in (1..=8).rev() {
-            painter.circle_filled(
-                center,
-                rect.height() * (0.12 + ring as f32 * 0.026),
-                accent.linear_multiply(opacity * reveal * fade * 0.025),
-            );
-        }
     }
     let mut action = None;
     if prompt.layers.is_empty() {

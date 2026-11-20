@@ -120,22 +120,11 @@ fn battery_prompt_layers(metrics: &PowerSnapshot) -> Vec<PromptLayer> {
     } else {
         "已接通电源"
     };
-    let glow = ColorSpec::rgb(99, 238, 174);
-    let entrance = Motion {
-        duration_ms: 650,
-        easing: Easing::EaseOut,
-        tracks: vec![
-            MotionTrack::new(MotionProperty::Scale, &[(0, 0.78), (320, 1.08), (650, 1.0)]),
-            MotionTrack::new(MotionProperty::Opacity, &[(0, 0.0), (180, 1.0)]),
-        ],
-        ..Default::default()
-    };
+    let color = battery_color(metrics);
     vec![
         PromptLayer::new(
             [0.06, 0.04, 0.19, 0.92],
-            ViewNode::svg("compact/battery", 27.0)
-                .color(glow)
-                .motion(entrance),
+            battery_symbol(metrics, 1.15, true),
         ),
         PromptLayer::new(
             [0.28, 0.08, 0.47, 0.84],
@@ -157,63 +146,139 @@ fn battery_prompt_layers(metrics: &PowerSnapshot) -> Vec<PromptLayer> {
                     ..Default::default()
                 },
             )
-            .color(glow),
+            .color(color),
         ),
     ]
 }
 
-fn battery_view(metrics: &PowerSnapshot, label: String) -> ViewNode {
-    let level = f32::from(metrics.percent.unwrap_or(0)) / 100.0;
+/// Shared vector shell and continuous fill. The charging sweep is clipped to
+/// the interior, so neither the outline nor the text moves or pulses.
+fn battery_symbol(metrics: &PowerSnapshot, scale: f32, connection_prompt: bool) -> ViewNode {
+    let level = f32::from(metrics.percent.unwrap_or(0).min(100)) / 100.0;
     let color = battery_color(metrics);
-    let indicator = |segments, fraction, width, inactive, color| {
-        ViewNode::new(Node::SegmentedIndicator {
-            segments,
-            fraction,
-            gap: 0.9,
-            direction: FillDirection::LeftToRight,
-            inactive,
-        })
-        .sized(Size::Fixed(width), Size::Fixed(5.0))
-        .color(color)
-    };
-    let leading = ViewNode::new(Node::Stack(
-        [Align::Center; 2],
-        vec![
-            ViewNode::svg("compact/battery", 24.0).color(color),
-            indicator(5, level, 17.0, ColorSpec::Border, color)
-                .motion(Motion::progress(level, 200)),
-            indicator(1, 1.0, 1.8, ColorSpec::Transparent, ColorSpec::OnAccent)
-                .styled(Style {
-                    normal: Paint {
-                        foreground: Some(ColorSpec::OnAccent),
-                        opacity: Some(if metrics.charging { 0.55 } else { 0.0 }),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
-                .motion(Motion {
-                    trigger: Trigger::While(metrics.charging),
-                    duration_ms: 2400,
-                    gap_ms: 500,
-                    repeat: Repeat::Infinite,
-                    tracks: vec![
-                        MotionTrack::new(MotionProperty::TranslateX, &[(0, -8.0), (2400, 8.0)]),
-                        MotionTrack::new(
-                            MotionProperty::Opacity,
-                            &[(0, 0.0), (400, 1.0), (2000, 1.0), (2400, 0.0)],
-                        ),
-                    ],
-                    ..Default::default()
+    let animate = metrics.charging || connection_prompt;
+    let track = ViewNode::new(Node::Spacer)
+        .sized(Size::Fill(1.0), Size::Fill(1.0))
+        .styled(Style {
+            normal: Paint {
+                background: Some(ColorSpec::Rgba {
+                    r: 140,
+                    g: 160,
+                    b: 180,
+                    a: 35,
                 }),
-        ],
-    ))
-    .sized(Size::Fixed(25.0), Size::Fixed(24.0));
+                corner_radius: Some(1.5 * scale),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+    let fill = ViewNode::new(Node::Spacer)
+        .sized(Size::Percent(level), Size::Fill(1.0))
+        .styled(Style {
+            normal: Paint {
+                background: Some(color),
+                corner_radius: Some(1.5 * scale),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+    let mut inside = vec![track, fill];
+    if animate {
+        // A soft, three-part highlight travels through the cell, not around it.
+        let band = ViewNode::row(
+            [30, 85, 30]
+                .into_iter()
+                .map(|alpha| {
+                    ViewNode::new(Node::Spacer)
+                        .sized(Size::Fixed(1.5 * scale), Size::Fill(1.0))
+                        .styled(Style {
+                            normal: Paint {
+                                background: Some(ColorSpec::Rgba {
+                                    r: 255,
+                                    g: 255,
+                                    b: 255,
+                                    a: alpha,
+                                }),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                })
+                .collect(),
+            Flow {
+                gap: Some(0.0),
+                ..Default::default()
+            },
+        )
+        .sized(Size::Fixed(4.5 * scale), Size::Fill(1.0))
+        .motion(Motion {
+            duration_ms: 1600,
+            gap_ms: 350,
+            repeat: Repeat::Infinite,
+            easing: Easing::EaseInOut,
+            tracks: vec![
+                MotionTrack::new(
+                    MotionProperty::TranslateX,
+                    &[(0, -5.0 * scale), (1600, 18.0 * scale)],
+                ),
+                MotionTrack::new(
+                    MotionProperty::Opacity,
+                    &[(0, 0.0), (220, 1.0), (1300, 1.0), (1600, 0.0)],
+                ),
+            ],
+            ..Default::default()
+        });
+        inside.push(band);
+    }
+    let mut cell = ViewNode::new(Node::Stack([Align::Start; 2], inside))
+        .sized(Size::Fill(1.0), Size::Fill(1.0));
+    cell.clip = true;
+    let interior = ViewNode::new(Node::Container(Box::new(cell)))
+        .sized(Size::Fill(1.0), Size::Fill(1.0))
+        .styled(Style {
+            padding: [3.5 * scale, 5.0 * scale, 6.5 * scale, 5.0 * scale],
+            ..Default::default()
+        });
+    let mut layers = vec![
+        ViewNode::svg("compact/battery", 28.0 * scale)
+            .sized(Size::Fixed(28.0 * scale), Size::Fixed(18.0 * scale))
+            .color(ColorSpec::MutedText),
+        interior,
+    ];
+    if metrics.charging {
+        layers.push(
+            ViewNode::new(Node::Container(Box::new(ViewNode::new(Node::Stack(
+                [Align::Center; 2],
+                vec![ViewNode::svg("compact/bolt", 10.0 * scale)
+                    .sized(Size::Fixed(5.0 * scale), Size::Fixed(10.0 * scale))
+                    .color(ColorSpec::OnAccent)],
+            )))))
+            .sized(Size::Fill(1.0), Size::Fill(1.0))
+            .styled(Style {
+                padding: [0.0, 0.0, 3.0 * scale, 0.0],
+                ..Default::default()
+            }),
+        );
+    }
+    ViewNode::new(Node::Stack([Align::Center; 2], layers))
+        .sized(Size::Fixed(28.0 * scale), Size::Fixed(18.0 * scale))
+}
+
+fn battery_view(metrics: &PowerSnapshot, label: String) -> ViewNode {
     ViewNode::compact(
-        leading,
-        super::compact_value(label, false).color(color),
+        battery_symbol(metrics, 1.0, false),
+        ViewNode::text(
+            label,
+            TextStyle {
+                font_size: FontSize::Custom(11.0),
+                align: Align::Start,
+                ..Default::default()
+            },
+        )
+        .color(ColorSpec::PrimaryText),
         CompactLayout {
-            leading_size: [25.0, 24.0],
-            gap: 4.0,
+            leading_size: [28.0, 18.0],
+            gap: 5.0,
             ..Default::default()
         },
     )
@@ -246,5 +311,56 @@ pub(super) fn battery_color(metrics: &PowerSnapshot) -> ColorSpec {
         ColorSpec::Success
     } else {
         ColorSpec::PrimaryText
+    }
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    use super::*;
+    use crate::{app::icons::Icons, ui::renderer};
+    use eframe::egui::{self, pos2, vec2, Rect};
+
+    #[test]
+    fn continuous_fill_matches_charge_at_compact_and_prompt_sizes() {
+        for scale in [1.0, 1.15] {
+            for percent in [10, 50, 100] {
+                let ctx = egui::Context::default();
+                ctx.set_visuals(egui::Visuals::dark());
+                let icons = Icons::load(&ctx);
+                let metrics = PowerSnapshot {
+                    percent: Some(percent),
+                    external: Some(true),
+                    charging: percent < 100,
+                };
+                let view = WidgetView::new(
+                    battery_symbol(&metrics, scale, false),
+                    [28.0 * scale, 18.0 * scale],
+                );
+                let bounds =
+                    Rect::from_min_size(pos2(40.0, 40.0), vec2(28.0 * scale, 18.0 * scale));
+                let output = ctx.run(egui::RawInput::default(), |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        renderer::show_widget(
+                            ui,
+                            bounds,
+                            &ExtensionId::builtin(ID),
+                            &view,
+                            &icons,
+                            1.0,
+                        );
+                    });
+                });
+                let width = 18.0 * scale * f32::from(percent) / 100.0;
+                assert!(
+                    output.shapes.iter().any(|shape| {
+                        matches!(&shape.shape, egui::Shape::Rect(rect)
+                        if (rect.rect.width() - width).abs() < 0.05
+                        && (rect.rect.height() - 8.0 * scale).abs() < 0.05
+                        && rect.fill.a() == 255)
+                    }),
+                    "charge fill must occupy {percent}% of the cell at scale {scale}"
+                );
+            }
+        }
     }
 }
