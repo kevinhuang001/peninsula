@@ -42,57 +42,6 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
         .feeds
         .iter()
         .find(|feed| Some(&feed.url) == rss.selected.as_ref());
-    let mut children = vec![ViewNode::row(
-        vec![
-            text("订阅", 13.0, ColorSpec::PrimaryText).sized(Size::Fill(1.0), Size::Auto),
-            ViewNode::subtle_button(
-                if rss
-                    .selected
-                    .as_ref()
-                    .is_some_and(|url| rss.pending.contains(url))
-                {
-                    "刷新中…"
-                } else {
-                    "刷新"
-                },
-                Action::Advance,
-            )
-            .sized(Size::Auto, Size::Fixed(28.0)),
-            button("＋ 新增订阅", "add"),
-        ],
-        Flow {
-            gap: Some(8.0),
-            ..Default::default()
-        },
-    )
-    .sized(Size::Fill(1.0), Size::Auto)];
-
-    if rss.adding {
-        children.push(panel(column(
-            vec![
-                ViewNode::new(Node::TextInput {
-                    key: "rss-url".into(),
-                    value: rss.draft.clone(),
-                    hint: "https://example.com/feed.xml".into(),
-                })
-                .sized(Size::Fill(1.0), Size::Fixed(30.0)),
-                ViewNode::row(
-                    vec![button("添加订阅", "subscribe"), button("取消", "cancel")],
-                    Flow {
-                        gap: Some(7.0),
-                        justify: Justify::End,
-                        ..Default::default()
-                    },
-                )
-                .sized(Size::Fill(1.0), Size::Auto),
-            ],
-            8.0,
-        )));
-    }
-    if let Some(error) = &rss.error {
-        children.push(text(error, 11.0, ColorSpec::Danger));
-    }
-
     let mut sources = Vec::new();
     for feed in &rss.feeds {
         let active = Some(&feed.url) == rss.selected.as_ref();
@@ -114,7 +63,7 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
             badge.style.normal.background = Some(ColorSpec::AccentSubtle);
             heading.push(badge);
         }
-        let mut source = ViewNode::new(Node::ActionArea {
+        let mut select = ViewNode::new(Node::ActionArea {
             action: Action::Select(feed.url.clone()),
             label: feed.title.clone(),
             content: Box::new(column(
@@ -132,37 +81,52 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
                 4.0,
             )),
         })
-        .sized(Size::Fill(1.0), Size::Auto);
-        source.key = Some(feed.url.clone());
-        source.style.padding = [9.0; 4];
-        source.style.normal.background = Some(if active {
+        .sized(Size::Fill(1.0), Size::Fixed(48.0));
+        select.key = Some(feed.url.clone());
+        select.style.padding = [7.0, 8.0, 7.0, 8.0];
+        select.style.normal.background = Some(if active {
             ColorSpec::AccentSubtle
         } else {
             ColorSpec::Transparent
         });
-        source.style.hovered.background = Some(ColorSpec::AccentSubtle);
-        source.style.normal.corner_radius = Some(8.0);
-        sources.push(source);
+        select.style.hovered.background = Some(ColorSpec::AccentSubtle);
+        select.style.normal.corner_radius = Some(8.0);
+        sources.push(
+            ViewNode::row(
+                vec![
+                    select,
+                    ViewNode::subtle_button(
+                        "×",
+                        Action::Custom(format!("remove-feed:{}", feed.url)),
+                    )
+                    .sized(Size::Fixed(24.0), Size::Fixed(28.0)),
+                ],
+                Flow {
+                    gap: Some(3.0),
+                    align: Align::Center,
+                    ..Default::default()
+                },
+            )
+            .sized(Size::Fill(1.0), Size::Fixed(48.0)),
+        );
     }
     if sources.is_empty() {
         sources.push(text("还没有订阅", 11.0, ColorSpec::SecondaryText));
     }
     let sidebar = panel(column(
         vec![
+            text("订阅", 13.0, ColorSpec::PrimaryText),
             ViewNode::new(Node::Scroll(
                 ScrollAxes::Vertical,
                 Box::new(column(sources, 5.0)),
             ))
             .sized(Size::Fill(1.0), Size::Fixed(246.0)),
-            if selected.is_some() {
-                button("取消当前订阅", "unsubscribe")
-            } else {
-                ViewNode::new(Node::Spacer)
-            },
+            ViewNode::subtle_button("＋ 添加订阅", Action::Custom("add".into()))
+                .sized(Size::Fill(1.0), Size::Fixed(30.0)),
         ],
-        10.0,
+        8.0,
     ))
-    .sized(Size::Fill(1.0), Size::Auto);
+    .sized(Size::Fixed(194.0), Size::Fill(1.0));
 
     let mut articles = Vec::new();
     if let Some(feed) = selected {
@@ -257,27 +221,74 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
             ColorSpec::SecondaryText,
         ));
     }
-    let reading_list = panel(column(
+    let mut reader = vec![ViewNode::row(
         vec![
             text(
                 selected.map_or("文章", |feed| feed.title.as_str()),
                 13.0,
                 ColorSpec::PrimaryText,
-            ),
-            ViewNode::new(Node::Scroll(
-                ScrollAxes::Vertical,
-                Box::new(column(articles, 1.0)),
-            ))
-            .sized(Size::Fill(1.0), Size::Fixed(256.0)),
+            )
+            .sized(Size::Fill(1.0), Size::Auto),
+            ViewNode::subtle_button(
+                if rss
+                    .selected
+                    .as_ref()
+                    .is_some_and(|url| rss.pending.contains(url))
+                {
+                    "刷新中…"
+                } else {
+                    "刷新"
+                },
+                Action::Advance,
+            )
+            .sized(Size::Auto, Size::Fixed(28.0)),
         ],
-        10.0,
-    ))
-    .sized(Size::Fill(1.0), Size::Auto);
+        Flow {
+            gap: Some(8.0),
+            align: Align::Center,
+            ..Default::default()
+        },
+    )
+    .sized(Size::Fill(1.0), Size::Auto)];
+    if rss.adding {
+        reader.push(panel(column(
+            vec![
+                ViewNode::new(Node::TextInput {
+                    key: "rss-url".into(),
+                    value: rss.draft.clone(),
+                    hint: "https://example.com/feed.xml".into(),
+                })
+                .sized(Size::Fill(1.0), Size::Fixed(30.0)),
+                ViewNode::row(
+                    vec![button("添加订阅", "subscribe"), button("取消", "cancel")],
+                    Flow {
+                        gap: Some(7.0),
+                        justify: Justify::End,
+                        ..Default::default()
+                    },
+                )
+                .sized(Size::Fill(1.0), Size::Auto),
+            ],
+            8.0,
+        )));
+    }
+    reader.push(
+        ViewNode::new(Node::Scroll(
+            ScrollAxes::Vertical,
+            Box::new(column(articles, 1.0)),
+        ))
+        .sized(Size::Fill(1.0), Size::Fixed(256.0)),
+    );
+    let reading_list = panel(column(reader, 10.0)).sized(Size::Fill(1.0), Size::Auto);
     let mut grid = Grid::new(Columns::Tracks(vec![
         Track::Fraction(1.0),
         Track::Fraction(2.2),
     ]));
     grid.column_gap = Some(10.0);
+    let mut children = Vec::new();
+    if let Some(error) = &rss.error {
+        children.push(text(error, 11.0, ColorSpec::Danger));
+    }
     children.push(
         ViewNode::new(Node::Grid(grid, vec![sidebar, reading_list]))
             .sized(Size::Fill(1.0), Size::Auto),

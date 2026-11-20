@@ -420,6 +420,21 @@ impl RuntimeExtension for RssExtension {
             Action::Custom(key) if key == "add" => self.adding = true,
             Action::Custom(key) if key == "cancel" => self.adding = false,
             Action::Custom(key) if key == "subscribe" => self.error = self.subscribe().err(),
+            Action::Custom(key) if key.starts_with("remove-feed:") => {
+                let url = &key["remove-feed:".len()..];
+                let old = self.feeds.clone();
+                self.feeds.retain(|feed| feed.url != url);
+                if let Err(error) = self.save() {
+                    self.feeds = old;
+                    self.error = Some(error);
+                } else {
+                    self.errors.remove(url);
+                    self.pending.remove(url);
+                    if self.selected.as_deref() == Some(url) {
+                        self.selected = self.feeds.first().map(|feed| feed.url.clone());
+                    }
+                }
+            }
             Action::Custom(key) if key == "unsubscribe" => {
                 if let Some(url) = self.selected.clone() {
                     let old = self.feeds.clone();

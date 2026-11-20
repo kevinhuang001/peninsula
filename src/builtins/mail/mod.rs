@@ -342,33 +342,33 @@ impl MailExtension {
         Ok(())
     }
 
-    fn remove_selected(&mut self) -> Result<(), String> {
-        let Some(id) = self.selected.clone() else {
-            return Ok(());
-        };
+    fn remove_account(&mut self, id: &str) -> Result<(), String> {
         let Some(index) = self.accounts.iter().position(|account| account.id == id) else {
             return Ok(());
         };
+        let was_selected = self.selected.as_deref() == Some(id);
         let account = self.accounts.remove(index);
         if let Err(error) = self.save_accounts() {
             self.accounts.insert(index, account);
             return Err(format!("账号删除失败：{error}"));
         }
-        self.passwords.remove(&id);
-        self.mailboxes.remove(&id);
+        self.passwords.remove(id);
+        self.mailboxes.remove(id);
         let secret_cleanup_error = self
             .secrets
             .as_ref()
-            .and_then(|secrets| secrets.delete(&id).err())
+            .and_then(|secrets| secrets.delete(id).err())
             .map(|error| format!("账号已移除，但密码清理失败：{error}"));
-        self.selected = self.accounts.first().map(|account| account.id.clone());
-        if let Some(account) = self
-            .selected
-            .as_ref()
-            .and_then(|id| self.accounts.iter().find(|account| &account.id == id))
-            .cloned()
-        {
-            self.request_refresh(&account);
+        if was_selected {
+            self.selected = self.accounts.first().map(|account| account.id.clone());
+            if let Some(account) = self
+                .selected
+                .as_ref()
+                .and_then(|id| self.accounts.iter().find(|account| &account.id == id))
+                .cloned()
+            {
+                self.request_refresh(&account);
+            }
         }
         secret_cleanup_error.map_or(Ok(()), Err)
     }
@@ -822,8 +822,8 @@ impl RuntimeExtension for MailExtension {
             Action::Custom(key) if key == "save-account" => {
                 self.error = self.add_account().err();
             }
-            Action::Custom(key) if key == "remove-account" => {
-                self.error = self.remove_selected().err();
+            Action::Custom(key) if key.starts_with("remove-account:") => {
+                self.error = self.remove_account(&key["remove-account:".len()..]).err();
             }
             Action::Custom(key) if key.starts_with("open:") => {
                 match serde_json::from_str::<NotificationTarget>(&key[5..]) {

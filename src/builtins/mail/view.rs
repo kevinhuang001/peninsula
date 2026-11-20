@@ -108,7 +108,7 @@ fn account_row(mail: &MailExtension, account: &Account, unread: usize) -> ViewNo
     if unread > 0 {
         content.push(badge(unread));
     }
-    let mut row = ViewNode::new(Node::ActionArea {
+    let select = ViewNode::new(Node::ActionArea {
         action: Action::Select(account.id.clone()),
         label: account.email.clone(),
         content: Box::new(ViewNode::row(
@@ -121,15 +121,31 @@ fn account_row(mail: &MailExtension, account: &Account, unread: usize) -> ViewNo
         )),
     })
     .sized(Size::Fill(1.0), Size::Fixed(34.0));
-    row.style.padding = [7.0, 8.0, 7.0, 8.0];
-    row.style.normal.background = Some(if selected {
+    let mut select = select;
+    select.style.padding = [7.0, 8.0, 7.0, 8.0];
+    select.style.normal.background = Some(if selected {
         ColorSpec::AccentSubtle
     } else {
         ColorSpec::Transparent
     });
-    row.style.hovered.background = Some(ColorSpec::AccentSubtle);
-    row.style.normal.corner_radius = Some(8.0);
-    row
+    select.style.hovered.background = Some(ColorSpec::AccentSubtle);
+    select.style.normal.corner_radius = Some(8.0);
+    ViewNode::row(
+        vec![
+            select,
+            ViewNode::subtle_button(
+                "×",
+                Action::Custom(format!("remove-account:{}", account.id)),
+            )
+            .sized(Size::Fixed(24.0), Size::Fixed(28.0)),
+        ],
+        Flow {
+            gap: Some(3.0),
+            align: Align::Center,
+            ..Default::default()
+        },
+    )
+    .sized(Size::Fill(1.0), Size::Fixed(34.0))
 }
 
 fn sidebar(mail: &MailExtension) -> ViewNode {
@@ -381,7 +397,7 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
     } else {
         "选择邮箱".into()
     };
-    let mut actions = vec![ViewNode::subtle_button(
+    let actions = vec![ViewNode::subtle_button(
         if mail.mailboxes.values().any(|mailbox| mailbox.pending) {
             "同步中…"
         } else {
@@ -390,10 +406,6 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
         Action::Advance,
     )
     .sized(Size::Auto, Size::Fixed(28.0))];
-    if mail.selected.is_some() {
-        actions.push(button("删除账号", "remove-account"));
-    }
-    actions.push(button("＋ 添加", "add"));
     let top = ViewNode::row(
         vec![
             ViewNode::icon("mail", 18.0)

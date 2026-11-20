@@ -140,16 +140,6 @@ pub(super) fn doctor(ui: &mut egui::Ui, checks: &[crate::extension::DiagnosticCh
             });
         return;
     }
-    let passed = checks
-        .iter()
-        .filter(|check| check.status == crate::extension::DiagnosticStatus::Passed)
-        .count();
-    ui.label(
-        egui::RichText::new(format!("{passed} / {} 项检查通过", checks.len()))
-            .size(10.5)
-            .color(SECONDARY_TEXT),
-    );
-    ui.add_space(3.0);
     for check in checks {
         let (symbol, status, color) = match check.status {
             crate::extension::DiagnosticStatus::Passed => {
@@ -191,12 +181,6 @@ pub(super) fn doctor(ui: &mut egui::Ui, checks: &[crate::extension::DiagnosticCh
                         ui.label(egui::RichText::new(status).size(10.0).strong().color(color));
                     });
                 });
-                ui.add_space(3.0);
-                ui.label(
-                    egui::RichText::new(&check.detail)
-                        .size(10.5)
-                        .color(SECONDARY_TEXT),
-                );
                 if let Some(remediation) = &check.remediation {
                     ui.add_space(5.0);
                     ui.label(
