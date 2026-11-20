@@ -41,7 +41,6 @@ pub enum InputType {
     Boolean,
     Enum,
     Duration,
-    Secret,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -246,17 +245,20 @@ impl Definition {
             if key.is_empty() || key.len() > 256 || value.len() > 16_384 {
                 return Err("HTTP Header 超出限制".into());
             }
-            validate_placeholders(value, self, true, false)?;
+            validate_placeholders(value, self, false)
+                .map_err(|error| format!("请求头 {key}：{error}"))?;
         }
-        for value in self.request.query.values() {
-            validate_placeholders(value, self, true, false)?;
+        for (key, value) in &self.request.query {
+            validate_placeholders(value, self, false)
+                .map_err(|error| format!("查询参数 {key}：{error}"))?;
         }
-        validate_placeholders(&self.request.url, self, true, false)?;
+        validate_placeholders(&self.request.url, self, false)
+            .map_err(|error| format!("请求 URL：{error}"))?;
         if let Some(body) = &self.request.body {
             validate_json_placeholders(body, self)?;
         }
         if let Some(body) = &self.request.body_text {
-            validate_placeholders(body, self, true, false)?;
+            validate_placeholders(body, self, false).map_err(|error| format!("请求体：{error}"))?;
         }
         if self.value.kind != "number"
             || self.value.path.is_empty()
@@ -284,7 +286,7 @@ impl Definition {
                     return Err("提醒阈值必须是有限数值".into());
                 }
             } else if let Some(template) = alert.threshold.as_str() {
-                validate_placeholders(template, self, false, true)?;
+                validate_placeholders(template, self, true)?;
                 let name = template
                     .strip_prefix("${input.")
                     .and_then(|value| value.strip_suffix('}'))
@@ -297,8 +299,8 @@ impl Definition {
             } else {
                 return Err("提醒阈值必须是数值或参数占位符".into());
             }
-            validate_placeholders(&alert.title, self, false, true)?;
-            validate_placeholders(&alert.message, self, false, true)?;
+            validate_placeholders(&alert.title, self, true)?;
+            validate_placeholders(&alert.message, self, true)?;
         }
         Ok(())
     }
@@ -307,13 +309,6 @@ impl Definition {
         let url = Url::parse(&replace_placeholders_for_check(&self.request.url)?)
             .map_err(|_| "请求 URL 无效".to_owned())?;
         Ok(url.origin().ascii_serialization())
-    }
-
-    pub fn secret_inputs(&self) -> Vec<String> {
-        self.inputs
-            .iter()
-            .filter_map(|(key, input)| (input.kind == InputType::Secret).then_some(key.clone()))
-            .collect()
     }
 }
 
@@ -324,7 +319,7 @@ fn validate_input_value(
 ) -> Result<(), String> {
     let invalid = || format!("参数 {key} 的默认值类型不匹配");
     match definition.kind {
-        InputType::String | InputType::Secret if !value.is_string() => return Err(invalid()),
+        InputType::String if !value.is_string() => return Err(invalid()),
         InputType::Number if !value.as_f64().is_some_and(f64::is_finite) => return Err(invalid()),
         InputType::Integer if value.as_i64().is_none() => return Err(invalid()),
         InputType::Boolean if !value.is_boolean() => return Err(invalid()),
@@ -383,7 +378,6 @@ fn numeric_limit(value: Option<&Value>, kind: InputType) -> Result<Option<f64>, 
 pub fn validate_placeholders(
     text: &str,
     definition: &Definition,
-    allow_secret: bool,
     allow_value: bool,
 ) -> Result<(), String> {
     let mut rest = text;
@@ -396,22 +390,8 @@ pub fn validate_placeholders(
                 return Err("${value} 只能用于提醒文本".into());
             }
         } else if let Some(name) = token.strip_prefix("input.") {
-            let Some(input) = definition.inputs.get(name) else {
+            if !definition.inputs.contains_key(name) {
                 return Err(format!("未声明的参数占位符：{name}"));
-            };
-            if input.kind == InputType::Secret {
-                return Err(format!("Secret 参数 {name} 必须使用 ${{secret.{name}}}"));
-            }
-        } else if let Some(name) = token.strip_prefix("secret.") {
-            if !allow_secret {
-                return Err("Secret 只允许进入 HTTP 请求字段".into());
-            }
-            if definition
-                .inputs
-                .get(name)
-                .is_none_or(|input| input.kind != InputType::Secret)
-            {
-                return Err(format!("未声明的 Secret 参数：{name}"));
             }
         } else {
             return Err(format!("不支持的占位符：${{{token}}}"));
@@ -425,14 +405,23 @@ pub fn validate_placeholders(
 }
 
 fn validate_json_placeholders(value: &Value, definition: &Definition) -> Result<(), String> {
+    validate_json_placeholders_at(value, definition, "请求体")
+}
+
+fn validate_json_placeholders_at(
+    value: &Value,
+    definition: &Definition,
+    path: &str,
+) -> Result<(), String> {
     match value {
-        Value::String(text) => validate_placeholders(text, definition, true, false),
-        Value::Array(values) => values
-            .iter()
-            .try_for_each(|value| validate_json_placeholders(value, definition)),
-        Value::Object(values) => values
-            .values()
-            .try_for_each(|value| validate_json_placeholders(value, definition)),
+        Value::String(text) => validate_placeholders(text, definition, false)
+            .map_err(|error| format!("{path}：{error}")),
+        Value::Array(values) => values.iter().enumerate().try_for_each(|(index, value)| {
+            validate_json_placeholders_at(value, definition, &format!("{path}[{index}]"))
+        }),
+        Value::Object(values) => values.iter().try_for_each(|(key, value)| {
+            validate_json_placeholders_at(value, definition, &format!("{path}.{key}"))
+        }),
         _ => Ok(()),
     }
 }
@@ -528,5 +517,53 @@ mod tests {
         let definition = Definition::parse(&document.to_string()).unwrap();
         assert_eq!(definition.inputs["window"].kind, InputType::Duration);
         assert_eq!(parse_duration("2m").unwrap(), Duration::from_secs(120));
+    }
+
+    #[test]
+    fn placeholder_errors_name_the_request_field() {
+        let mut document = sample();
+        document["request"]["headers"]["Authorization"] =
+            Value::String("Bearer ${input.api_key}".into());
+
+        let error = Definition::parse(&document.to_string()).unwrap_err();
+        assert!(error.contains("请求头 Authorization"), "{error}");
+        assert!(error.contains("未声明的参数占位符：api_key"), "{error}");
+
+        document["inputs"]["api_key"] = serde_json::json!({
+            "type": "string",
+            "label": "API Key",
+            "required": true
+        });
+        assert!(Definition::parse(&document.to_string()).is_ok());
+    }
+
+    #[test]
+    fn json_body_placeholder_errors_name_the_body_path() {
+        let mut document = sample();
+        document["request"]["body"] = serde_json::json!({"auth": {"token": "${input.api_key}"}});
+
+        let error = Definition::parse(&document.to_string()).unwrap_err();
+        assert!(error.contains("请求体.auth.token"), "{error}");
+    }
+
+    #[test]
+    fn secret_inputs_and_secret_placeholders_are_rejected() {
+        let mut document = sample();
+        document["inputs"]["api_key"] = serde_json::json!({
+            "type": "secret",
+            "label": "API Key",
+            "required": true
+        });
+        assert!(Definition::parse(&document.to_string()).is_err());
+
+        document["inputs"]["api_key"] = serde_json::json!({
+            "type": "string",
+            "label": "API Key",
+            "required": true
+        });
+        document["request"]["headers"]["Authorization"] =
+            Value::String("Bearer ${secret.api_key}".into());
+        let error = Definition::parse(&document.to_string()).unwrap_err();
+        assert!(error.contains("不支持的占位符"), "{error}");
     }
 }

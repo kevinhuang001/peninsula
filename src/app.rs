@@ -937,7 +937,6 @@ impl eframe::App for IslandApp {
             context,
             &mut self.datasources,
             &mut self.preferences,
-            &self.secret_store,
             &mut self.notifications,
         );
 

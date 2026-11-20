@@ -4,7 +4,6 @@ use crate::{
         datasource::{self, DataSourceManager, Definition, InputType, SourceSnapshot},
         notifications::NotificationManager,
     },
-    sdk::secrets::SecretStore,
 };
 use eframe::egui::{self, Align, Color32, Layout, RichText, Stroke, Vec2};
 use serde_json::Value;
@@ -167,15 +166,13 @@ pub struct DataSourceWindow {
     selected: Option<String>,
     candidate: Option<Definition>,
     allow_private_network: bool,
-    allow_plaintext_secrets: bool,
     status: String,
+    /// `None` means the message is window-wide (import, storage, deletion). Messages tied to
+    /// one source are only rendered inside that source's detail panel.
+    status_source: Option<String>,
     delete_candidate: Option<String>,
-    delete_secrets: bool,
     delete_history: bool,
     text_drafts: HashMap<String, String>,
-    secret_drafts: HashMap<String, String>,
-    secret_ref_drafts: HashMap<String, String>,
-    secret_status: HashMap<String, Result<bool, String>>,
     runtime_drafts: HashMap<String, String>,
 }
 
@@ -214,7 +211,6 @@ impl DataSourceWindow {
         context: &egui::Context,
         manager: &mut DataSourceManager,
         preferences: &mut CompactPreferences,
-        secrets: &SecretStore,
         notifications: &mut NotificationManager,
     ) {
         let requested = context
@@ -249,14 +245,14 @@ impl DataSourceWindow {
                         .collapsible(false)
                         .default_size(Vec2::new(900.0, 640.0))
                         .show(context, |ui| {
-                            self.content(ui, manager, preferences, secrets, notifications);
+                            self.content(ui, manager, preferences, notifications);
                         });
                     !open
                 } else {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::central_panel(&context.style()).inner_margin(16.0))
                         .show(context, |ui| {
-                            self.content(ui, manager, preferences, secrets, notifications);
+                            self.content(ui, manager, preferences, notifications);
                         });
                     false
                 }
@@ -272,7 +268,6 @@ impl DataSourceWindow {
         ui: &mut egui::Ui,
         manager: &mut DataSourceManager,
         preferences: &mut CompactPreferences,
-        secrets: &SecretStore,
         notifications: &mut NotificationManager,
     ) {
         if ui.visuals().dark_mode {
@@ -313,6 +308,10 @@ impl DataSourceWindow {
             ui.colored_label(ui.visuals().error_fg_color, format!("存储诊断：{error}"));
             ui.add_space(6.0);
         }
+        if self.status_source.is_none() && !self.status.is_empty() {
+            ui.colored_label(ui.visuals().warn_fg_color, &self.status);
+            ui.add_space(6.0);
+        }
         let height = ui.available_height().max(1.0);
         ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(
@@ -338,7 +337,7 @@ impl DataSourceWindow {
                             .auto_shrink([false; 2])
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                self.source_detail(ui, &selected, manager, preferences, secrets);
+                                self.source_detail(ui, &selected, manager, preferences);
                             });
                     } else {
                         ui.vertical_centered(|ui| {
@@ -352,16 +351,8 @@ impl DataSourceWindow {
                 },
             );
         });
-        self.import_dialog(ui.ctx(), manager, preferences, secrets);
-        self.delete_dialog(ui.ctx(), manager, preferences, secrets, notifications);
-        if !self.status.is_empty() {
-            ui.ctx().data_mut(|data| {
-                data.insert_temp(
-                    egui::Id::new("datasource-window-status"),
-                    self.status.clone(),
-                );
-            });
-        }
+        self.import_dialog(ui.ctx(), manager, preferences);
+        self.delete_dialog(ui.ctx(), manager, preferences, notifications);
     }
 
     fn source_list(
@@ -425,7 +416,6 @@ impl DataSourceWindow {
                         ui.separator();
                         if ui.button("删除数据源…").clicked() {
                             self.delete_candidate = Some(source.id.clone());
-                            self.delete_secrets = false;
                             self.delete_history = false;
                             ui.close_menu();
                         }
@@ -441,7 +431,6 @@ impl DataSourceWindow {
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
         preferences: &mut CompactPreferences,
-        secrets: &SecretStore,
     ) {
         ui.horizontal(|ui| {
             if let Some(icon) = manager.icon_texture(&source.id) {
@@ -470,14 +459,14 @@ impl DataSourceWindow {
         let mut enabled = source.enabled;
         form_surface(ui).show(ui, |ui| {
             if switch_row(ui, &mut enabled, "启用") {
-                self.set_status(manager.set_enabled(&source.id, enabled));
+                self.set_source_status(&source.id, manager.set_enabled(&source.id, enabled));
             }
         });
         ui.add_space(8.0);
         let mut compact = source.compact;
         form_surface(ui).show(ui, |ui| {
             if switch_row(ui, &mut compact, "显示在 Compact") {
-                self.set_status(manager.set_compact(&source.id, compact));
+                self.set_source_status(&source.id, manager.set_compact(&source.id, compact));
                 let id = compact_item_id(&source.id);
                 preferences.set_compact_item_enabled(&id, compact);
                 self.save_preferences(preferences);
@@ -488,27 +477,12 @@ impl DataSourceWindow {
             let mut alerts = source.alerts;
             form_surface(ui).show(ui, |ui| {
                 if switch_row(ui, &mut alerts, "启用提醒") {
-                    self.set_status(manager.set_alerts(&source.id, alerts));
-                }
-            });
-        }
-        if source
-            .input_schema
-            .values()
-            .any(|input| input.kind == InputType::Secret)
-        {
-            ui.add_space(8.0);
-            let mut allow_fallback = source.allow_plaintext_secrets;
-            form_surface(ui).show(ui, |ui| {
-                if switch_row(ui, &mut allow_fallback, "允许本地 Secret 回退存储") {
-                    self.set_status(
-                        manager.set_plaintext_secret_fallback(&source.id, allow_fallback),
-                    );
+                    self.set_source_status(&source.id, manager.set_alerts(&source.id, alerts));
                 }
             });
         }
         ui.add_space(12.0);
-        self.inputs_form(ui, source, manager, secrets);
+        self.inputs_form(ui, source, manager);
         ui.add_space(12.0);
         self.runtime_settings(ui, source, manager);
         ui.add_space(12.0);
@@ -518,14 +492,14 @@ impl DataSourceWindow {
         if let Some(status) = source.http_status {
             ui.label(format!("HTTP 状态：{status}"));
         }
-        if !self.status.is_empty() {
+        if self.status_source.as_deref() == Some(source.id.as_str()) && !self.status.is_empty() {
             ui.colored_label(ui.visuals().warn_fg_color, &self.status);
         }
         ui.add_space(10.0);
         egui::CollapsingHeader::new("诊断详情")
             .id_salt(("datasource-doctor-open", &source.id))
             .show(ui, |ui| {
-                self.status_panel(ui, source, manager, secrets);
+                self.status_panel(ui, source);
             });
     }
 
@@ -534,7 +508,6 @@ impl DataSourceWindow {
         ui: &mut egui::Ui,
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
-        secrets: &SecretStore,
     ) {
         section_title(ui, "参数", "");
         if source.input_schema.is_empty() {
@@ -560,20 +533,7 @@ impl DataSourceWindow {
                         .or_else(|| schema.default.clone())
                         .unwrap_or(Value::Null);
                     let draft_id = format!("{}::{key}", source.id);
-                    let secret_exists = (schema.kind == InputType::Secret).then(|| {
-                        self.secret_status
-                            .get(&draft_id)
-                            .cloned()
-                            .unwrap_or_else(|| {
-                                let result = manager.secret_exists(secrets, &source.id, key);
-                                self.secret_status.insert(draft_id.clone(), result.clone());
-                                result
-                            })
-                    });
                     let mut input_update = None;
-                    let mut save_secret = None;
-                    let mut clear_secret = false;
-                    let mut set_secret_ref = None;
                     let mut invalid_number = false;
 
                     form_surface(ui).show(ui, |ui| {
@@ -591,53 +551,6 @@ impl DataSourceWindow {
                         ui.add_space(2.0);
 
                         match schema.kind {
-                            InputType::Secret => {
-                                let exists = secret_exists.as_ref().expect("Secret state was read");
-                                ui.label(
-                                    egui::RichText::new(match exists {
-                                        Ok(true) => "已保存到系统凭证存储",
-                                        Ok(false) => "尚未填写",
-                                        Err(_) => "凭证存储暂不可用",
-                                    })
-                                    .small()
-                                    .weak(),
-                                );
-                                let draft = self.secret_drafts.entry(draft_id.clone()).or_default();
-                                ui.add_sized(
-                                    [ui.available_width().min(300.0), 30.0],
-                                    egui::TextEdit::singleline(draft)
-                                        .password(true)
-                                        .hint_text("输入后保存"),
-                                );
-                                ui.horizontal_wrapped(|ui| {
-                                    if ui.small_button("保存 Secret").clicked() {
-                                        save_secret = Some(draft.clone());
-                                    }
-                                    if matches!(exists, Ok(true))
-                                        && ui.small_button("清除").clicked()
-                                    {
-                                        clear_secret = true;
-                                    }
-                                });
-
-                                let reference = source.secret_refs.get(key).cloned();
-                                let ref_draft = self
-                                    .secret_ref_drafts
-                                    .entry(draft_id.clone())
-                                    .or_insert_with(|| reference.clone().unwrap_or_default());
-                                ui.add_sized(
-                                    [ui.available_width().min(300.0), 30.0],
-                                    egui::TextEdit::singleline(ref_draft)
-                                        .hint_text("已保存的 Secret 名称"),
-                                );
-                                if reference.as_deref().is_some_and(|value| value == ref_draft) {
-                                    if ui.small_button("解除引用").clicked() {
-                                        set_secret_ref = Some(None);
-                                    }
-                                } else if ui.small_button("引用此 Secret").clicked() {
-                                    set_secret_ref = Some(Some(ref_draft.trim().to_owned()));
-                                }
-                            }
                             InputType::Boolean => {
                                 let mut value = current.as_bool().unwrap_or(false);
                                 if switch(ui, &mut value, "开启") {
@@ -682,7 +595,7 @@ impl DataSourceWindow {
                                     .or_insert_with(|| initial.clone());
                                 let mut editor = egui::TextEdit::singleline(draft);
                                 if schema.kind == InputType::String {
-                                    editor = editor.hint_text("输入值，或 $Secret名称$");
+                                    editor = editor.hint_text("明文，或 $名称$");
                                 }
                                 ui.add_space((ui.available_width() - 220.0).max(0.0));
                                 let response = ui.add_sized(
@@ -718,51 +631,30 @@ impl DataSourceWindow {
                                         invalid_number = true;
                                     }
                                 }
+                                if schema.kind == InputType::String {
+                                    ui.label(
+                                        egui::RichText::new(
+                                            "明文会保存在本机；用 $名称$ 可引用「秘密」页的条目。",
+                                        )
+                                        .small()
+                                        .weak(),
+                                    );
+                                }
                             }
                         }
                     });
 
                     if let Some(value) = input_update {
-                        self.set_status(manager.set_input(&source.id, key, value));
-                    }
-                    if let Some(value) = save_secret {
-                        match manager.set_secret(secrets, &source.id, key, &value) {
-                            Ok(()) => {
-                                if let Some(draft) = self.secret_drafts.get_mut(&draft_id) {
-                                    draft.clear();
-                                }
-                                self.secret_status.insert(draft_id.clone(), Ok(true));
-                                self.status = "Secret 已保存到 Peninsula 凭证存储。".into();
-                                let _ = manager.request_now(&source.id);
-                            }
-                            Err(error) => self.status = error,
-                        }
-                    }
-                    if clear_secret {
-                        match manager.delete_secret(secrets, &source.id, key) {
-                            Ok(()) => {
-                                self.secret_status.insert(draft_id.clone(), Ok(false));
-                                self.status = "Secret 已清除。".into();
-                            }
-                            Err(error) => self.status = error,
-                        }
-                    }
-                    if let Some(reference) = set_secret_ref {
-                        let result = manager.set_secret_reference(
-                            secrets,
+                        self.set_source_status(
                             &source.id,
-                            key,
-                            reference.as_deref(),
+                            manager.set_input(&source.id, key, value),
                         );
-                        let saved = result.is_ok();
-                        self.set_status(result);
-                        self.secret_status.remove(&draft_id);
-                        if saved {
-                            let _ = manager.request_now(&source.id);
-                        }
                     }
                     if invalid_number {
-                        self.status = format!("{} 的格式或范围无效。", schema.label);
+                        self.set_source_message(
+                            &source.id,
+                            format!("{} 的格式或范围无效。", schema.label),
+                        );
                     }
                     if (index + 1) % columns_count == 0 {
                         ui.end_row();
@@ -831,11 +723,7 @@ impl DataSourceWindow {
             .or_insert_with(|| current_ms.div_ceil(60_000).to_string());
         let mut changed = false;
         form_surface(ui).show(ui, |ui| {
-            ui.set_width(
-                (ui.available_width() - 24.0)
-                    .min(CARD_CONTENT_WIDTH)
-                    .max(280.0),
-            );
+            ui.set_width((ui.available_width() - 24.0).clamp(280.0, CARD_CONTENT_WIDTH));
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(label).strong());
                 ui.add_space((ui.available_width() - 120.0).max(0.0));
@@ -860,20 +748,14 @@ impl DataSourceWindow {
                         } else {
                             manager.set_min_alert_interval(&source.id, interval)
                         };
-                        self.set_status(result);
+                        self.set_source_status(&source.id, result);
                     }
                 }
             }
         }
     }
 
-    fn status_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        source: &SourceSnapshot,
-        manager: &DataSourceManager,
-        secrets: &SecretStore,
-    ) {
+    fn status_panel(&mut self, ui: &mut egui::Ui, source: &SourceSnapshot) {
         ui.label(RichText::new("运行诊断").strong());
         let now_ms = current_timestamp_ms();
         egui::Grid::new(("datasource-doctor", &source.id))
@@ -896,34 +778,6 @@ impl DataSourceWindow {
                         "Passed"
                     } else {
                         "Warning · 仍需填写"
-                    },
-                );
-                let required_secrets = source
-                    .input_schema
-                    .iter()
-                    .filter(|(_, input)| input.kind == InputType::Secret && input.required)
-                    .map(|(key, _)| {
-                        let cache_key = format!("{}::{key}", source.id);
-                        self.secret_status
-                            .get(&cache_key)
-                            .cloned()
-                            .unwrap_or_else(|| {
-                                let value = manager.secret_exists(secrets, &source.id, key);
-                                self.secret_status.insert(cache_key, value.clone());
-                                value
-                            })
-                    })
-                    .collect::<Vec<_>>();
-                let secret_state = required_secrets
-                    .iter()
-                    .all(|value| matches!(value, Ok(true)));
-                doctor_row(
-                    ui,
-                    "Secret",
-                    if secret_state {
-                        "Passed"
-                    } else {
-                        "Warning · 尚未保存"
                     },
                 );
                 doctor_row(ui, "Permissions", &source.origin);
@@ -1002,39 +856,42 @@ impl DataSourceWindow {
         else {
             return;
         };
-        if !path
-            .file_name()
-            .is_some_and(|name| name.to_string_lossy().ends_with(".pds.json"))
-        {
-            self.status = "请选择 .pds.json 文件。".into();
+        let file_name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        if !file_name.ends_with(".pds.json") {
+            self.set_message("请选择 .pds.json 文件。");
             return;
         }
         let metadata = match fs::metadata(&path) {
             Ok(metadata) => metadata,
             Err(_) => {
-                self.status = "数据源文件不存在或不可读。".into();
+                self.set_message(format!("数据源文件 {file_name} 不存在或不可读。"));
                 return;
             }
         };
         if metadata.len() > 2_000_000 {
-            self.status = "数据源文件不存在或超过 2 MB。".into();
+            self.set_message(format!("数据源文件 {file_name} 超过 2 MB。"));
             return;
         }
         let source = match fs::read_to_string(&path) {
             Ok(source) => source,
             Err(error) => {
-                self.status = format!("无法读取文件：{error}");
+                self.set_message(format!("无法读取文件 {file_name}：{error}"));
                 return;
             }
         };
         match Definition::parse(&source) {
             Ok(definition) => {
                 self.allow_private_network = false;
-                self.allow_plaintext_secrets = false;
                 self.status.clear();
+                self.status_source = None;
                 self.candidate = Some(definition);
             }
-            Err(error) => self.status = format!("数据源 Schema 校验失败：{error}"),
+            Err(error) => {
+                self.set_message(format!("数据源 Schema 校验失败（{file_name}）：{error}"));
+            }
         }
     }
 
@@ -1043,13 +900,11 @@ impl DataSourceWindow {
         context: &egui::Context,
         manager: &mut DataSourceManager,
         preferences: &mut CompactPreferences,
-        secrets: &SecretStore,
     ) {
         let Some(candidate) = self.candidate.clone() else {
             return;
         };
         let origin = candidate.origin().unwrap_or_else(|_| "无效请求目标".into());
-        let secret_inputs = candidate.secret_inputs();
         let mut open = true;
         egui::Window::new("授权并导入数据源")
             .id(egui::Id::new("datasource-import"))
@@ -1068,26 +923,12 @@ impl DataSourceWindow {
                 ));
                 ui.add_space(8.0);
                 ui.label("导入即授予此数据源向上述 Origin 发起请求的权限。");
-                if secret_inputs.is_empty() {
-                    ui.label("不需要 Secret。");
-                } else {
-                    ui.label(format!(
-                        "HTTP 请求会读取并发送此数据源自己的 Secret：{}",
-                        secret_inputs.join("、")
-                    ));
-                }
+                ui.label("字符串参数可填写明文，或在「秘密」页保存条目后填入 $名称$ 引用。");
                 switch(
                     ui,
                     &mut self.allow_private_network,
                     "允许 HTTP 或 localhost / 私有网络请求目标",
                 );
-                if !secret_inputs.is_empty() {
-                    switch(
-                        ui,
-                        &mut self.allow_plaintext_secrets,
-                        "允许本地 Secret 回退存储",
-                    );
-                }
                 if origin.starts_with("http://") {
                     ui.colored_label(
                         ui.visuals().warn_fg_color,
@@ -1100,12 +941,7 @@ impl DataSourceWindow {
                         self.candidate = None;
                     }
                     if ui.button("授权并导入").clicked() {
-                        match manager.import(
-                            candidate.clone(),
-                            self.allow_private_network,
-                            self.allow_plaintext_secrets,
-                            secrets,
-                        ) {
+                        match manager.import(candidate.clone(), self.allow_private_network) {
                             Ok(_) => {
                                 let ids = manager.compact_ids();
                                 if preferences.sync_data_source_items(&ids) {
@@ -1117,10 +953,10 @@ impl DataSourceWindow {
                                     preferences.is_enabled(&compact_id),
                                 );
                                 self.selected = Some(candidate.id.clone());
-                                self.status = format!("已导入 {}。", candidate.name);
+                                self.set_message(format!("已导入 {}。", candidate.name));
                                 self.candidate = None;
                             }
-                            Err(error) => self.status = format!("导入失败：{error}"),
+                            Err(error) => self.set_message(format!("导入失败：{error}")),
                         }
                     }
                 });
@@ -1135,7 +971,6 @@ impl DataSourceWindow {
         context: &egui::Context,
         manager: &mut DataSourceManager,
         preferences: &mut CompactPreferences,
-        secrets: &SecretStore,
         notifications: &mut NotificationManager,
     ) {
         let Some(id) = self.delete_candidate.clone() else {
@@ -1155,7 +990,6 @@ impl DataSourceWindow {
             .open(&mut open)
             .show(context, |ui| {
                 ui.label(format!("确定删除“{name}”吗？"));
-                switch(ui, &mut self.delete_secrets, "同时清除此数据源的 Secret");
                 switch(ui, &mut self.delete_history, "同时清除此数据源的通知历史");
                 ui.horizontal(|ui| {
                     if ui.button("取消").clicked() {
@@ -1163,19 +997,7 @@ impl DataSourceWindow {
                     }
                     if ui.button("删除").clicked() {
                         match manager.delete(&id) {
-                            Ok(keys) => {
-                                let cleanup_errors = if self.delete_secrets {
-                                    keys.into_iter()
-                                        .filter_map(|key| {
-                                            secrets
-                                                .delete(&format!("datasource::{id}::{key}"))
-                                                .err()
-                                                .map(|error| error.to_string())
-                                        })
-                                        .collect::<Vec<_>>()
-                                } else {
-                                    Vec::new()
-                                };
+                            Ok(()) => {
                                 if self.delete_history {
                                     if let Ok(source) = crate::extension::ExtensionId::new(format!(
                                         "datasource.{id}"
@@ -1189,16 +1011,9 @@ impl DataSourceWindow {
                                 }
                                 self.selected = None;
                                 self.delete_candidate = None;
-                                self.status = if cleanup_errors.is_empty() {
-                                    format!("已删除数据源“{name}”。")
-                                } else {
-                                    format!(
-                                        "已删除数据源“{name}”，但部分 Secret 未能清除：{}",
-                                        cleanup_errors.join("；")
-                                    )
-                                };
+                                self.set_message(format!("已删除数据源“{name}”。"));
                             }
-                            Err(error) => self.status = format!("删除失败：{error}"),
+                            Err(error) => self.set_message(format!("删除失败：{error}")),
                         }
                     }
                 });
@@ -1208,13 +1023,24 @@ impl DataSourceWindow {
         }
     }
 
-    fn set_status(&mut self, result: Result<(), String>) {
+    fn set_source_status(&mut self, source: &str, result: Result<(), String>) {
         self.status = result.map_or_else(|error| error, |_| String::new());
+        self.status_source = (!self.status.is_empty()).then(|| source.to_owned());
+    }
+
+    fn set_message(&mut self, message: impl Into<String>) {
+        self.status = message.into();
+        self.status_source = None;
+    }
+
+    fn set_source_message(&mut self, source: &str, message: impl Into<String>) {
+        self.status = message.into();
+        self.status_source = (!self.status.is_empty()).then(|| source.to_owned());
     }
 
     fn save_preferences(&mut self, preferences: &CompactPreferences) {
         if let Err(error) = preferences.save() {
-            self.status = format!("无法保存 Compact 设置：{error}");
+            self.set_message(format!("无法保存 Compact 设置：{error}"));
         }
     }
 }
@@ -1230,7 +1056,7 @@ fn compact_item_id_result(id: &str) -> Result<crate::extension::ExtensionId, Str
 
 fn required_inputs_ready(source: &SourceSnapshot) -> bool {
     source.input_schema.iter().all(|(key, schema)| {
-        if !schema.required || schema.kind == InputType::Secret {
+        if !schema.required {
             return true;
         }
         source

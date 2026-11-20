@@ -52,12 +52,16 @@ struct SourceConfig {
     #[serde(default)]
     allow_private_network: bool,
     #[serde(default)]
-    allow_plaintext_secrets: bool,
-    #[serde(default)]
     origin: String,
     #[serde(default)]
     inputs: BTreeMap<String, Value>,
-    #[serde(default)]
+    // Legacy fields from the pre-`$名称$` store format. They are still accepted so
+    // existing instances.json files load, but are never written or consulted again.
+    #[serde(default, skip_serializing)]
+    #[allow(dead_code)]
+    allow_plaintext_secrets: bool,
+    #[serde(default, skip_serializing)]
+    #[allow(dead_code)]
     secret_refs: BTreeMap<String, String>,
 }
 
@@ -128,7 +132,6 @@ pub struct SourceSnapshot {
     pub min_alert_interval_ms: u64,
     pub next_refresh_in_ms: u64,
     pub inputs: BTreeMap<String, Value>,
-    pub secret_refs: BTreeMap<String, String>,
     pub input_schema: BTreeMap<String, InputDefinition>,
     pub value_path: String,
     pub value: Option<f64>,
@@ -142,7 +145,6 @@ pub struct SourceSnapshot {
     pub in_flight: bool,
     pub icon_warning: Option<String>,
     pub alert_enabled: bool,
-    pub allow_plaintext_secrets: bool,
     pub storage_error: Option<String>,
 }
 
@@ -233,12 +235,7 @@ impl DataSourceManager {
                 }
                 let id = definition.id.clone();
                 let mut config = configs.get(&id).cloned().unwrap_or_else(|| {
-                    new_config(
-                        &definition,
-                        definition.origin().unwrap_or_default(),
-                        false,
-                        false,
-                    )
+                    new_config(&definition, definition.origin().unwrap_or_default(), false)
                 });
                 if !(schema::MIN_REFRESH.as_millis() as u64..=MAX_REFRESH_INTERVAL_MS)
                     .contains(&config.refresh_interval_ms)
@@ -256,20 +253,11 @@ impl DataSourceManager {
                     });
                     config.min_alert_interval_ms = DEFAULT_MIN_ALERT_INTERVAL_MS;
                 }
-                config.inputs.retain(|key, _| {
-                    definition
-                        .inputs
-                        .get(key)
-                        .is_some_and(|input| input.kind != InputType::Secret)
-                });
-                config.secret_refs.retain(|key, _| {
-                    definition
-                        .inputs
-                        .get(key)
-                        .is_some_and(|input| input.kind == InputType::Secret)
-                });
+                config
+                    .inputs
+                    .retain(|key, _| definition.inputs.contains_key(key));
                 for (key, input) in &definition.inputs {
-                    if input.kind != InputType::Secret && !config.inputs.contains_key(key) {
+                    if !config.inputs.contains_key(key) {
                         if let Some(value) = &input.default {
                             config.inputs.insert(key.clone(), value.clone());
                         }
@@ -336,7 +324,6 @@ impl DataSourceManager {
                         .saturating_duration_since(Instant::now())
                         .as_millis() as u64,
                     inputs: source.config.inputs.clone(),
-                    secret_refs: source.config.secret_refs.clone(),
                     input_schema: source.definition.inputs.clone(),
                     value_path: source.definition.value.path.clone(),
                     value: source.state.value,
@@ -350,7 +337,6 @@ impl DataSourceManager {
                     in_flight: source.in_flight,
                     icon_warning: source.icon_warning.clone(),
                     alert_enabled: source.definition.alert.is_some(),
-                    allow_plaintext_secrets: source.config.allow_plaintext_secrets,
                     storage_error: self.storage_error().map(ToOwned::to_owned),
                 }
             })
@@ -471,40 +457,24 @@ impl DataSourceManager {
         &mut self,
         definition: Definition,
         allow_private_network: bool,
-        allow_plaintext_secrets: bool,
-        store: &SecretStore,
     ) -> Result<bool, String> {
         definition.validate()?;
         let id = definition.id.clone();
         let origin = definition.origin()?;
         let mut config = self.sources.get(&id).map_or_else(
-            || {
-                new_config(
-                    &definition,
-                    origin.clone(),
-                    allow_private_network,
-                    allow_plaintext_secrets,
-                )
-            },
+            || new_config(&definition, origin.clone(), allow_private_network),
             |old| {
                 let mut config = old.config.clone();
                 config.origin = origin.clone();
                 config.allow_private_network = allow_private_network;
-                config.allow_plaintext_secrets = allow_plaintext_secrets;
                 config.inputs.retain(|key, value| {
-                    definition.inputs.get(key).is_some_and(|input| {
-                        input.kind != InputType::Secret
-                            && validate_runtime_input(input, value).is_ok()
-                    })
-                });
-                config.secret_refs.retain(|key, _| {
                     definition
                         .inputs
                         .get(key)
-                        .is_some_and(|input| input.kind == InputType::Secret)
+                        .is_some_and(|input| validate_runtime_input(input, value).is_ok())
                 });
                 for (key, input) in &definition.inputs {
-                    if input.kind != InputType::Secret && !config.inputs.contains_key(key) {
+                    if !config.inputs.contains_key(key) {
                         if let Some(default) = &input.default {
                             config.inputs.insert(key.clone(), default.clone());
                         }
@@ -514,31 +484,6 @@ impl DataSourceManager {
             },
         );
         config.alerts &= definition.alert.is_some();
-        let removed_secrets: Vec<String> = self
-            .sources
-            .get(&id)
-            .map(|old| {
-                old.definition
-                    .secret_inputs()
-                    .into_iter()
-                    .filter(|key| {
-                        definition
-                            .inputs
-                            .get(key)
-                            .is_none_or(|input| input.kind != InputType::Secret)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let removed_secret_values = removed_secrets
-            .iter()
-            .map(|key| {
-                store
-                    .get(&secret_key(&id, key))
-                    .map(|value| (key.clone(), value))
-                    .map_err(|error| format!("无法读取待清理的 Secret：{error}"))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
         let previous = self.sources.remove(&id);
         let replaced = previous.is_some();
         let in_flight = previous.as_ref().is_some_and(|source| source.in_flight);
@@ -595,31 +540,6 @@ impl DataSourceManager {
             }
             let _ = self.save_all();
             return Err(error);
-        }
-        for key in &removed_secrets {
-            if let Err(error) = store.delete(&secret_key(&id, key)) {
-                self.sources.remove(&id);
-                if let Some(previous) = previous {
-                    self.sources.insert(id.clone(), previous);
-                }
-                let mut rollback_errors = Vec::new();
-                if let Err(rollback_error) = self.save_all() {
-                    rollback_errors.push(format!("恢复数据源失败：{rollback_error}"));
-                }
-                for (key, value) in &removed_secret_values {
-                    if let Some(value) = value {
-                        if let Err(restore_error) = store.set(&secret_key(&id, key), value) {
-                            rollback_errors.push(format!("恢复 Secret 失败：{restore_error}"));
-                        }
-                    }
-                }
-                let detail = if rollback_errors.is_empty() {
-                    String::new()
-                } else {
-                    format!("；{}", rollback_errors.join("；"))
-                };
-                return Err(format!("无法清除已移除的 Secret：{error}{detail}"));
-            }
         }
         self.definition_errors
             .retain(|error| !error.contains(&format!("{id}.pds.json")));
@@ -728,27 +648,13 @@ impl DataSourceManager {
         Ok(())
     }
 
-    pub fn set_plaintext_secret_fallback(&mut self, id: &str, allow: bool) -> Result<(), String> {
-        let source = self.source_mut(id)?;
-        let previous = source.config.allow_plaintext_secrets;
-        source.config.allow_plaintext_secrets = allow;
-        if let Err(error) = self.save_all() {
-            if let Some(source) = self.sources.get_mut(id) {
-                source.config.allow_plaintext_secrets = previous;
-            }
-            return Err(error);
-        }
-        Ok(())
-    }
-
     pub fn set_input(&mut self, id: &str, key: &str, value: Value) -> Result<(), String> {
         let source = self.source_mut(id)?;
         let input = source
             .definition
             .inputs
             .get(key)
-            .filter(|input| input.kind != InputType::Secret)
-            .ok_or_else(|| "参数不存在或为 Secret".to_owned())?;
+            .ok_or_else(|| "参数不存在".to_owned())?;
         validate_runtime_input(input, &value)?;
         let previous = source.config.inputs.insert(key.to_owned(), value);
         let previous_next_refresh = source.next_refresh;
@@ -771,158 +677,7 @@ impl DataSourceManager {
         Ok(())
     }
 
-    pub fn set_secret(
-        &mut self,
-        store: &SecretStore,
-        id: &str,
-        key: &str,
-        value: &str,
-    ) -> Result<(), String> {
-        let source = self.sources.get(id).ok_or("数据源不存在")?;
-        if source
-            .definition
-            .inputs
-            .get(key)
-            .is_none_or(|input| input.kind != InputType::Secret)
-        {
-            return Err("Secret 参数不存在".into());
-        }
-        if store
-            .backend(&secret_key(id, key))
-            .map_err(|error| error.to_string())?
-            == Some(crate::sdk::secrets::SecretBackend::Unavailable)
-            && !source.config.allow_plaintext_secrets
-        {
-            return Err(
-                "系统 Keyring 不可用。重新导入此数据源并明确授权本地回退存储后，才能保存 Secret。"
-                    .into(),
-            );
-        }
-        store
-            .set(&secret_key(id, key), value)
-            .map_err(|error| error.to_string())?;
-        let source = self.sources.get_mut(id).ok_or("数据源不存在")?;
-        source.config.secret_refs.remove(key);
-        self.save_all()
-    }
-
-    pub fn delete_secret(
-        &mut self,
-        store: &SecretStore,
-        id: &str,
-        key: &str,
-    ) -> Result<(), String> {
-        let source = self.sources.get(id).ok_or("数据源不存在")?;
-        if source
-            .definition
-            .inputs
-            .get(key)
-            .is_none_or(|input| input.kind != InputType::Secret)
-        {
-            return Err("Secret 参数不存在".into());
-        }
-        if source.config.secret_refs.contains_key(key) {
-            store
-                .delete(&secret_key(id, key))
-                .map_err(|error| error.to_string())?;
-            let source = self.sources.get_mut(id).ok_or("数据源不存在")?;
-            source.config.secret_refs.remove(key);
-            return self.save_all();
-        }
-        store
-            .delete(&secret_key(id, key))
-            .map_err(|error| error.to_string())
-    }
-
-    pub fn secret_exists(&self, store: &SecretStore, id: &str, key: &str) -> Result<bool, String> {
-        let source = self.sources.get(id).ok_or("数据源不存在")?;
-        let storage_key = source
-            .config
-            .secret_refs
-            .get(key)
-            .map_or_else(|| secret_key(id, key), ToOwned::to_owned);
-        store
-            .get(&storage_key)
-            .map(|value| value.is_some())
-            .map_err(|error| error.to_string())
-    }
-
-    pub fn set_secret_reference(
-        &mut self,
-        store: &SecretStore,
-        id: &str,
-        input_key: &str,
-        secret_name: Option<&str>,
-    ) -> Result<(), String> {
-        let source = self.sources.get(id).ok_or("数据源不存在")?;
-        if source
-            .definition
-            .inputs
-            .get(input_key)
-            .is_none_or(|input| input.kind != InputType::Secret)
-        {
-            return Err("Secret 参数不存在".into());
-        }
-        if let Some(secret_name) = secret_name {
-            if secret_name.trim().is_empty()
-                || store
-                    .get(secret_name)
-                    .map_err(|error| error.to_string())?
-                    .is_none()
-            {
-                return Err("找不到同名的已保存 Secret".into());
-            }
-        }
-        let source = self.sources.get_mut(id).ok_or("数据源不存在")?;
-        if let Some(secret_name) = secret_name {
-            store
-                .delete(&secret_key(id, input_key))
-                .map_err(|error| error.to_string())?;
-            source
-                .config
-                .secret_refs
-                .insert(input_key.to_owned(), secret_name.to_owned());
-        } else {
-            source.config.secret_refs.remove(input_key);
-        }
-        self.save_all()
-    }
-
-    pub fn request_now(&mut self, id: &str) -> Result<(), String> {
-        let source = self.source_mut(id)?;
-        if !source.config.enabled {
-            return Err("请先启用此数据源".into());
-        }
-        if source.in_flight {
-            return Ok(());
-        }
-        if source
-            .last_request
-            .is_some_and(|last| last.elapsed() < schema::MIN_REFRESH)
-        {
-            return Err("此数据源刚刚请求过，请稍后再试".into());
-        }
-        let now_ms = timestamp_ms();
-        if source
-            .state
-            .last_request_ms
-            .is_some_and(|last| minimum_request_wait_ms(last, now_ms) > 0)
-        {
-            return Err("此数据源刚刚请求过，请稍后再试".into());
-        }
-        if source
-            .state
-            .retry_at_ms
-            .is_some_and(|retry_at| retry_at > now_ms)
-        {
-            return Err("失败重试等待时间尚未结束，请稍后再试".into());
-        }
-        source.force_refresh = true;
-        source.next_refresh = Instant::now();
-        Ok(())
-    }
-
-    pub fn delete(&mut self, id: &str) -> Result<Vec<String>, String> {
+    pub fn delete(&mut self, id: &str) -> Result<(), String> {
         let source = self.sources.remove(id).ok_or("数据源不存在")?;
         if let Some(token) = &source.cancellation {
             token.cancel();
@@ -943,7 +698,7 @@ impl DataSourceManager {
         if let Some((_, Some(key))) = self.registered_icons.remove(id) {
             self.icon_textures.remove(&key);
         }
-        Ok(source.definition.secret_inputs())
+        Ok(())
     }
 
     pub fn next_wake(&self) -> Option<Instant> {
@@ -1103,13 +858,11 @@ impl DataSourceManager {
             }
             let mut inputs = source.config.inputs.clone();
             resolve_input_secret_refs(&mut inputs, &store)?;
-            let secrets = load_secrets(&source.definition, &source.config, &store, id)?;
-            validate_required_inputs(&source.definition, &inputs, &secrets)?;
+            validate_required_inputs(&source.definition, &inputs)?;
             let cancellation = crate::sdk::tasks::CancellationToken::default();
             let task = RequestTask {
                 definition: source.definition.clone(),
                 inputs,
-                secrets,
                 origin: source.config.origin.clone(),
                 allow_private_network: source.config.allow_private_network,
                 cancellation: cancellation.clone(),
@@ -1321,7 +1074,6 @@ fn new_config(
     definition: &Definition,
     origin: String,
     allow_private_network: bool,
-    allow_plaintext_secrets: bool,
 ) -> SourceConfig {
     SourceConfig {
         enabled: true,
@@ -1329,17 +1081,13 @@ fn new_config(
         refresh_interval_ms: DEFAULT_REFRESH_INTERVAL_MS,
         min_alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
         allow_private_network,
-        allow_plaintext_secrets,
         origin,
         inputs: definition
             .inputs
             .iter()
-            .filter_map(|(key, input)| {
-                (input.kind != InputType::Secret)
-                    .then(|| input.default.clone().map(|value| (key.clone(), value)))
-                    .flatten()
-            })
+            .filter_map(|(key, input)| input.default.clone().map(|value| (key.clone(), value)))
             .collect(),
+        allow_plaintext_secrets: false,
         secret_refs: BTreeMap::new(),
     }
 }
@@ -1347,10 +1095,6 @@ fn new_config(
 fn compact_id(id: &str) -> Result<ExtensionId, String> {
     ExtensionId::new(format!("{DATA_SOURCE_COMPACT_PREFIX}{id}/value"))
         .map_err(|_| "数据源 id 无效".to_owned())
-}
-
-fn secret_key(id: &str, key: &str) -> String {
-    format!("datasource::{id}::{key}")
 }
 
 fn icon_hash(icon: Option<&IconSpec>) -> u64 {
@@ -1396,6 +1140,9 @@ fn decode_icon(
         "image/svg+xml" => {
             let source = std::str::from_utf8(&bytes).map_err(|_| "SVG 不是 UTF-8".to_owned())?;
             let lower = source.to_ascii_lowercase();
+            if lower.contains("<text") {
+                return Err("SVG 图标不能使用 <text>，文字不会被渲染".into());
+            }
             if source.len() > 64_000
                 || [
                     "<script",
@@ -1556,6 +1303,9 @@ fn validate_icon_data(icon: &IconSpec) -> Result<(), String> {
         "image/svg+xml" => {
             let source = std::str::from_utf8(&bytes).map_err(|_| "SVG 不是 UTF-8".to_owned())?;
             let lower = source.to_ascii_lowercase();
+            if lower.contains("<text") {
+                return Err("SVG 图标不能使用 <text>，文字不会被渲染".into());
+            }
             if source.len() > 64_000
                 || !lower.contains("<svg")
                 || [
@@ -1598,7 +1348,6 @@ fn validate_runtime_input(input: &InputDefinition, value: &Value) -> Result<(), 
         InputType::Duration => value
             .as_str()
             .is_some_and(|value| schema::parse_duration(value).is_ok()),
-        InputType::Secret => false,
     };
     if !kind_ok {
         return Err("参数值类型不匹配".into());
@@ -1620,38 +1369,6 @@ fn validate_runtime_input(input: &InputDefinition, value: &Value) -> Result<(), 
         }
     }
     Ok(())
-}
-
-fn load_secrets(
-    definition: &Definition,
-    config: &SourceConfig,
-    store: &SecretStore,
-    id: &str,
-) -> Result<BTreeMap<String, String>, String> {
-    let mut secrets = BTreeMap::new();
-    for key in definition.secret_inputs() {
-        let storage_key = config
-            .secret_refs
-            .get(&key)
-            .cloned()
-            .unwrap_or_else(|| secret_key(id, &key));
-        let value = store
-            .get(&storage_key)
-            .map_err(|_| "Secret 存储不可用".to_owned())?;
-        match value {
-            Some(value) => {
-                secrets.insert(key, value);
-            }
-            None if definition.inputs[&key].required => {
-                return Err(format!(
-                    "缺少必填 Secret：{}",
-                    definition.inputs[&key].label
-                ));
-            }
-            None => {}
-        }
-    }
-    Ok(secrets)
 }
 
 fn resolve_input_secret_refs(
@@ -1685,15 +1402,8 @@ fn replace_input_secret_refs(
 fn validate_required_inputs(
     definition: &Definition,
     inputs: &BTreeMap<String, Value>,
-    secrets: &BTreeMap<String, String>,
 ) -> Result<(), String> {
     for (key, input) in &definition.inputs {
-        if input.kind == InputType::Secret {
-            if input.required && !secrets.contains_key(key) {
-                return Err(format!("缺少必填 Secret：{}", input.label));
-            }
-            continue;
-        }
         let value = inputs.get(key).or(input.default.as_ref());
         if input.required && value.is_none() {
             return Err(format!("请填写必填参数：{}", input.label));
@@ -1709,7 +1419,6 @@ fn validate_required_inputs(
 struct RequestTask {
     definition: Definition,
     inputs: BTreeMap<String, Value>,
-    secrets: BTreeMap<String, String>,
     origin: String,
     allow_private_network: bool,
     cancellation: crate::sdk::tasks::CancellationToken,
@@ -1720,7 +1429,7 @@ fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
         return Err(fetch_error("请求已取消"));
     }
     let request = &task.definition.request;
-    let url_template = expand_string(&request.url, &task.inputs, &task.secrets, true)?;
+    let url_template = expand_string(&request.url, &task.inputs, true)?;
     let mut url = Url::parse(&url_template).map_err(|_| fetch_error("请求 URL 无效"))?;
     if url.origin().ascii_serialization() != task.origin {
         return Err(fetch_error("请求目标与授权 Origin 不匹配"));
@@ -1746,7 +1455,7 @@ fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
         return Err(fetch_error("请求目标解析到了私有或本机网络"));
     }
     for (key, value) in &request.query {
-        let value = expand_string(value, &task.inputs, &task.secrets, false)?;
+        let value = expand_string(value, &task.inputs, false)?;
         url.query_pairs_mut().append_pair(key, &value);
     }
     let timeout = Duration::from_millis(
@@ -1771,15 +1480,15 @@ fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
     };
     let mut request_builder = client.request(method, url);
     for (name, value) in &request.headers {
-        let value = expand_string(value, &task.inputs, &task.secrets, false)?;
+        let value = expand_string(value, &task.inputs, false)?;
         request_builder = request_builder.header(name, value);
     }
     if let Some(body) = &request.body {
-        let body = expand_json(body, &task.inputs, &task.secrets)?;
+        let body = expand_json(body, &task.inputs)?;
         request_builder = request_builder.json(&body);
     }
     if let Some(body) = &request.body_text {
-        let body = expand_string(body, &task.inputs, &task.secrets, false)?;
+        let body = expand_string(body, &task.inputs, false)?;
         request_builder = request_builder.body(body);
     }
     let mut response = request_builder.send().map_err(|error| {
@@ -1909,7 +1618,6 @@ fn is_public_ip(ip: IpAddr) -> bool {
 fn expand_string(
     text: &str,
     inputs: &BTreeMap<String, Value>,
-    secrets: &BTreeMap<String, String>,
     url_encode: bool,
 ) -> Result<String, FetchError> {
     let mut output = String::new();
@@ -1919,7 +1627,7 @@ fn expand_string(
         let after = &rest[start + 2..];
         let end = after.find('}').ok_or_else(|| fetch_error("占位符无效"))?;
         let token = &after[..end];
-        let value = resolve_token(token, inputs, secrets)?;
+        let value = resolve_token(token, inputs)?;
         let value = match value {
             Value::String(value) => value,
             value => value.to_string(),
@@ -1935,48 +1643,33 @@ fn expand_string(
     Ok(output)
 }
 
-fn expand_json(
-    value: &Value,
-    inputs: &BTreeMap<String, Value>,
-    secrets: &BTreeMap<String, String>,
-) -> Result<Value, FetchError> {
+fn expand_json(value: &Value, inputs: &BTreeMap<String, Value>) -> Result<Value, FetchError> {
     match value {
         Value::String(text)
             if text.starts_with("${") && text.ends_with('}') && text.matches("${").count() == 1 =>
         {
-            resolve_token(&text[2..text.len() - 1], inputs, secrets)
+            resolve_token(&text[2..text.len() - 1], inputs)
         }
-        Value::String(text) => expand_string(text, inputs, secrets, false).map(Value::String),
+        Value::String(text) => expand_string(text, inputs, false).map(Value::String),
         Value::Array(values) => values
             .iter()
-            .map(|value| expand_json(value, inputs, secrets))
+            .map(|value| expand_json(value, inputs))
             .collect(),
         Value::Object(values) => values
             .iter()
-            .map(|(key, value)| Ok((key.clone(), expand_json(value, inputs, secrets)?)))
+            .map(|(key, value)| Ok((key.clone(), expand_json(value, inputs)?)))
             .collect::<Result<Map<_, _>, FetchError>>()
             .map(Value::Object),
         _ => Ok(value.clone()),
     }
 }
 
-fn resolve_token(
-    token: &str,
-    inputs: &BTreeMap<String, Value>,
-    secrets: &BTreeMap<String, String>,
-) -> Result<Value, FetchError> {
+fn resolve_token(token: &str, inputs: &BTreeMap<String, Value>) -> Result<Value, FetchError> {
     if let Some(name) = token.strip_prefix("input.") {
         return inputs
             .get(name)
             .cloned()
             .ok_or_else(|| fetch_error("必填参数未填写"));
-    }
-    if let Some(name) = token.strip_prefix("secret.") {
-        return secrets
-            .get(name)
-            .cloned()
-            .map(Value::String)
-            .ok_or_else(|| fetch_error("Secret 不可用"));
     }
     Err(fetch_error("不支持的请求占位符"))
 }
@@ -2200,7 +1893,7 @@ mod tests {
 
     fn managed_source() -> ManagedSource {
         let definition = definition();
-        let mut config = new_config(&definition, definition.origin().unwrap(), false, false);
+        let mut config = new_config(&definition, definition.origin().unwrap(), false);
         config
             .inputs
             .insert("alert_threshold".into(), Value::from(10));
@@ -2222,6 +1915,17 @@ mod tests {
             cancellation: None,
             icon_warning: None,
         }
+    }
+
+    #[test]
+    fn text_based_svg_icons_are_rejected() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg"><text x="1" y="1">D</text></svg>"#;
+        let icon = IconSpec {
+            mime: "image/svg+xml".into(),
+            base64: STANDARD.encode(svg),
+        };
+        let error = validate_icon_data(&icon).unwrap_err();
+        assert!(error.contains("<text>"), "{error}");
     }
 
     #[test]
@@ -2250,7 +1954,7 @@ mod tests {
 
     #[test]
     fn restored_schedule_respects_refresh_rate_limit_and_retry_after() {
-        let mut config = new_config(&definition(), "https://example.com".into(), false, false);
+        let mut config = new_config(&definition(), "https://example.com".into(), false);
         config.refresh_interval_ms = 300_000;
         let now_ms = timestamp_ms();
         let state = SavedState {
@@ -2271,7 +1975,6 @@ mod tests {
         let error = execute_request(RequestTask {
             definition: definition(),
             inputs: BTreeMap::new(),
-            secrets: BTreeMap::new(),
             origin: String::new(),
             allow_private_network: false,
             cancellation,
@@ -2292,15 +1995,9 @@ mod tests {
     #[test]
     fn instance_settings_and_alert_time_survive_changes_and_restart() {
         let root = tempfile::tempdir().unwrap();
-        let secret_store = SecretStore::new(
-            "Peninsula::datasource-test",
-            root.path().join("secrets.json"),
-        );
         {
             let mut manager = DataSourceManager::open(root.path());
-            manager
-                .import(definition(), false, false, &secret_store)
-                .unwrap();
+            manager.import(definition(), false).unwrap();
             manager
                 .prepare_alert("open-meteo-shanghai-temperature", "alert-test", 1_000_000)
                 .unwrap();
@@ -2340,9 +2037,7 @@ mod tests {
                 .unwrap();
             let mut updated = definition();
             updated.description = "重新导入后的描述".into();
-            manager
-                .import(updated, false, false, &secret_store)
-                .unwrap();
+            manager.import(updated, false).unwrap();
         }
         let manager = DataSourceManager::open(root.path());
         let source = manager.snapshots().remove(0);
@@ -2356,17 +2051,11 @@ mod tests {
     #[test]
     fn interrupted_alert_commit_recovers_only_from_its_matching_history_entry() {
         let root = tempfile::tempdir().unwrap();
-        let secret_store = SecretStore::new(
-            "Peninsula::datasource-recovery-test",
-            root.path().join("secrets.json"),
-        );
         let source_id = "open-meteo-shanghai-temperature";
         let notification_id = "alert-900000";
         {
             let mut manager = DataSourceManager::open(root.path());
-            manager
-                .import(definition(), false, false, &secret_store)
-                .unwrap();
+            manager.import(definition(), false).unwrap();
             manager
                 .prepare_alert(source_id, notification_id, 900_000)
                 .unwrap();
@@ -2378,9 +2067,7 @@ mod tests {
         assert_eq!(manager.snapshots()[0].last_alert_ms, Some(900_000));
 
         manager.delete(source_id).unwrap();
-        manager
-            .import(definition(), false, false, &secret_store)
-            .unwrap();
+        manager.import(definition(), false).unwrap();
         manager.reconcile_alert_history(&history).unwrap();
         assert_eq!(manager.snapshots()[0].last_alert_ms, None);
     }
@@ -2391,14 +2078,8 @@ mod tests {
         let storage = root.path().join("data-sources/instances.json");
         fs::create_dir_all(storage.parent().unwrap()).unwrap();
         fs::write(&storage, b"not json").unwrap();
-        let secret_store = SecretStore::new(
-            "Peninsula::datasource-corrupt-test",
-            root.path().join("secrets.json"),
-        );
         let mut manager = DataSourceManager::open(root.path());
-        assert!(manager
-            .import(definition(), false, false, &secret_store)
-            .is_err());
+        assert!(manager.import(definition(), false).is_err());
         assert_eq!(fs::read(storage).unwrap(), b"not json");
     }
 
@@ -2414,15 +2095,9 @@ mod tests {
         )
         .unwrap();
         let old_bytes = fs::read(&old_file).unwrap();
-        let secret_store = SecretStore::new(
-            "Peninsula::datasource-old-definition-test",
-            root.path().join("secrets.json"),
-        );
         let mut manager = DataSourceManager::open(root.path());
         assert!(manager.storage_error().is_some());
-        manager
-            .import(definition(), false, false, &secret_store)
-            .unwrap();
+        manager.import(definition(), false).unwrap();
         manager
             .set_refresh_interval("open-meteo-shanghai-temperature", Duration::from_secs(120))
             .unwrap();
