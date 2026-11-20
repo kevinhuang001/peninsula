@@ -463,6 +463,11 @@ impl MailExtension {
     }
 
     fn notification(account: &Account, message: &EmailMessage) -> Notification {
+        let body = message
+            .verification_code
+            .as_ref()
+            .map(|code| format!("验证码：{code}"))
+            .unwrap_or_else(|| message.subject.clone());
         let action = if let Some(code) = &message.verification_code {
             NotificationAction {
                 id: "copy-code".into(),
@@ -480,7 +485,7 @@ impl MailExtension {
             source_id: ExtensionId::builtin(NOTIFICATION_ID),
             id: format!("mail-{}-{}", account.id, message.uid),
             title: format!("{} 的新邮件", message.from),
-            body: message.subject.clone(),
+            body,
             icon: Some("mail".into()),
             priority: NotificationPriority::Normal,
             actions: vec![action],
