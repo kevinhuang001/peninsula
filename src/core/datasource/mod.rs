@@ -267,7 +267,7 @@ impl DataSourceManager {
                         definition,
                         config,
                         state,
-                        compact: true,
+                        compact: false,
                         next_refresh,
                         last_request: None,
                         in_flight: false,
@@ -494,7 +494,7 @@ impl DataSourceManager {
                 }
             }
         });
-        let compact = previous.as_ref().is_none_or(|old| old.compact);
+        let compact = previous.as_ref().is_some_and(|old| old.compact);
         let icon_warning = definition
             .icon
             .as_ref()
@@ -1117,7 +1117,7 @@ fn new_config(
 ) -> SourceConfig {
     SourceConfig {
         enabled: true,
-        alerts: definition.alert.is_some(),
+        alerts: false,
         refresh_interval_ms: DEFAULT_REFRESH_INTERVAL_MS,
         min_alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
         allow_private_network,

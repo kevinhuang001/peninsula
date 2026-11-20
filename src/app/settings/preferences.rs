@@ -256,7 +256,7 @@ impl CompactPreferences {
                     .saturating_add(1);
                 self.compact_items.push(CompactItemPreference {
                     id: id.clone(),
-                    enabled: true,
+                    enabled: false,
                     order,
                 });
                 changed = true;

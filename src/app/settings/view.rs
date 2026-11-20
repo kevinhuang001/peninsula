@@ -6,7 +6,7 @@ use super::{
     CompactPreferences,
 };
 use crate::extension::{ContributionKind, ExtensionId};
-use crate::sdk::secrets::{SecretBackend, SecretStore};
+use crate::sdk::secrets::SecretStore;
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
 use std::{collections::HashMap, time::Instant};
 
@@ -127,7 +127,9 @@ impl SettingsView {
             };
         let limit = context.screen_rect().width() * 0.75;
         let available = (limit - chrome).max(1.0);
-        let content_width = if self.section == Section::QuietHours {
+        let content_width = if self.section == Section::Secrets {
+            360.0
+        } else if self.section == Section::QuietHours {
             quiet_view::preferred_width(context, &prefs.quiet_hours).max(
                 if self.quiet_dialog.is_some() {
                     300.0
@@ -162,14 +164,7 @@ impl SettingsView {
                 ..Default::default()
             };
             preview.content(&mut measure, &mut prefs.clone());
-            measure
-                .min_rect()
-                .width()
-                .max(if self.section == Section::Secrets {
-                    320.0
-                } else {
-                    0.0
-                })
+            measure.min_rect().width()
         };
         // Leave room for the shared title bar; larger forms follow their content.
         (chrome + content_width).ceil().max(380.0).min(limit)
@@ -396,18 +391,11 @@ impl SettingsView {
                 Ok(()) => {
                     self.secret_keys.retain(|entry| entry != &key);
                     self.persist_secret_index();
-                    self.secret_status = "已删除".into();
+                    self.secret_status.clear();
                     changed = true;
                 }
                 Err(error) => self.secret_status = error.to_string(),
             }
-        }
-        if !self.secret_status.is_empty() && !self.secret_dialog_open {
-            ui.label(
-                egui::RichText::new(&self.secret_status)
-                    .size(10.5)
-                    .color(SECONDARY_TEXT),
-            );
         }
         changed
     }
@@ -616,7 +604,7 @@ impl SettingsView {
             return Err("名称和内容都要填写".into());
         }
         let store = self.secret_store.as_ref().ok_or("秘密存储不可用")?;
-        let backend = store
+        store
             .set(&key, &self.secret_value)
             .map_err(|error| error.to_string())?;
         if !self.secret_keys.contains(&key) {
@@ -625,11 +613,7 @@ impl SettingsView {
         self.secret_keys.sort();
         self.persist_secret_index();
         self.secret_value.clear();
-        self.secret_status = match backend {
-            SecretBackend::Encrypted => "已加密保存到本地".into(),
-            SecretBackend::Plaintext => "已明文保存到本地".into(),
-            SecretBackend::Unavailable => "秘密存储不可用".into(),
-        };
+        self.secret_status.clear();
         Ok(())
     }
 

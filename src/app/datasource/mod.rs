@@ -11,7 +11,7 @@ use std::{collections::HashMap, fs, time::Duration};
 
 const VIEWPORT_ID: &str = "peninsula-datasources";
 const OPEN_REQUEST_ID: &str = "datasource-open-request";
-const LEFT_WIDTH: f32 = 175.0;
+const LEFT_WIDTH: f32 = 215.0;
 const COLUMN_GAP: f32 = 28.0;
 const CARD_CONTENT_WIDTH: f32 = 430.0;
 
@@ -327,37 +327,34 @@ impl DataSourceWindow {
         {
             self.selected = sources.first().map(|source| source.id.clone());
         }
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("数据源").size(23.0).strong());
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let can_refresh = self.selected.as_ref().is_some_and(|id| {
-                    sources
-                        .iter()
-                        .any(|source| &source.id == id && source.enabled)
-                });
-                let refreshing = self.selected.as_ref().is_some_and(|id| {
-                    sources
-                        .iter()
-                        .any(|source| &source.id == id && source.in_flight)
-                });
-                if ui
-                    .add_enabled(
-                        can_refresh,
-                        egui::Button::new(if refreshing {
-                            "刷新中…"
-                        } else {
-                            "↻  刷新"
-                        })
-                        .min_size(Vec2::new(96.0, 32.0)),
-                    )
-                    .on_hover_text("立即刷新当前数据源")
-                    .clicked()
-                {
-                    if let Some(id) = self.selected.clone() {
-                        self.set_source_status(&id, manager.refresh_now(&id));
-                    }
-                }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let can_refresh = self.selected.as_ref().is_some_and(|id| {
+                sources
+                    .iter()
+                    .any(|source| &source.id == id && source.enabled)
             });
+            let refreshing = self.selected.as_ref().is_some_and(|id| {
+                sources
+                    .iter()
+                    .any(|source| &source.id == id && source.in_flight)
+            });
+            if ui
+                .add_enabled(
+                    can_refresh,
+                    egui::Button::new(if refreshing {
+                        "刷新中…"
+                    } else {
+                        "↻  刷新"
+                    })
+                    .min_size(Vec2::new(96.0, 32.0)),
+                )
+                .on_hover_text("立即刷新当前数据源")
+                .clicked()
+            {
+                if let Some(id) = self.selected.clone() {
+                    self.set_source_status(&id, manager.refresh_now(&id));
+                }
+            }
         });
         ui.add_space(12.0);
         if let Some(error) = manager.storage_error() {
@@ -370,34 +367,40 @@ impl DataSourceWindow {
         }
         let height = ui.available_height().max(1.0);
         ui.horizontal_top(|ui| {
-            ui.allocate_ui_with_layout(
-                Vec2::new(LEFT_WIDTH, height),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    let import_height = 32.0;
-                    let gap = 8.0;
-                    let list_height = (height - import_height - gap).max(1.0);
+            surface(ui)
+                .inner_margin(egui::Margin::symmetric(10, 12))
+                .show(ui, |ui| {
+                    let inner_width = LEFT_WIDTH - 20.0;
+                    let inner_height = (height - 24.0).max(1.0);
                     ui.allocate_ui_with_layout(
-                        Vec2::new(LEFT_WIDTH, list_height),
+                        Vec2::new(inner_width, inner_height),
                         Layout::top_down(Align::Min),
                         |ui| {
-                            self.source_list(ui, &sources, manager);
+                            let import_height = 32.0;
+                            let gap = 8.0;
+                            let list_height = (inner_height - import_height - gap).max(1.0);
+                            ui.allocate_ui_with_layout(
+                                Vec2::new(inner_width, list_height),
+                                Layout::top_down(Align::Min),
+                                |ui| {
+                                    self.source_list(ui, &sources, manager);
+                                },
+                            );
+                            ui.add_space(gap);
+                            if ui
+                                .add_sized(
+                                    [ui.available_width(), import_height],
+                                    egui::Button::new("＋  导入数据源")
+                                        .fill(Color32::from_rgb(28, 92, 154)),
+                                )
+                                .on_hover_text("选择 .pds.json 文件")
+                                .clicked()
+                            {
+                                self.pick_definition();
+                            }
                         },
                     );
-                    ui.add_space(gap);
-                    if ui
-                        .add_sized(
-                            [ui.available_width(), import_height],
-                            egui::Button::new("＋  导入数据源")
-                                .fill(Color32::from_rgb(28, 92, 154)),
-                        )
-                        .on_hover_text("选择 .pds.json 文件")
-                        .clicked()
-                    {
-                        self.pick_definition();
-                    }
-                },
-            );
+                });
             ui.add_space(COLUMN_GAP);
             ui.allocate_ui_with_layout(
                 Vec2::new(ui.available_width().max(1.0), height),
@@ -722,7 +725,7 @@ impl DataSourceWindow {
                         );
                     }
                     if invalid_number {
-                        self.set_source_message(
+                        self.set_source_error(
                             &source.id,
                             format!("{} 的格式或范围无效。", schema.label),
                         );
@@ -932,24 +935,24 @@ impl DataSourceWindow {
             |name| name.to_string_lossy().into_owned(),
         );
         if !file_name.ends_with(".pds.json") {
-            self.set_message("请选择 .pds.json 文件。");
+            self.set_error("请选择 .pds.json 文件。");
             return;
         }
         let metadata = match fs::metadata(&path) {
             Ok(metadata) => metadata,
             Err(_) => {
-                self.set_message(format!("数据源文件 {file_name} 不存在或不可读。"));
+                self.set_error(format!("数据源文件 {file_name} 不存在或不可读。"));
                 return;
             }
         };
         if metadata.len() > 2_000_000 {
-            self.set_message(format!("数据源文件 {file_name} 超过 2 MB。"));
+            self.set_error(format!("数据源文件 {file_name} 超过 2 MB。"));
             return;
         }
         let source = match fs::read_to_string(&path) {
             Ok(source) => source,
             Err(error) => {
-                self.set_message(format!("无法读取文件 {file_name}：{error}"));
+                self.set_error(format!("无法读取文件 {file_name}：{error}"));
                 return;
             }
         };
@@ -961,7 +964,7 @@ impl DataSourceWindow {
                 self.candidate = Some(definition);
             }
             Err(error) => {
-                self.set_message(format!("数据源 Schema 校验失败（{file_name}）：{error}"));
+                self.set_error(format!("数据源 Schema 校验失败（{file_name}）：{error}"));
             }
         }
     }
@@ -1114,10 +1117,11 @@ impl DataSourceWindow {
                                         preferences.is_enabled(&compact_id),
                                     );
                                     self.selected = Some(candidate.id.clone());
-                                    self.set_message(format!("已导入 {}。", candidate.name));
+                                    self.status.clear();
+                                    self.status_source = None;
                                     self.candidate = None;
                                 }
-                                Err(error) => self.set_message(format!("导入失败：{error}")),
+                                Err(error) => self.set_error(format!("导入失败：{error}")),
                             }
                         }
                         if ui
@@ -1179,9 +1183,10 @@ impl DataSourceWindow {
                                 }
                                 self.selected = None;
                                 self.delete_candidate = None;
-                                self.set_message(format!("已删除数据源“{name}”。"));
+                                self.status.clear();
+                                self.status_source = None;
                             }
-                            Err(error) => self.set_message(format!("删除失败：{error}")),
+                            Err(error) => self.set_error(format!("删除失败：{error}")),
                         }
                     }
                 });
@@ -1196,19 +1201,19 @@ impl DataSourceWindow {
         self.status_source = (!self.status.is_empty()).then(|| source.to_owned());
     }
 
-    fn set_message(&mut self, message: impl Into<String>) {
-        self.status = message.into();
+    fn set_error(&mut self, error: impl Into<String>) {
+        self.status = error.into();
         self.status_source = None;
     }
 
-    fn set_source_message(&mut self, source: &str, message: impl Into<String>) {
-        self.status = message.into();
+    fn set_source_error(&mut self, source: &str, error: impl Into<String>) {
+        self.status = error.into();
         self.status_source = (!self.status.is_empty()).then(|| source.to_owned());
     }
 
     fn save_preferences(&mut self, preferences: &CompactPreferences) {
         if let Err(error) = preferences.save() {
-            self.set_message(format!("无法保存 Compact 设置：{error}"));
+            self.set_error(format!("无法保存 Compact 设置：{error}"));
         }
     }
 }
