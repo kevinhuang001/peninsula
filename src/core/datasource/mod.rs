@@ -640,6 +640,24 @@ impl DataSourceManager {
         Ok(())
     }
 
+    pub fn refresh_now(&mut self, id: &str) -> Result<(), String> {
+        let source = self.source_mut(id)?;
+        if !source.config.enabled {
+            return Err("请先启用此数据源".into());
+        }
+        if source.in_flight {
+            if let Some(token) = &source.cancellation {
+                token.cancel();
+            }
+            source.generation = source.generation.wrapping_add(1);
+        }
+        source.force_refresh = true;
+        source.state.retry_at_ms = None;
+        source.retry_count = 0;
+        source.next_refresh = Instant::now();
+        Ok(())
+    }
+
     pub fn set_input(&mut self, id: &str, key: &str, value: Value) -> Result<(), String> {
         let source = self.source_mut(id)?;
         let input = source
@@ -1989,6 +2007,36 @@ mod tests {
                 .unwrap()
                 .force_refresh
         );
+    }
+
+    #[test]
+    fn manual_refresh_clears_backoff_and_cancels_the_current_request() {
+        let root = tempfile::tempdir().unwrap();
+        let mut manager = DataSourceManager::open(root.path());
+        manager.import(definition(), false).unwrap();
+        let id = "open-meteo-shanghai-temperature";
+        {
+            let source = manager.sources.get_mut(id).unwrap();
+            source.state.retry_at_ms = Some(u64::MAX);
+            source.retry_count = 3;
+            source.in_flight = true;
+            source.generation = 7;
+            source.cancellation = Some(crate::sdk::tasks::CancellationToken::default());
+            source.next_refresh = Instant::now() + Duration::from_secs(300);
+        }
+        manager.refresh_now(id).unwrap();
+        let source = manager.sources.get(id).unwrap();
+        assert!(source.force_refresh);
+        assert!(source.state.retry_at_ms.is_none());
+        assert_eq!(source.retry_count, 0);
+        assert_eq!(source.generation, 8);
+        assert!(source.next_refresh <= Instant::now());
+        assert!(source
+            .cancellation
+            .as_ref()
+            .is_some_and(|token| token.is_cancelled()));
+        manager.set_enabled(id, false).unwrap();
+        assert!(manager.refresh_now(id).is_err());
     }
 
     #[test]

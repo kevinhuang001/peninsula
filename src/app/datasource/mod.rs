@@ -290,16 +290,32 @@ impl DataSourceWindow {
         ui.horizontal(|ui| {
             ui.label(RichText::new("数据源").size(23.0).strong());
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let can_refresh = self.selected.as_ref().is_some_and(|id| {
+                    sources
+                        .iter()
+                        .any(|source| &source.id == id && source.enabled)
+                });
+                let refreshing = self.selected.as_ref().is_some_and(|id| {
+                    sources
+                        .iter()
+                        .any(|source| &source.id == id && source.in_flight)
+                });
                 if ui
-                    .add(
-                        egui::Button::new("＋  导入数据源")
-                            .min_size(Vec2::new(120.0, 32.0))
-                            .fill(Color32::from_rgb(28, 92, 154)),
+                    .add_enabled(
+                        can_refresh,
+                        egui::Button::new(if refreshing {
+                            "刷新中…"
+                        } else {
+                            "↻  刷新"
+                        })
+                        .min_size(Vec2::new(96.0, 32.0)),
                     )
-                    .on_hover_text("选择 .pds.json 文件")
+                    .on_hover_text("立即刷新当前数据源")
                     .clicked()
                 {
-                    self.pick_definition();
+                    if let Some(id) = self.selected.clone() {
+                        self.set_source_status(&id, manager.refresh_now(&id));
+                    }
                 }
             });
         });
@@ -318,7 +334,28 @@ impl DataSourceWindow {
                 Vec2::new(LEFT_WIDTH, height),
                 Layout::top_down(Align::Min),
                 |ui| {
-                    self.source_list(ui, &sources, manager);
+                    let import_height = 32.0;
+                    let gap = 8.0;
+                    let list_height = (height - import_height - gap).max(1.0);
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(LEFT_WIDTH, list_height),
+                        Layout::top_down(Align::Min),
+                        |ui| {
+                            self.source_list(ui, &sources, manager);
+                        },
+                    );
+                    ui.add_space(gap);
+                    if ui
+                        .add_sized(
+                            [ui.available_width(), import_height],
+                            egui::Button::new("＋  导入数据源")
+                                .fill(Color32::from_rgb(28, 92, 154)),
+                        )
+                        .on_hover_text("选择 .pds.json 文件")
+                        .clicked()
+                    {
+                        self.pick_definition();
+                    }
                 },
             );
             ui.add_space(COLUMN_GAP);
