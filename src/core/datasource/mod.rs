@@ -654,6 +654,10 @@ impl DataSourceManager {
         source.force_refresh = true;
         source.state.retry_at_ms = None;
         source.retry_count = 0;
+        // Drop the old failure text so the button visibly starts a new attempt instead of
+        // leaving a stale "rate limited" message on screen while the request is running.
+        source.state.last_error = None;
+        source.state.http_status = None;
         source.next_refresh = Instant::now();
         Ok(())
     }
@@ -859,9 +863,11 @@ impl DataSourceManager {
             if !source.config.enabled {
                 return Err("数据源已停用".into());
             }
-            // Explicit parameter edits refresh immediately and may skip the local 30 s
-            // rate limit; scheduled refreshes still respect it.
-            if !source.force_refresh {
+            // Explicit parameter edits/refresh skip the local 30 s floor. A scheduled retry
+            // already has its own backoff (which may be shorter than 30 s), so let it run
+            // too instead of overwriting the real failure with a misleading rate-limit error.
+            let is_retry = source.state.retry_at_ms.is_some();
+            if !source.force_refresh && !is_retry {
                 if source
                     .last_request
                     .is_some_and(|last| last.elapsed() < schema::MIN_REFRESH)
@@ -2018,6 +2024,8 @@ mod tests {
         {
             let source = manager.sources.get_mut(id).unwrap();
             source.state.retry_at_ms = Some(u64::MAX);
+            source.state.last_error = Some("请求频率受限，至少间隔 30 秒".into());
+            source.state.http_status = Some(401);
             source.retry_count = 3;
             source.in_flight = true;
             source.generation = 7;
@@ -2028,6 +2036,8 @@ mod tests {
         let source = manager.sources.get(id).unwrap();
         assert!(source.force_refresh);
         assert!(source.state.retry_at_ms.is_none());
+        assert!(source.state.last_error.is_none());
+        assert!(source.state.http_status.is_none());
         assert_eq!(source.retry_count, 0);
         assert_eq!(source.generation, 8);
         assert!(source.next_refresh <= Instant::now());
