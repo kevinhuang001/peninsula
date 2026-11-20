@@ -292,15 +292,11 @@ impl RuntimeExtension for RssExtension {
             true,
             8,
         )
-        .with_size_hint(580.0, 340.0)
+        .with_size_hint(720.0, 450.0)
         .with_widget_bounds(crate::ui::declarative::WidgetBounds {
-            min: [400.0, 240.0],
-            max: [Some(760.0), Some(560.0)],
+            min: [500.0, 300.0],
+            max: [Some(900.0), Some(720.0)],
             resizable: true,
-            fit_height: true,
-            overflow: crate::ui::declarative::Overflow::Scroll(
-                crate::ui::declarative::ScrollAxes::Vertical,
-            ),
             ..Default::default()
         });
         let notifications = ContributionDescriptor::builtin(
@@ -420,6 +416,21 @@ impl RuntimeExtension for RssExtension {
             Action::Custom(key) if key == "add" => self.adding = true,
             Action::Custom(key) if key == "cancel" => self.adding = false,
             Action::Custom(key) if key == "subscribe" => self.error = self.subscribe().err(),
+            Action::Custom(key) if key.starts_with("remove-feed:") => {
+                let url = &key["remove-feed:".len()..];
+                let old = self.feeds.clone();
+                self.feeds.retain(|feed| feed.url != url);
+                if let Err(error) = self.save() {
+                    self.feeds = old;
+                    self.error = Some(error);
+                } else {
+                    self.errors.remove(url);
+                    self.pending.remove(url);
+                    if self.selected.as_deref() == Some(url) {
+                        self.selected = self.feeds.first().map(|feed| feed.url.clone());
+                    }
+                }
+            }
             Action::Custom(key) if key == "unsubscribe" => {
                 if let Some(url) = self.selected.clone() {
                     let old = self.feeds.clone();

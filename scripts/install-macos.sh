@@ -11,7 +11,9 @@ APP="$HOME/Applications/灵动岛.app"
 STAGE="$ROOT/target/macos-app-stage.app"
 
 cd "$ROOT"
+"$ROOT/scripts/setup-macos-signing.sh"
 cargo build --locked --release
+"$ROOT/scripts/sign-macos.sh" target/release/island-lab
 rm -rf "$STAGE"
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources/Licenses" "$HOME/Applications"
 cp target/release/island-lab "$STAGE/Contents/MacOS/island-lab"
@@ -32,8 +34,7 @@ cat > "$STAGE/Contents/Info.plist" <<'PLIST'
 </dict>
 </dict></plist>
 PLIST
-codesign --force --sign - "$STAGE"
-codesign --verify --strict "$STAGE"
+"$ROOT/scripts/sign-macos.sh" "$STAGE"
 rm -rf "$APP"
 mv "$STAGE" "$APP"
 open -n "$APP"

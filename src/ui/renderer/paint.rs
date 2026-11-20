@@ -369,6 +369,23 @@ impl Renderer<'_> {
                 self.action = Some(action.clone());
             }
         }
+        if let (
+            Node::ActionArea {
+                context_menu: Some(menu),
+                ..
+            },
+            Some(response),
+        ) = (&node.kind, response.as_ref())
+        {
+            super::context_menu(response, |ui| {
+                ui.label(&menu.title);
+                let clicked = ui.button(&menu.label).clicked();
+                if clicked {
+                    self.action = Some(menu.action.clone());
+                }
+                clicked
+            });
+        }
         if let Node::Control { label, .. } | Node::ActionArea { label, .. } = &node.kind {
             if let Some(r) = &response {
                 let info = match &node.kind {
@@ -502,7 +519,10 @@ impl Renderer<'_> {
                 ui,
                 Rect::from_min_size(pos2(x, rect.top()), vec2(width, TABLE_HEADER_HEIGHT)),
                 &column.title,
-                table_header_style(),
+                TextStyle {
+                    align: column.header_align.unwrap_or(Align::Start),
+                    ..table_header_style()
+                },
                 color(ColorSpec::SecondaryText),
             );
             x += width + TABLE_GAP;

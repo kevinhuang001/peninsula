@@ -10,6 +10,9 @@ pub(crate) struct TextPalette {
     pub success: Color32,
     pub warning: Color32,
     pub danger: Color32,
+    pub info: Color32,
+    pub cyan: Color32,
+    pub violet: Color32,
 }
 
 impl TextPalette {
@@ -20,6 +23,9 @@ impl TextPalette {
         success: Color32::from_rgb(97, 222, 174),
         warning: Color32::from_rgb(255, 153, 77),
         danger: Color32::from_rgb(255, 158, 170),
+        info: Color32::from_rgb(143, 202, 255),
+        cyan: Color32::from_rgb(91, 219, 226),
+        violet: Color32::from_rgb(205, 180, 255),
     };
     pub const LIGHT: Self = Self {
         primary: Color32::from_rgb(29, 42, 62),
@@ -28,6 +34,9 @@ impl TextPalette {
         success: Color32::from_rgb(0, 90, 56),
         warning: Color32::from_rgb(125, 55, 0),
         danger: Color32::from_rgb(140, 32, 47),
+        info: Color32::from_rgb(26, 77, 150),
+        cyan: Color32::from_rgb(0, 86, 104),
+        violet: Color32::from_rgb(91, 53, 156),
     };
 
     pub const fn for_mode(dark: bool) -> Self {
@@ -94,6 +103,9 @@ mod tests {
                 palette.success,
                 palette.warning,
                 palette.danger,
+                palette.info,
+                palette.cyan,
+                palette.violet,
             ] {
                 for background in backgrounds {
                     assert!(

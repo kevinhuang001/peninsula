@@ -84,7 +84,7 @@ impl Default for PomodoroExtension {
 impl PomodoroExtension {
     fn phase_color(&self) -> ColorSpec {
         if self.timer.phase == Phase::Focus {
-            ColorSpec::Info
+            ColorSpec::Violet
         } else {
             ColorSpec::Success
         }
@@ -294,6 +294,7 @@ impl RuntimeExtension for PomodoroExtension {
                     [Align::Center; 2],
                     vec![
                         ViewNode::ring(progress, "", 26.0, 1.8, 7.0)
+                            .color(self.phase_color())
                             .motion(Motion::progress(progress, 190)),
                         ViewNode::text(
                             if self.timer.phase == Phase::Focus {

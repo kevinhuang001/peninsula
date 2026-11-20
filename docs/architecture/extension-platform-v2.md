@@ -20,6 +20,16 @@ Only running owners receive updates, subscribed events, actions, Compact snapsho
 
 Execution supports EventDriven, Interval, WhenVisible and OnEnable. Clock uses a view refresh interval; Pomodoro uses monotonic deadlines. App wakes for running services, visible view refreshes, pending notifications, DND schedules, hover intent and shell/renderer animations. Removing the last source leaves no fixed 100ms repaint loop.
 
+## Declarative data sources
+
+`peninsula.datasource/v1` definitions declare request construction, ordinary user inputs, numeric extraction and an optional threshold rule. They do not declare refresh or repeat-notification intervals. Removed scheduling fields (`request.interval`, `alert.repeat_interval`, `alert.notify_on_initial`) are rejected; update the definition and reimport it.
+
+The imported source instance stores its own refresh interval and minimum alert interval in `data-sources/instances.json`. Defaults are five minutes and one hour; refresh accepts 30 seconds through 24 hours, and alert cooldown accepts one minute through 30 days. Compact visibility and ordering have one persisted owner: `CompactPreferences`; the data-source manager receives those values as runtime state.
+
+Successful fetches evaluate the current value against the threshold and `last_alert_ms`. The first matching value can alert immediately. A matching value can alert again when the configured cooldown has elapsed; a nonmatching result does not change the last-alert timestamp. That timestamp advances only after the notification has been durably accepted into notification history. On startup, notification history repairs a state-write interruption, while Do Not Disturb still controls popup presentation only.
+
+Data-source definitions, instance settings and values/alert state are stored separately. Invalid storage is preserved and reported by Doctor instead of being silently overwritten. Import-time icon checks fall back to the built-in glyph when an asset is invalid. Each source has one in-flight request, the global limit is four, requests have a 60-second maximum timeout, and disabling or replacing a source invalidates its old result.
+
 ## Mascot
 
 `core::mascot` owns the independent leading slot and its renderer. Its enabled state, size and Full/Reduced/Off motion settings live under Capsule, separately from ordinary Compact order.
@@ -40,7 +50,11 @@ Every extension page includes a Doctor section. A check has a stable ID, title, 
 
 ## Prompt contributions
 
-Prompt is a one-shot exclusive Compact contribution. It contains a declarative view and a display duration. The host accepts it only from its registered running owner, then appends it to one FIFO queue; there is no priority field or persistent `while` trigger. While a Prompt is visible it replaces all ordinary Compact items, including the Mascot slot. Its duration pauses while Compact is hidden by an expanded Widget, settings or a notification alert. When the queue drains, normal Compact composition resumes. Prompt animations use the same `ViewNode` and Motion renderer as other surfaces.
+Prompt is a one-shot exclusive capsule presentation with its own layout contract, separate from Compact items. It contains a declarative fallback view and a display duration. Optional `layers` position any number of `ViewNode`s in fractional rectangles across the entire capsule (left, top, width, height, each from 0 to 1); each layer can use the full Motion renderer independently. The optional `accent` colors the host's animated ambient light and outline. With no layers, the fallback view stays centered. Prompt content is painted directly on the capsule shell without an inner chip or a prescribed icon/text arrangement. Reduced Motion and Motion Off freeze the host lighting and declarative motion.
+
+The host accepts a Prompt only from its registered running owner, then appends it to one FIFO queue; there is no priority field or persistent `while` trigger. While a Prompt is visible it replaces all ordinary Compact items, including the Mascot slot. Its duration pauses while the capsule is hidden by an expanded Widget, settings or a notification alert. When the queue drains, normal Compact composition resumes.
+
+Every Prompt receives the host entrance fade and moving ambient highlight, including extensions that only supply the fallback view. The battery and USB built-ins add their own independently animated layers. USB samples the platform's device inventory off the UI thread (Linux sysfs, macOS System Profiler, Windows PnP), establishes a silent initial baseline, and queues a Prompt only for later insertions and removals.
 
 Prompt presentation is separate from notification policy. Do Not Disturb suppresses notification popups only; it does not pause, suppress or reorder Prompts. Notifications and Prompts keep independent queues and lifetimes.
 
@@ -50,7 +64,7 @@ Pomodoro preserves paused state on stop/restart, has schema-driven focus/break d
 
 ## Validation
 
-Unit and headless egui tests cover registry/schema validation, five-section navigation, generated settings controls while stopped, multiple same-kind contributions, idempotent lifecycle, rollback, scoped cancellation, disabled settings/restart behavior, Mascot priority/random rotation/expiry, notification persistence and DND, timer restoration, layout and existing browser/platform adapters.
+Unit and headless egui tests cover registry/schema validation, data-source scheduling and alert cooldown boundaries, notification acceptance and persistence, five-section navigation, generated settings controls while stopped, multiple same-kind contributions, idempotent lifecycle, rollback, scoped cancellation, disabled settings/restart behavior, Mascot priority/random rotation/expiry, DND, timer restoration, layout and existing browser/platform adapters.
 
 CI runs native tests and release builds on Linux, macOS and Windows. Formatting runs on every platform and strict all-target Clippy runs on Linux. Native OS integration and backend credentials remain dependent on their respective runners/machines.
 

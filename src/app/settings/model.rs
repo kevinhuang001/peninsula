@@ -5,14 +5,16 @@ pub(super) enum Section {
     Capsule,
     QuietHours,
     Extensions,
+    Secrets,
     About,
 }
 impl Section {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::General,
         Self::Capsule,
         Self::QuietHours,
         Self::Extensions,
+        Self::Secrets,
         Self::About,
     ];
     pub fn label(self) -> &'static str {
@@ -21,6 +23,7 @@ impl Section {
             Self::Capsule => "胶囊",
             Self::QuietHours => "免打扰",
             Self::Extensions => "扩展",
+            Self::Secrets => "秘密",
             Self::About => "关于",
         }
     }
@@ -32,7 +35,7 @@ mod tests {
     fn navigation_has_exactly_five_fixed_sections() {
         assert_eq!(
             Section::ALL.map(Section::label),
-            ["通用", "胶囊", "免打扰", "扩展", "关于"]
+            ["通用", "胶囊", "免打扰", "扩展", "秘密", "关于"]
         );
     }
 }

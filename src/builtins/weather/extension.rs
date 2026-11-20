@@ -448,14 +448,14 @@ impl RuntimeExtension for WeatherExtension {
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
-        let (icon, label, color, tooltip) = if let Some(snapshot) = &self.snapshot {
+        let (icon, label, _color, tooltip) = if let Some(snapshot) = &self.snapshot {
             let mut color = if self.alerts.iter().any(WeatherAlert::is_urgent) {
                 ColorSpec::Warning
             } else {
-                ColorSpec::PrimaryText
+                ColorSpec::Cyan
             };
             if self.error.is_some() {
-                color = ColorSpec::MutedText;
+                color = ColorSpec::Danger;
             }
             let today = snapshot.today();
             let tooltip = today.map_or_else(
@@ -481,14 +481,14 @@ impl RuntimeExtension for WeatherExtension {
             (
                 "meteo/not-available",
                 "--°".to_owned(),
-                ColorSpec::MutedText,
+                ColorSpec::Danger,
                 error.clone(),
             )
         } else {
             (
                 "meteo/partly-cloudy-day",
                 "--°".to_owned(),
-                ColorSpec::MutedText,
+                ColorSpec::Cyan,
                 "正在获取天气…".to_owned(),
             )
         };
@@ -504,7 +504,7 @@ impl RuntimeExtension for WeatherExtension {
                     ..Default::default()
                 },
             )
-            .color(color),
+            .color(_color),
             visibility: Default::default(),
             min_width: COMPACT_WIDTH,
             preferred_width: COMPACT_WIDTH,
@@ -714,11 +714,6 @@ fn weather_root(
         column(vec![heading, chart], 3.0).sized(Size::Fill(1.0), Size::Auto),
         ColorSpec::SurfaceVariant,
         [11.0, 9.0, 11.0, 3.0],
-    ));
-    sections.push(text(
-        "Open-Meteo 预报 · 风险提示由模型数据推算",
-        9.0,
-        ColorSpec::MutedText,
     ));
     column(sections, 7.0).sized(Size::Fill(1.0), Size::Auto)
 }

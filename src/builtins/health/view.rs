@@ -2,7 +2,7 @@ use super::{HealthExtension, STAND, WATER};
 use crate::{extension::Action, ui::declarative::*};
 use std::time::{Duration, SystemTime};
 
-const WATER_COLOR: ColorSpec = ColorSpec::Info;
+const WATER_COLOR: ColorSpec = ColorSpec::Cyan;
 const STAND_COLOR: ColorSpec = ColorSpec::Success;
 
 fn text(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNode {

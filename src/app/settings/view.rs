@@ -2,10 +2,11 @@ use super::{
     forms,
     model::Section,
     quiet_view::{self, QuietDialog},
-    theme::{WidgetTheme, ACCENT_SELECTED, BORDER, PANEL, SECONDARY_TEXT, TEXT},
+    theme::{WidgetTheme, ACCENT, ACCENT_SELECTED, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT},
     CompactPreferences,
 };
 use crate::extension::{ContributionKind, ExtensionId};
+use crate::sdk::secrets::{SecretBackend, SecretStore};
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
 use std::{collections::HashMap, time::Instant};
 
@@ -42,6 +43,14 @@ pub struct SettingsView {
     capsule_section: CapsuleSection,
     quiet_dialog: Option<QuietDialog>,
     searches: HashMap<(ExtensionId, String), forms::SearchFieldState>,
+    secret_store: Option<SecretStore>,
+    secret_keys: Vec<String>,
+    secret_key: String,
+    secret_value: String,
+    secret_status: String,
+    secret_index_path: Option<std::path::PathBuf>,
+    secret_revealed: bool,
+    secret_dialog_open: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -86,9 +95,82 @@ impl Panels {
 }
 
 impl SettingsView {
+    pub fn with_secret_store(
+        mut self,
+        store: SecretStore,
+        index_path: std::path::PathBuf,
+        index: &[String],
+    ) -> Self {
+        self.secret_store = Some(store);
+        self.secret_index_path = Some(index_path);
+        self.secret_keys = index.to_vec();
+        self
+    }
+    // A fixed canvas is used only by existing interaction fixtures.
+    #[cfg(test)]
     pub const WIDTH: f32 = 680.0;
+
+    pub fn width(&self, context: &egui::Context, prefs: &CompactPreferences) -> f32 {
+        let extra_column = matches!(self.section, Section::Extensions | Section::Capsule);
+        let chrome = 24.0
+            + SIDEBAR_WIDTH
+            + COLUMN_GAP
+            + 2.0 * PANEL_INSET
+            + if extra_column {
+                PLUGIN_WIDTH + COLUMN_GAP
+            } else {
+                0.0
+            };
+        let limit = context.screen_rect().width() * 0.75;
+        let available = (limit - chrome).max(1.0);
+        let content_width = if self.section == Section::QuietHours {
+            quiet_view::preferred_width(context, &prefs.quiet_hours).max(
+                if self.quiet_dialog.is_some() {
+                    300.0
+                } else {
+                    0.0
+                },
+            )
+        } else {
+            let mut measure = egui::Ui::new(
+                context.clone(),
+                egui::Id::new("settings-width-measure"),
+                egui::UiBuilder::new()
+                    .max_rect(Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(available, 10_000.0),
+                    ))
+                    .sizing_pass()
+                    .invisible(),
+            );
+            configure(&mut measure);
+            let mut preview = Self {
+                section: self.section,
+                selected: self
+                    .selected
+                    .clone()
+                    .or_else(|| prefs.pages.first().map(|p| p.descriptor.id.clone())),
+                capsule_section: self.capsule_section,
+                searches: self.searches.clone(),
+                secret_keys: self.secret_keys.clone(),
+                ..Default::default()
+            };
+            preview.content(&mut measure, &mut prefs.clone());
+            measure
+                .min_rect()
+                .width()
+                .max(if self.section == Section::Secrets {
+                    320.0
+                } else {
+                    0.0
+                })
+        };
+        // Leave room for the shared title bar; larger forms follow their content.
+        (chrome + content_width).ceil().max(380.0).min(limit)
+    }
+
     pub fn extra_height(&self, context: &egui::Context, prefs: &CompactPreferences) -> f32 {
-        let width = Self::WIDTH.min(context.screen_rect().width() * 0.75);
+        let width = self.width(context, prefs);
         let panels = Panels::new(
             Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 10_000.0)),
             matches!(self.section, Section::Extensions | Section::Capsule),
@@ -111,12 +193,20 @@ impl SettingsView {
             capsule_section: self.capsule_section,
             quiet_dialog: None,
             searches: self.searches.clone(),
+            secret_keys: self.secret_keys.clone(),
+            ..Default::default()
         };
         let content_height = if self.section == Section::QuietHours {
             106.0 + 28.0 * prefs.quiet_hours.periods().len().max(1) as f32
         } else {
             preview.content(&mut measure, &mut prefs.clone());
-            measure.min_rect().height()
+            measure.min_rect().height().max(
+                if self.section == Section::Secrets && self.secret_dialog_open {
+                    320.0
+                } else {
+                    0.0
+                },
+            )
         };
         let navigation_height = Section::ALL.len() as f32 * 40.0 + 10.0;
         let plugin_height = if self.section == Section::Extensions {
@@ -132,6 +222,7 @@ impl SettingsView {
             Section::General => general(ui, prefs),
             Section::Capsule => capsule_options(ui, prefs, self.capsule_section),
             Section::Extensions => self.extension_form(ui, prefs),
+            Section::Secrets => self.secrets(ui),
             Section::About => {
                 about(ui);
                 false
@@ -191,6 +282,9 @@ impl SettingsView {
                 ui.set_width(ui.available_width());
                 changed |= self.content(ui, prefs);
             });
+        if self.section == Section::Secrets && self.secret_dialog_open {
+            changed |= self.secret_editor(&mut surface, panels.form.shrink(PANEL_INSET));
+        }
         changed
     }
 
@@ -205,6 +299,227 @@ impl SettingsView {
                 None,
             ) {
                 self.section = section;
+            }
+        }
+    }
+
+    fn secrets(&mut self, ui: &mut egui::Ui) -> bool {
+        let content_width = ui.available_width();
+        ui.allocate_ui_with_layout(
+            egui::vec2(content_width, 30.0),
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| {
+                if ui
+                    .add(egui::Button::new("＋  新增 Secret").min_size(egui::vec2(112.0, 28.0)))
+                    .clicked()
+                {
+                    self.secret_key.clear();
+                    self.secret_value.clear();
+                    self.secret_status.clear();
+                    self.secret_revealed = false;
+                    self.secret_dialog_open = true;
+                }
+            },
+        );
+        ui.add_space(8.0);
+        let mut changed = false;
+        if self.secret_keys.is_empty() {
+            egui::Frame::new()
+                .fill(ROW)
+                .stroke(Stroke::new(1.0, BORDER))
+                .corner_radius(9.0)
+                .inner_margin(egui::Margin::symmetric(16, 22))
+                .show(ui, |ui| {
+                    ui.set_width(content_width - 32.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(egui::RichText::new("◇").size(26.0).color(ACCENT));
+                        ui.label(
+                            egui::RichText::new("还没有保存的 Secret")
+                                .size(12.5)
+                                .strong()
+                                .color(TEXT),
+                        );
+                        ui.label(
+                            egui::RichText::new("添加 API 密钥、令牌或其他私密内容")
+                                .size(10.5)
+                                .color(SECONDARY_TEXT),
+                        );
+                    });
+                });
+        }
+        let mut remove = None;
+        for key in self.secret_keys.clone() {
+            egui::Frame::new()
+                .fill(ROW)
+                .stroke(Stroke::new(1.0, BORDER))
+                .corner_radius(9.0)
+                .inner_margin(egui::Margin::symmetric(11, 8))
+                .show(ui, |ui| {
+                    ui.set_width(content_width - 22.0);
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&key).size(11.5).strong().color(TEXT),
+                            )
+                            .truncate(),
+                        )
+                        .on_hover_text(&key);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("删除").clicked() {
+                                remove = Some(key.clone());
+                            }
+                            if ui.small_button("编辑").clicked() {
+                                self.secret_key = key.clone();
+                                self.secret_value.clear();
+                                self.secret_status.clear();
+                                self.secret_revealed = false;
+                                self.secret_dialog_open = true;
+                            }
+                        });
+                    });
+                });
+            ui.add_space(5.0);
+        }
+        if let (Some(key), Some(store)) = (remove, &self.secret_store) {
+            match store.delete(&key) {
+                Ok(()) => {
+                    self.secret_keys.retain(|entry| entry != &key);
+                    self.persist_secret_index();
+                    self.secret_status = "已删除".into();
+                    changed = true;
+                }
+                Err(error) => self.secret_status = error.to_string(),
+            }
+        }
+        if !self.secret_status.is_empty() && !self.secret_dialog_open {
+            ui.label(
+                egui::RichText::new(&self.secret_status)
+                    .size(10.5)
+                    .color(SECONDARY_TEXT),
+            );
+        }
+        changed
+    }
+
+    fn secret_editor(&mut self, ui: &mut egui::Ui, panel: Rect) -> bool {
+        let mut changed = false;
+        let dialog = Rect::from_center_size(
+            panel.center(),
+            egui::vec2(panel.width().min(410.0), panel.height().min(310.0)),
+        );
+        ui.painter().rect_filled(panel, 9.0, PANEL);
+        ui.painter().rect_filled(dialog, 12.0, PANEL);
+        ui.painter().rect_stroke(
+            dialog,
+            12.0,
+            Stroke::new(1.0, BORDER),
+            egui::StrokeKind::Inside,
+        );
+        let mut editor = child(ui, dialog.shrink(16.0), "secret-editor");
+        editor.visuals_mut().extreme_bg_color = ROW;
+        let ui = &mut editor;
+        {
+            let editing = self.secret_keys.contains(&self.secret_key);
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(if editing {
+                        "编辑 Secret"
+                    } else {
+                        "新增 Secret"
+                    })
+                    .size(17.0)
+                    .strong()
+                    .color(TEXT),
+                );
+                ui.add_space((ui.available_width() - 30.0).max(0.0));
+                if ui.add(egui::Button::new("×").fill(PANEL)).clicked() {
+                    self.secret_dialog_open = false;
+                }
+            });
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("名称").size(11.0).strong());
+            ui.add_sized(
+                [ui.available_width(), 28.0],
+                egui::TextEdit::singleline(&mut self.secret_key).hint_text("例如 OPENAI_API_KEY"),
+            );
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new("私密内容").size(11.0).strong());
+            ui.add_sized(
+                [ui.available_width(), 28.0],
+                egui::TextEdit::singleline(&mut self.secret_value)
+                    .password(!self.secret_revealed)
+                    .hint_text(if editing {
+                        "输入新内容以替换"
+                    } else {
+                        "输入密钥或令牌"
+                    }),
+            );
+            ui.add_space(3.0);
+            ui.checkbox(&mut self.secret_revealed, "显示内容");
+            if !self.secret_status.is_empty() {
+                ui.colored_label(ui.visuals().error_fg_color, &self.secret_status);
+            }
+            ui.add_space(12.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), 30.0),
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| {
+                    if ui
+                        .add(
+                            egui::Button::new("保存 Secret")
+                                .min_size(egui::vec2(100.0, 28.0))
+                                .fill(ACCENT_SELECTED),
+                        )
+                        .clicked()
+                    {
+                        match self.save_secret() {
+                            Ok(()) => {
+                                changed = true;
+                                self.secret_dialog_open = false;
+                            }
+                            Err(error) => self.secret_status = error,
+                        }
+                    }
+                    if ui.add(egui::Button::new("取消").fill(ROW)).clicked() {
+                        self.secret_dialog_open = false;
+                    }
+                },
+            );
+        }
+        changed
+    }
+
+    fn save_secret(&mut self) -> Result<(), String> {
+        let key = self.secret_key.trim().to_owned();
+        if key.is_empty() || self.secret_value.is_empty() {
+            return Err("名称和内容都要填写".into());
+        }
+        let store = self.secret_store.as_ref().ok_or("秘密存储不可用")?;
+        let backend = store
+            .set(&key, &self.secret_value)
+            .map_err(|error| error.to_string())?;
+        if !self.secret_keys.contains(&key) {
+            self.secret_keys.push(key.clone());
+        }
+        self.secret_keys.sort();
+        self.persist_secret_index();
+        self.secret_value.clear();
+        self.secret_status = match backend {
+            SecretBackend::Keyring => "已安全保存到系统 Keyring".into(),
+            SecretBackend::PlaintextFallback => "Keyring 不可用，已保存到权限受限的回退存储".into(),
+            SecretBackend::Unavailable => "秘密存储不可用".into(),
+        };
+        Ok(())
+    }
+
+    fn persist_secret_index(&self) {
+        if let Some(path) = &self.secret_index_path {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(value) = serde_json::to_vec(&self.secret_keys) {
+                let _ = std::fs::write(path, value);
             }
         }
     }

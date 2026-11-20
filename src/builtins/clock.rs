@@ -77,7 +77,7 @@ impl RuntimeExtension for ClockExtension {
             source_extension_id: ExtensionId::builtin(CLOCK_ID),
             content: ViewNode::compact(
                 ViewNode::svg(clock_svg(time.hour(), time.minute()), 18.0)
-                    .color(ColorSpec::SecondaryText),
+                    .color(ColorSpec::Warning),
                 super::compact_value(
                     format!(
                         "{:02}:{:02}{}{}",

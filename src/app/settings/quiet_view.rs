@@ -16,6 +16,22 @@ fn list_height(count: usize) -> f32 {
     ROW_HEIGHT + ROW_STEP * count.saturating_sub(1) as f32
 }
 
+pub(super) fn preferred_width(ctx: &egui::Context, quiet: &QuietHours) -> f32 {
+    let painter = ctx.debug_painter();
+    let widest = quiet
+        .periods()
+        .iter()
+        .map(|period| {
+            painter
+                .layout_no_wrap(period_label(*period), FontId::proportional(9.2), TEXT)
+                .size()
+                .x
+        })
+        .fold(0.0_f32, f32::max);
+    // Status dot, label inset, edit/delete actions, and the list's side insets.
+    (widest + 108.0).max(240.0)
+}
+
 pub(super) fn show(
     ui: &mut egui::Ui,
     body: Rect,

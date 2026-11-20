@@ -40,7 +40,7 @@ fn equalizer(playing: bool) -> ViewNode {
         32.0,
     )
     .sized(Size::Fixed(32.0), Size::Fixed(24.0))
-    .color(ColorSpec::Accent)
+    .color(ColorSpec::Violet)
 }
 
 pub(super) fn widget(
@@ -204,6 +204,7 @@ fn lyric_action(value: &str, action: &str) -> ViewNode {
         label: value.to_owned(),
         action: Action::Custom(action.into()),
         content: Box::new(label(value, 11.0, ColorSpec::Info)),
+        context_menu: None,
     })
 }
 
@@ -328,7 +329,7 @@ mod tests {
                 if name == if playing { "equalizer-playing" } else { "equalizer" }));
             assert_eq!(
                 compact.leading.style.normal.foreground,
-                Some(ColorSpec::Accent)
+                Some(ColorSpec::Violet)
             );
             assert!(matches!(&compact.content.kind, Node::Text { text, .. }
                 if text == &format!("♪{lyric}♪")));

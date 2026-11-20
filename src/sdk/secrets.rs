@@ -1,4 +1,5 @@
 use crate::{extension::ExtensionContext, sdk::storage::ExtensionStorage};
+#[cfg(not(target_os = "macos"))]
 use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -59,7 +60,7 @@ impl SecretStore {
     pub fn set(&self, key: &str, secret: &str) -> Result<SecretBackend, SecretsError> {
         validate_key(key)?;
         let mut state = self.0.lock().map_err(|_| SecretsError::Poisoned)?;
-        match entry(&state.service, key).and_then(|item| item.set_password(secret)) {
+        match platform_set(&state.service, key, secret) {
             Ok(()) => {
                 remove_fallback(&state.path, key)?;
                 state
@@ -67,7 +68,7 @@ impl SecretStore {
                     .insert(key.into(), SecretBackend::Keyring);
                 Ok(SecretBackend::Keyring)
             }
-            Err(error) if backend_unavailable(&error) => {
+            Err(PlatformError::Unavailable(_)) => {
                 let mut file = read_fallback(&state.path)?;
                 file.schema_version = 1;
                 file.entries.insert(key.into(), secret.into());
@@ -77,30 +78,30 @@ impl SecretStore {
                     .insert(key.into(), SecretBackend::PlaintextFallback);
                 Ok(SecretBackend::PlaintextFallback)
             }
-            Err(error) => Err(SecretsError::Keyring(error.to_string())),
+            Err(PlatformError::Other(message)) => Err(SecretsError::Keyring(message)),
         }
     }
 
     pub fn get(&self, key: &str) -> Result<Option<String>, SecretsError> {
         validate_key(key)?;
         let mut state = self.0.lock().map_err(|_| SecretsError::Poisoned)?;
-        match entry(&state.service, key).and_then(|item| item.get_password()) {
-            Ok(secret) => {
+        match platform_get(&state.service, key) {
+            Ok(Some(secret)) => {
                 state
                     .last_backend
                     .insert(key.into(), SecretBackend::Keyring);
-                // A successful keyring read supersedes an older plaintext copy.
+                // A successful keychain read supersedes an older plaintext copy.
                 remove_fallback(&state.path, key)?;
                 Ok(Some(secret))
             }
-            Err(KeyringError::NoEntry) => {
+            Ok(None) => {
                 if let Some(secret) = self.migrate_fallback(&mut state, key)? {
                     return Ok(Some(secret));
                 }
                 state.last_backend.remove(key);
                 Ok(None)
             }
-            Err(error) if backend_unavailable(&error) => {
+            Err(PlatformError::Unavailable(_)) => {
                 if let Some(secret) = self.read_fallback(&state, key)? {
                     state
                         .last_backend
@@ -113,7 +114,7 @@ impl SecretStore {
                     Ok(None)
                 }
             }
-            Err(error) => Err(SecretsError::Keyring(error.to_string())),
+            Err(PlatformError::Other(message)) => Err(SecretsError::Keyring(message)),
         }
     }
 
@@ -125,19 +126,19 @@ impl SecretStore {
         let Some(secret) = self.read_fallback(state, key)? else {
             return Ok(None);
         };
-        match entry(&state.service, key).and_then(|item| item.set_password(&secret)) {
+        match platform_set(&state.service, key, &secret) {
             Ok(()) => {
                 remove_fallback(&state.path, key)?;
                 state
                     .last_backend
                     .insert(key.into(), SecretBackend::Keyring);
             }
-            Err(error) if backend_unavailable(&error) => {
+            Err(PlatformError::Unavailable(_)) => {
                 state
                     .last_backend
                     .insert(key.into(), SecretBackend::PlaintextFallback);
             }
-            Err(error) => return Err(SecretsError::Keyring(error.to_string())),
+            Err(PlatformError::Other(message)) => return Err(SecretsError::Keyring(message)),
         }
         Ok(Some(secret))
     }
@@ -154,20 +155,22 @@ impl SecretStore {
         validate_key(key)?;
         let mut state = self.0.lock().map_err(|_| SecretsError::Poisoned)?;
         let had_fallback = read_fallback(&state.path)?.entries.contains_key(key);
-        match entry(&state.service, key).and_then(|item| item.delete_credential()) {
-            Ok(()) | Err(KeyringError::NoEntry) => {
+        match platform_delete(&state.service, key) {
+            Ok(()) => {
                 if had_fallback {
                     remove_fallback(&state.path, key)?;
                 }
                 state.last_backend.remove(key);
                 Ok(())
             }
-            Err(error) if backend_unavailable(&error) && had_fallback => {
+            Err(PlatformError::Unavailable(_)) if had_fallback => {
                 remove_fallback(&state.path, key)?;
                 state.last_backend.remove(key);
                 Ok(())
             }
-            Err(error) => Err(SecretsError::Keyring(error.to_string())),
+            Err(PlatformError::Unavailable(message)) | Err(PlatformError::Other(message)) => {
+                Err(SecretsError::Keyring(message))
+            }
         }
     }
 
@@ -180,19 +183,91 @@ impl SecretStore {
         if read_fallback(&state.path)?.entries.contains_key(key) {
             return Ok(Some(SecretBackend::PlaintextFallback));
         }
-        match entry(&state.service, key).and_then(|item| item.get_password()) {
-            Ok(_) => Ok(Some(SecretBackend::Keyring)),
-            Err(KeyringError::NoEntry) => Ok(None),
-            Err(error) if backend_unavailable(&error) => Ok(Some(SecretBackend::Unavailable)),
-            Err(error) => Err(SecretsError::Keyring(error.to_string())),
+        match platform_get(&state.service, key) {
+            Ok(Some(_)) => Ok(Some(SecretBackend::Keyring)),
+            Ok(None) => Ok(None),
+            Err(PlatformError::Unavailable(_)) => Ok(Some(SecretBackend::Unavailable)),
+            Err(PlatformError::Other(message)) => Err(SecretsError::Keyring(message)),
         }
     }
 }
 
-fn entry(service: &str, key: &str) -> Result<Entry, KeyringError> {
-    Entry::new(service, key)
+enum PlatformError {
+    #[allow(dead_code)]
+    Unavailable(String),
+    Other(String),
 }
 
+#[cfg(target_os = "macos")]
+const MAC_ITEM_NOT_FOUND: i32 = -25300;
+
+#[cfg(target_os = "macos")]
+fn platform_set(service: &str, key: &str, secret: &str) -> Result<(), PlatformError> {
+    security_framework::passwords::set_generic_password(service, key, secret.as_bytes())
+        .map_err(|error| PlatformError::Other(error.to_string()))
+}
+
+#[cfg(target_os = "macos")]
+fn platform_get(service: &str, key: &str) -> Result<Option<String>, PlatformError> {
+    match security_framework::passwords::get_generic_password(service, key) {
+        Ok(bytes) => String::from_utf8(bytes)
+            .map(Some)
+            .map_err(|_| PlatformError::Other("Secret 不是 UTF-8".into())),
+        Err(error) if error.code() == MAC_ITEM_NOT_FOUND => Ok(None),
+        Err(error) => Err(PlatformError::Other(error.to_string())),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn platform_delete(service: &str, key: &str) -> Result<(), PlatformError> {
+    match security_framework::passwords::delete_generic_password(service, key) {
+        Ok(()) => Ok(()),
+        Err(error) if error.code() == MAC_ITEM_NOT_FOUND => Ok(()),
+        Err(error) => Err(PlatformError::Other(error.to_string())),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn platform_set(service: &str, key: &str, secret: &str) -> Result<(), PlatformError> {
+    let entry =
+        Entry::new(service, key).map_err(|error| PlatformError::Other(error.to_string()))?;
+    match entry.set_password(secret) {
+        Ok(()) => Ok(()),
+        Err(error) if backend_unavailable(&error) => {
+            Err(PlatformError::Unavailable(error.to_string()))
+        }
+        Err(error) => Err(PlatformError::Other(error.to_string())),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn platform_get(service: &str, key: &str) -> Result<Option<String>, PlatformError> {
+    let entry =
+        Entry::new(service, key).map_err(|error| PlatformError::Other(error.to_string()))?;
+    match entry.get_password() {
+        Ok(secret) => Ok(Some(secret)),
+        Err(KeyringError::NoEntry) => Ok(None),
+        Err(error) if backend_unavailable(&error) => {
+            Err(PlatformError::Unavailable(error.to_string()))
+        }
+        Err(error) => Err(PlatformError::Other(error.to_string())),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn platform_delete(service: &str, key: &str) -> Result<(), PlatformError> {
+    let entry =
+        Entry::new(service, key).map_err(|error| PlatformError::Other(error.to_string()))?;
+    match entry.delete_credential() {
+        Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
+        Err(error) if backend_unavailable(&error) => {
+            Err(PlatformError::Unavailable(error.to_string()))
+        }
+        Err(error) => Err(PlatformError::Other(error.to_string())),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
 fn backend_unavailable(error: &KeyringError) -> bool {
     match error {
         KeyringError::NoStorageAccess(source) | KeyringError::PlatformFailure(source) => {
@@ -367,6 +442,7 @@ mod tests {
         let _ = SecretBackend::PlaintextFallback;
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn locked_or_denied_keyring_errors_do_not_fall_back() {
         assert!(!super::backend_unavailable(

@@ -189,10 +189,19 @@ pub struct TableRowMenu {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ContextMenuAction {
+    pub title: String,
+    pub label: String,
+    pub action: Action,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TableColumn {
     pub title: String,
     /// Relative share of the width available for cells.
     pub weight: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_align: Option<Align>,
 }
 
 impl TableColumn {
@@ -200,7 +209,13 @@ impl TableColumn {
         Self {
             title: title.into(),
             weight,
+            header_align: None,
         }
+    }
+
+    pub fn with_header_align(mut self, align: Align) -> Self {
+        self.header_align = Some(align);
+        self
     }
 }
 
@@ -230,6 +245,8 @@ pub enum ColorSpec {
     Warning,
     Danger,
     Info,
+    Cyan,
+    Violet,
     Transparent,
     Rgba {
         r: u8,
@@ -531,6 +548,8 @@ pub enum Node {
         action: Action,
         label: String,
         content: Box<ViewNode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context_menu: Option<ContextMenuAction>,
     },
 }
 

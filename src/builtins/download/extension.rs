@@ -155,7 +155,7 @@ impl RuntimeExtension for DownloadExtension {
         let color = if complete {
             ColorSpec::Success
         } else {
-            ColorSpec::Info
+            ColorSpec::Cyan
         };
         let size = download.total.filter(|total| *total > 0).map_or_else(
             || compact_size(download.received),

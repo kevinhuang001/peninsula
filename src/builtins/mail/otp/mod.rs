@@ -235,7 +235,7 @@ fn best_code(c: &Ctx) -> Option<(i32, String)> {
             .is_some_and(|kw_end| filler_only(&text[kw_end..start]));
         // Mixed tokens ("F7K2Q") must be presented as a code, not sit in prose
         // like product names ("MI325X", "RTX4090").
-        if !digits_only && !(colon || alone || emph || direct || start < c.subject_end) {
+        if !(digits_only || colon || alone || emph || direct || start < c.subject_end) {
             continue;
         }
         // A short number loosely near "code" ("code with 4821 examples") is weak evidence.

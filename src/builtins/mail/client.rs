@@ -10,6 +10,8 @@ use std::{
 
 const MESSAGE_WINDOW: usize = 80;
 const NEW_MESSAGE_BATCH: usize = 100;
+// Keep UID sets short for servers that truncate long FETCH commands.
+const UID_FETCH_BATCH: usize = 8;
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
 const MAX_OTP_SCAN_BYTES: usize = 20 * 1024 * 1024;
 
@@ -85,24 +87,27 @@ pub(super) fn fetch_mailbox(
         let mut messages = Vec::new();
         let mut message_sizes = HashMap::new();
         if !selected.is_empty() {
-            let uid_set = selected
-                .iter()
-                .map(u32::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            let fetched = session
-                .uid_fetch(
-                    uid_set,
-                    "UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER]",
-                )
-                .map_err(|error| format!("读取邮件标题失败：{error}"))?;
-            for item in fetched.iter() {
-                let (Some(uid), Some(header)) = (item.uid, item.header()) else {
-                    continue;
-                };
-                if let Some(message) = parse_headers(uid, header, item.flags()) {
-                    message_sizes.insert(uid, item.size.map(|size| size as usize));
-                    messages.push(message);
+            let selected_uids: Vec<_> = selected.into_iter().collect();
+            for chunk in selected_uids.chunks(UID_FETCH_BATCH) {
+                let uid_set = chunk
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let fetched = session
+                    .uid_fetch(
+                        uid_set,
+                        "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])",
+                    )
+                    .map_err(|error| format!("读取邮件标题失败：{error}"))?;
+                for item in fetched.iter() {
+                    let (Some(uid), Some(header)) = (item.uid, item.header()) else {
+                        continue;
+                    };
+                    if let Some(message) = parse_headers(uid, header, item.flags()) {
+                        message_sizes.insert(uid, item.size.map(|size| size as usize));
+                        messages.push(message);
+                    }
                 }
             }
         }
@@ -122,12 +127,15 @@ pub(super) fn fetch_mailbox(
             otp_uids.push(*uid);
         }
         if !otp_uids.is_empty() {
-            let uid_set = otp_uids
-                .iter()
-                .map(u32::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            if let Ok(fetched) = session.uid_fetch(uid_set, "UID BODY.PEEK[]") {
+            for chunk in otp_uids.chunks(UID_FETCH_BATCH) {
+                let uid_set = chunk
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let Ok(fetched) = session.uid_fetch(uid_set, "(UID BODY.PEEK[])") else {
+                    continue;
+                };
                 for item in fetched.iter() {
                     let (Some(uid), Some(raw)) = (item.uid, item.body()) else {
                         continue;
@@ -177,7 +185,7 @@ pub(super) fn open_message(
             .select("INBOX")
             .map_err(|error| format!("打开收件箱失败：{error}"))?;
         let fetched = session
-            .uid_fetch(uid.to_string(), "UID FLAGS INTERNALDATE BODY.PEEK[]")
+            .uid_fetch(uid.to_string(), "(UID FLAGS INTERNALDATE BODY.PEEK[])")
             .map_err(|error| format!("读取邮件正文失败：{error}"))?;
         let item = fetched
             .iter()

@@ -3,7 +3,7 @@ use crate::{
     extension::Action,
     ui::declarative::{
         Align, ColorSpec, Flow, FontSize, FontWeight, ImageFit, Node, Paint, Size, Style, Table,
-        TableColumn, TextStyle, ViewNode,
+        TableColumn, TableRowMenu, TextStyle, ViewNode,
     },
 };
 
@@ -22,12 +22,19 @@ pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
         },
     )
     .sized(Size::Fill(1.0), Size::Auto);
-    let count = ViewNode::new(Node::Badge(format!(
-        "{} 项自选",
-        market.watchlist.assets.len()
-    )))
-    .sized(Size::Auto, Size::Fixed(22.0))
-    .color(ColorSpec::Info);
+    let updated = ViewNode::text(
+        market
+            .last_updated
+            .as_ref()
+            .map(|time| format!("更新于 {time}"))
+            .unwrap_or_default(),
+        TextStyle {
+            font_size: FontSize::Small,
+            align: Align::End,
+            ..Default::default()
+        },
+    )
+    .color(ColorSpec::SecondaryText);
     let refresh = ViewNode::subtle_button(
         if market.refreshing {
             "更新中…"
@@ -41,7 +48,7 @@ pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
         vec![
             ViewNode::icon("chart", 17.0).color(ColorSpec::Info),
             title,
-            count,
+            updated,
             refresh,
         ],
         Flow {
@@ -51,25 +58,6 @@ pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
         },
     )
     .sized(Size::Fill(1.0), Size::Fixed(30.0));
-
-    let status_text = if market.refreshing {
-        "正在同步最新报价…".to_owned()
-    } else if let Some(time) = &market.last_updated {
-        format!("最新报价 · 更新于 {time} · 每 30 秒刷新")
-    } else {
-        "股票与加密资产 · 获取最新报价中".into()
-    };
-    let status = ViewNode::text(
-        status_text,
-        TextStyle {
-            font_size: FontSize::Small,
-            align: Align::Start,
-            wrap: false,
-            ..Default::default()
-        },
-    )
-    .color(ColorSpec::SecondaryText)
-    .sized(Size::Fill(1.0), Size::Fixed(18.0));
 
     let mut input = ViewNode::new(Node::TextInput {
         key: ADD_KEY.into(),
@@ -95,7 +83,7 @@ pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
     )
     .sized(Size::Fill(1.0), Size::Fixed(32.0));
 
-    let mut children = vec![heading, status, input_row];
+    let mut children = vec![heading, input_row];
     if let Some(error) = &market.error {
         children.push(
             ViewNode::text(
@@ -148,9 +136,8 @@ fn table(market: &MarketExtension) -> ViewNode {
                 Align::Start,
                 false,
             ),
-            cell("—", ColorSpec::MutedText, Align::End, true),
-            cell("—", ColorSpec::MutedText, Align::End, true),
-            cell("", ColorSpec::MutedText, Align::End, false),
+            cell("—", ColorSpec::MutedText, Align::Center, true),
+            cell("—", ColorSpec::MutedText, Align::Center, true),
         ]]
     } else {
         market
@@ -160,15 +147,30 @@ fn table(market: &MarketExtension) -> ViewNode {
             .map(|asset| quote_row(asset, market.quotes.get(&asset.cache_key())))
             .collect()
     };
+    let row_menus = market
+        .watchlist
+        .assets
+        .iter()
+        .map(|asset| {
+            Some(TableRowMenu {
+                title: asset.symbol.clone(),
+                label: "删除此自选".into(),
+                action: Action::Custom(format!(
+                    "{REMOVE_ACTION}{}:{}",
+                    asset.kind.key(),
+                    asset.symbol
+                )),
+            })
+        })
+        .collect();
     ViewNode::new(Node::Table(Table {
         columns: vec![
-            TableColumn::new("资产", 2.3),
-            TableColumn::new("最新价", 1.3),
-            TableColumn::new("24 小时", 0.9),
-            TableColumn::new("", 0.35),
+            TableColumn::new("资产", 2.3).with_header_align(Align::Start),
+            TableColumn::new("最新价", 1.3).with_header_align(Align::Center),
+            TableColumn::new("24 小时", 0.9).with_header_align(Align::Center),
         ],
         rows,
-        row_menus: Vec::new(),
+        row_menus,
     }))
     .sized(Size::Fill(1.0), Size::Auto)
     .styled(Style {
@@ -270,21 +272,10 @@ fn quote_row(asset: &Asset, quote: Option<&MarketQuote>) -> Vec<ViewNode> {
             ColorSpec::Danger
         }
     });
-    let remove = ViewNode::button(
-        "×",
-        Action::Custom(format!(
-            "{REMOVE_ACTION}{}:{}",
-            asset.kind.key(),
-            asset.symbol
-        )),
-    )
-    .sized(Size::Fixed(24.0), Size::Fixed(26.0))
-    .color(ColorSpec::SecondaryText);
     vec![
         identity,
-        cell(&price, ColorSpec::PrimaryText, Align::End, true),
-        cell(&change, change_color, Align::End, true),
-        remove,
+        cell(&price, ColorSpec::PrimaryText, Align::Center, true),
+        cell(&change, change_color, Align::Center, true),
     ]
 }
 
@@ -338,4 +329,70 @@ fn grouped_number(value: f64, precision: usize) -> String {
         grouped.push_str(fraction);
     }
     grouped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{app::icons::Icons, extension::ExtensionId, ui::renderer};
+    use eframe::egui::{self, pos2, vec2, Rect};
+
+    #[test]
+    fn market_header_is_compact_and_prices_are_centered_under_their_headers() {
+        let mut market = MarketExtension::new();
+        market.watchlist.assets.truncate(1);
+        market.last_updated = Some("09:14:48".into());
+        let asset = market.watchlist.assets[0].clone();
+        let mut quote = MarketQuote::loading(asset.clone());
+        quote.name = "Apple Inc.".into();
+        quote.price = Some(349.21);
+        quote.change_percent = Some(-0.92);
+        market.quotes.insert(asset.cache_key(), quote);
+        for width in [430.0, 780.0] {
+            let ctx = egui::Context::default();
+            let icons = Icons::load(&ctx);
+            let view = build(&market);
+            let output = ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    renderer::show_widget(
+                        ui,
+                        Rect::from_min_size(pos2(20.0, 20.0), vec2(width, 400.0)),
+                        &ExtensionId::builtin("builtin.market/overview"),
+                        &view,
+                        &icons,
+                        1.0,
+                    );
+                });
+            });
+            let text_bounds = |value: &str| {
+                output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text) if text.galley.job.text == value => {
+                            Some(text.galley.rect.translate(text.pos.to_vec2()))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("missing {value}"))
+            };
+            assert!(text_bounds("更新于 09:14:48").right() < text_bounds("刷新").left());
+            assert!((text_bounds("AAPL").left() - text_bounds("Apple Inc.").left()).abs() < 1.0);
+            assert!(text_bounds("AAPL").left() < text_bounds("资产").left() + 40.0);
+
+            assert!(
+                (text_bounds("最新价").center().x - text_bounds("$349.21").center().x).abs() < 1.0
+            );
+            assert!(
+                (text_bounds("24 小时").center().x - text_bounds("-0.92%").center().x).abs() < 1.0
+            );
+            assert!(!output.shapes.iter().any(|shape| match &shape.shape {
+                egui::Shape::Text(text) =>
+                    text.galley.job.text == "×"
+                        || text.galley.job.text.contains("项自选")
+                        || text.galley.job.text.contains("最新报价"),
+                _ => false,
+            }));
+        }
+    }
 }

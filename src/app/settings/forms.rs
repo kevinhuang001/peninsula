@@ -43,7 +43,19 @@ pub(super) fn row(
     label: &str,
     control: impl FnOnce(&mut egui::Ui) -> bool,
 ) -> bool {
-    let width = ui.available_width().max(1.0);
+    let width = if ui.is_sizing_pass() {
+        let label_width = ui
+            .painter()
+            .layout_no_wrap(label.into(), FontId::proportional(11.5), TEXT)
+            .size()
+            .x;
+        (label_width + CONTROL_WIDTH + 30.0)
+            .ceil()
+            .min(ui.available_width())
+    } else {
+        ui.available_width()
+    }
+    .max(1.0);
     let control_width = CONTROL_WIDTH.min(width * 0.47);
     let label_width = (width - control_width - 30.0).max(1.0);
     let galley = ui
@@ -125,34 +137,82 @@ pub(super) fn value(ui: &mut egui::Ui, label: &str, text: &str) {
 
 pub(super) fn doctor(ui: &mut egui::Ui, checks: &[crate::extension::DiagnosticCheck]) {
     if checks.is_empty() {
-        value(ui, "自检结果", "扩展没有报告检查项");
+        egui::Frame::new()
+            .fill(ROW)
+            .stroke(Stroke::new(1.0_f32, BORDER))
+            .corner_radius(9.0)
+            .inner_margin(egui::Margin::symmetric(12, 11))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("暂无检查项").size(11.5).color(TEXT));
+                ui.label(
+                    egui::RichText::new("此扩展尚未提供诊断结果")
+                        .size(10.5)
+                        .color(SECONDARY_TEXT),
+                );
+            });
         return;
     }
     for check in checks {
-        let (status, color) = match check.status {
-            crate::extension::DiagnosticStatus::Passed => ("正常", Color32::LIGHT_GREEN),
-            crate::extension::DiagnosticStatus::Warning => ("注意", Color32::YELLOW),
-            crate::extension::DiagnosticStatus::Failed => ("异常", Color32::LIGHT_RED),
-            crate::extension::DiagnosticStatus::Unknown => ("待检查", SECONDARY_TEXT),
+        let (symbol, status, color) = match check.status {
+            crate::extension::DiagnosticStatus::Passed => {
+                ("✓", "正常", Color32::from_rgb(105, 207, 161))
+            }
+            crate::extension::DiagnosticStatus::Warning => {
+                ("!", "注意", Color32::from_rgb(245, 188, 95))
+            }
+            crate::extension::DiagnosticStatus::Failed => {
+                ("×", "异常", Color32::from_rgb(245, 130, 132))
+            }
+            crate::extension::DiagnosticStatus::Unknown => ("·", "待检查", SECONDARY_TEXT),
         };
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(&check.title).size(11.0).color(TEXT));
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new(status).size(10.5).strong().color(color));
-        });
-        ui.label(
-            egui::RichText::new(&check.detail)
-                .size(10.5)
-                .color(SECONDARY_TEXT),
-        );
-        if let Some(remediation) = &check.remediation {
-            ui.label(
-                egui::RichText::new(format!("处理：{remediation}"))
-                    .size(10.5)
-                    .color(SECONDARY_TEXT),
-            );
-        }
-        ui.add_space(4.0);
+        egui::Frame::new()
+            .fill(ROW.lerp_to_gamma(color, 0.035))
+            .stroke(Stroke::new(1.0_f32, BORDER.lerp_to_gamma(color, 0.22)))
+            .corner_radius(9.0)
+            .inner_margin(egui::Margin::symmetric(11, 9))
+            .show(ui, |ui| {
+                let width = if ui.is_sizing_pass() {
+                    (ui.painter()
+                        .layout_no_wrap(check.title.clone(), FontId::proportional(11.5), TEXT)
+                        .size()
+                        .x
+                        + 90.0)
+                        .min(ui.available_width())
+                } else {
+                    ui.available_width()
+                };
+                ui.set_width(width);
+                ui.horizontal(|ui| {
+                    egui::Frame::new()
+                        .fill(color.gamma_multiply(0.16))
+                        .corner_radius(6.0)
+                        .inner_margin(egui::Margin::symmetric(7, 2))
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(symbol).size(12.0).strong().color(color));
+                        });
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(&check.title)
+                                .size(11.5)
+                                .strong()
+                                .color(TEXT),
+                        )
+                        .truncate(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(status).size(10.0).strong().color(color));
+                    });
+                });
+                if let Some(remediation) = &check.remediation {
+                    ui.add_space(5.0);
+                    ui.label(
+                        egui::RichText::new(format!("建议 · {remediation}"))
+                            .size(10.5)
+                            .color(color),
+                    );
+                }
+            });
+        ui.add_space(5.0);
     }
 }
 

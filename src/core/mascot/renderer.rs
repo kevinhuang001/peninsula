@@ -127,6 +127,7 @@ impl Mascot {
             action: Action::Advance,
             label: "切换吉祥物表情".into(),
             content: Box::new(sprite),
+            context_menu: None,
         })
         .sized(Size::Fill(1.0), Size::Fill(1.0));
         vec![CompactView {

@@ -2,8 +2,8 @@ use super::{Account, EmailMessage, MailExtension, NotificationTarget};
 use crate::{
     extension::Action,
     ui::declarative::{
-        Align, ColorSpec, Flow, FontSize, FontWeight, Node, Overflow, ScrollAxes, Size, Style,
-        TextStyle, ViewNode, WidgetBounds, WidgetView,
+        Align, ColorSpec, ContextMenuAction, Flow, FontSize, FontWeight, Node, ScrollAxes, Size,
+        Style, TextStyle, ViewNode, WidgetBounds, WidgetView,
     },
 };
 
@@ -13,6 +13,19 @@ fn text(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNode {
         TextStyle {
             font_size: FontSize::Custom(size),
             align: Align::Start,
+            ..Default::default()
+        },
+    )
+    .color(color)
+}
+
+fn wrapped_text(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNode {
+    ViewNode::text(
+        value,
+        TextStyle {
+            font_size: FontSize::Custom(size),
+            align: Align::Start,
+            wrap: true,
             ..Default::default()
         },
     )
@@ -95,9 +108,14 @@ fn account_row(mail: &MailExtension, account: &Account, unread: usize) -> ViewNo
     if unread > 0 {
         content.push(badge(unread));
     }
-    let mut row = ViewNode::new(Node::ActionArea {
+    let select = ViewNode::new(Node::ActionArea {
         action: Action::Select(account.id.clone()),
         label: account.email.clone(),
+        context_menu: Some(ContextMenuAction {
+            title: account.email.clone(),
+            label: "删除此邮箱账号".into(),
+            action: Action::Custom(format!("remove-account:{}", account.id)),
+        }),
         content: Box::new(ViewNode::row(
             content,
             Flow {
@@ -108,32 +126,35 @@ fn account_row(mail: &MailExtension, account: &Account, unread: usize) -> ViewNo
         )),
     })
     .sized(Size::Fill(1.0), Size::Fixed(34.0));
-    row.style.padding = [7.0, 8.0, 7.0, 8.0];
-    row.style.normal.background = Some(if selected {
+    let mut select = select;
+    select.style.padding = [7.0, 8.0, 7.0, 8.0];
+    select.style.normal.background = Some(if selected {
         ColorSpec::AccentSubtle
     } else {
         ColorSpec::Transparent
     });
-    row.style.hovered.background = Some(ColorSpec::AccentSubtle);
-    row.style.normal.corner_radius = Some(8.0);
-    row
+    select.style.hovered.background = Some(ColorSpec::AccentSubtle);
+    select.style.normal.corner_radius = Some(8.0);
+    select
 }
 
 fn sidebar(mail: &MailExtension) -> ViewNode {
-    let mut rows = Vec::new();
-    if mail.accounts.is_empty() {
-        rows.push(text("添加一个 IMAP 账号", 11.0, ColorSpec::SecondaryText));
+    let rows = if mail.accounts.is_empty() {
+        vec![text("添加一个 IMAP 账号", 11.0, ColorSpec::SecondaryText)]
     } else {
-        rows.extend(mail.accounts.iter().map(|account| {
-            account_row(
-                mail,
-                account,
-                mail.mailboxes
-                    .get(&account.id)
-                    .map_or(0, |mailbox| mailbox.unread_count),
-            )
-        }));
-    }
+        mail.accounts
+            .iter()
+            .map(|account| {
+                account_row(
+                    mail,
+                    account,
+                    mail.mailboxes
+                        .get(&account.id)
+                        .map_or(0, |mailbox| mailbox.unread_count),
+                )
+            })
+            .collect()
+    };
     let scroller = ViewNode::new(Node::Scroll(
         ScrollAxes::Vertical,
         Box::new(column(rows, 5.0)),
@@ -175,11 +196,21 @@ fn account_form(mail: &MailExtension) -> ViewNode {
         },
     )
     .sized(Size::Fill(1.0), Size::Auto);
-    card(column(
+    let mut dialog = column(
         vec![
-            text("添加邮箱账号", 14.0, ColorSpec::PrimaryText),
+            ViewNode::row(
+                vec![
+                    text("新增邮箱", 16.0, ColorSpec::PrimaryText).sized(Size::Fill(1.0), Size::Auto),
+                    button("×", "cancel"),
+                ],
+                Flow { align: Align::Center, ..Default::default() },
+            ).sized(Size::Fill(1.0), Size::Auto),
+            text("选择服务商并填写 IMAP 登录信息", 10.5, ColorSpec::SecondaryText),
+            text("邮箱服务商", 10.5, ColorSpec::SecondaryText),
             provider_row,
+            text("邮箱地址", 10.5, ColorSpec::SecondaryText),
             input("mail-email", &mail.email_draft, "name@example.com"),
+            text("IMAP 服务器与端口", 10.5, ColorSpec::SecondaryText),
             ViewNode::row(
                 vec![
                     input("mail-server", &mail.server_draft, "IMAP 服务器"),
@@ -191,6 +222,7 @@ fn account_form(mail: &MailExtension) -> ViewNode {
                 },
             )
             .sized(Size::Fill(1.0), Size::Auto),
+            text("应用专用密码", 10.5, ColorSpec::SecondaryText),
             password_input(&mail.password_draft),
             text(
                 "使用 IMAP SSL。多数服务商需要先开启 IMAP，并填写应用专用密码；密码保存在系统钥匙串。",
@@ -208,7 +240,34 @@ fn account_form(mail: &MailExtension) -> ViewNode {
             .sized(Size::Fill(1.0), Size::Auto),
         ],
         8.0,
+    ).sized(Size::Fixed(430.0), Size::Auto);
+    dialog.style.padding = [18.0; 4];
+    dialog.style.normal.background = Some(ColorSpec::SurfaceVariant);
+    dialog.style.normal.border_color = Some(ColorSpec::Border);
+    dialog.style.normal.border_width = Some(1.0);
+    dialog.style.normal.corner_radius = Some(12.0);
+    dialog
+}
+
+fn account_modal(base: ViewNode, mail: &MailExtension) -> ViewNode {
+    let mut backdrop = ViewNode::new(Node::ActionArea {
+        action: Action::Custom("cancel".into()),
+        label: "关闭新增邮箱弹窗".into(),
+        content: Box::new(ViewNode::new(Node::Spacer)),
+        context_menu: None,
+    })
+    .sized(Size::Fill(1.0), Size::Fill(1.0));
+    backdrop.style.normal.background = Some(ColorSpec::Rgba {
+        r: 10,
+        g: 13,
+        b: 20,
+        a: 190,
+    });
+    ViewNode::new(Node::Stack(
+        [Align::Center; 2],
+        vec![base, backdrop, account_form(mail)],
     ))
+    .sized(Size::Fill(1.0), Size::Fill(1.0))
 }
 
 fn message_row(message: &EmailMessage, account: &Account, pending: bool) -> ViewNode {
@@ -233,8 +292,8 @@ fn message_row(message: &EmailMessage, account: &Account, pending: bool) -> View
                 FontWeight::Bold
             },
             align: Align::Start,
-            max_lines: Some(1),
-            wrap: false,
+            max_lines: Some(2),
+            wrap: true,
             ..Default::default()
         },
     )
@@ -266,7 +325,6 @@ fn message_row(message: &EmailMessage, account: &Account, pending: bool) -> View
                     )
                     .sized(Size::Fill(1.0), Size::Auto),
                     subject,
-                    text(&account.email, 9.0, ColorSpec::MutedText),
                 ],
                 3.0,
             )
@@ -283,12 +341,12 @@ fn message_row(message: &EmailMessage, account: &Account, pending: bool) -> View
         action: Action::Custom(format!("open:{target}")),
         label: format!("{}：{}", message.from, message.subject),
         content: Box::new(content),
+        context_menu: None,
     })
-    .sized(Size::Fill(1.0), Size::Fixed(62.0));
+    .sized(Size::Fill(1.0), Size::Fixed(68.0));
     row.style.padding = [8.0, 9.0, 8.0, 9.0];
-    row.style.normal.background = Some(ColorSpec::Surface);
-    row.style.normal.border_color = Some(ColorSpec::Border);
-    row.style.normal.border_width = Some(1.0);
+    row.style.normal.background = Some(ColorSpec::Transparent);
+
     row.style.normal.corner_radius = Some(9.0);
     row.style.hovered.background = Some(ColorSpec::AccentSubtle);
     row.clip = true;
@@ -368,7 +426,7 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
     } else {
         "选择邮箱".into()
     };
-    let mut actions = vec![ViewNode::subtle_button(
+    let actions = vec![ViewNode::subtle_button(
         if mail.mailboxes.values().any(|mailbox| mailbox.pending) {
             "同步中…"
         } else {
@@ -377,10 +435,6 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
         Action::Advance,
     )
     .sized(Size::Auto, Size::Fixed(28.0))];
-    if mail.selected.is_some() {
-        actions.push(button("删除账号", "remove-account"));
-    }
-    actions.push(button("＋ 添加", "add"));
     let top = ViewNode::row(
         vec![
             ViewNode::icon("mail", 18.0)
@@ -424,15 +478,12 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
             .get(&account.id)
             .and_then(|box_| box_.error.as_ref())
         {
-            content.push(text(
+            content.push(wrapped_text(
                 format!("{}：{}", account.email, error),
                 10.0,
                 ColorSpec::Warning,
             ));
         }
-    }
-    if mail.adding {
-        content.push(account_form(mail));
     }
     if mail.opening.is_none() || !mail.adding {
         let list = ViewNode::new(Node::Scroll(
@@ -442,13 +493,20 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
         .sized(Size::Fill(1.0), Size::Fill(1.0));
         content.push(list);
     }
-    let main = column(vec![top, column(content, 7.0)], 8.0)
-        .sized(Size::Fill(1.0), Size::Fill(1.0))
-        .styled(Style {
-            padding: [8.0, 10.0, 8.0, 2.0],
-            ..Default::default()
-        });
-    let root = ViewNode::row(
+    let mut main = column(
+        vec![
+            top,
+            column(content, 7.0).sized(Size::Fill(1.0), Size::Fill(1.0)),
+        ],
+        8.0,
+    )
+    .sized(Size::Fill(1.0), Size::Fill(1.0))
+    .styled(Style {
+        padding: [8.0, 10.0, 8.0, 2.0],
+        ..Default::default()
+    });
+    main.clip = true;
+    let base = ViewNode::row(
         vec![sidebar(mail), main],
         Flow {
             gap: Some(10.0),
@@ -457,12 +515,17 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
         },
     )
     .sized(Size::Fill(1.0), Size::Fill(1.0));
+    let root = if mail.adding {
+        account_modal(base, mail)
+    } else {
+        base
+    };
     let mut view = WidgetView::new(root, [720.0, 450.0]);
     view.bounds = WidgetBounds {
         min: [500.0, 300.0],
         max: [Some(900.0), Some(720.0)],
         resizable: true,
-        overflow: Overflow::Scroll(ScrollAxes::Vertical),
+
         ..Default::default()
     };
     view

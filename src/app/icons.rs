@@ -1,9 +1,11 @@
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, TextureHandle, Vec2};
+use std::collections::HashMap;
 
 #[derive(Clone, Copy)]
 pub(crate) enum Icon {
     Pin,
     Dashboard,
+    Database,
     Music,
     MusicNote,
     Speaker,
@@ -38,6 +40,8 @@ pub(crate) struct Icons {
     arrow_up: TextureHandle,
     clock: TextureHandle,
     close: TextureHandle,
+    database: TextureHandle,
+    widget_icons: HashMap<&'static str, TextureHandle>,
 }
 
 impl Icons {
@@ -55,6 +59,10 @@ impl Icons {
             (
                 "compact/battery",
                 include_str!("../../assets/icons/compact/battery.svg"),
+            ),
+            (
+                "compact/bolt",
+                include_str!("../../assets/icons/compact/bolt.svg"),
             ),
             (
                 "compact/check",
@@ -126,6 +134,77 @@ impl Icons {
                 "lucide-close",
                 include_bytes!("../../assets/icons/lucide/x.svg"),
             ),
+            database: load(
+                context,
+                "lucide-database",
+                include_bytes!("../../assets/icons/lucide/database.svg"),
+            ),
+            widget_icons: [
+                (
+                    "notifications",
+                    "bell",
+                    include_bytes!("../../assets/icons/lucide/bell.svg").as_slice(),
+                ),
+                (
+                    "system-monitor",
+                    "cpu",
+                    include_bytes!("../../assets/icons/lucide/cpu.svg").as_slice(),
+                ),
+                (
+                    "pomodoro",
+                    "timer",
+                    include_bytes!("../../assets/icons/lucide/timer.svg").as_slice(),
+                ),
+                (
+                    "kuaidi",
+                    "package",
+                    include_bytes!("../../assets/icons/lucide/package.svg").as_slice(),
+                ),
+                (
+                    "weather",
+                    "cloud",
+                    include_bytes!("../../assets/icons/lucide/cloud.svg").as_slice(),
+                ),
+                (
+                    "health",
+                    "heart-pulse",
+                    include_bytes!("../../assets/icons/lucide/heart-pulse.svg").as_slice(),
+                ),
+                (
+                    "market",
+                    "chart-no-axes-combined",
+                    include_bytes!("../../assets/icons/lucide/chart-no-axes-combined.svg")
+                        .as_slice(),
+                ),
+                (
+                    "rss",
+                    "rss",
+                    include_bytes!("../../assets/icons/lucide/rss.svg").as_slice(),
+                ),
+                (
+                    "mail",
+                    "mail",
+                    include_bytes!("../../assets/icons/lucide/mail.svg").as_slice(),
+                ),
+                (
+                    "music",
+                    "audio-lines",
+                    include_bytes!("../../assets/icons/lucide/audio-lines.svg").as_slice(),
+                ),
+                (
+                    "download",
+                    "download",
+                    include_bytes!("../../assets/icons/lucide/download.svg").as_slice(),
+                ),
+                (
+                    "bilibili",
+                    "tv",
+                    include_bytes!("../../assets/icons/lucide/tv.svg").as_slice(),
+                ),
+            ]
+            .into_iter()
+            .map(|(key, name, svg)| (key, load(context, name, svg)))
+            .collect(),
         };
         for (name, texture) in [
             ("lucide/clock", &icons.clock),
@@ -209,6 +288,17 @@ impl Icons {
         }
         register_weather_icons(context);
         icons
+    }
+
+    pub fn paint_widget_icon(&self, painter: &Painter, name: &str, rect: Rect, tint: Color32) {
+        if let Some(texture) = self.widget_icons.get(name) {
+            painter.image(
+                texture.id(),
+                rect,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                tint,
+            );
+        }
     }
 
     pub fn paint(&self, painter: &Painter, icon: Icon, rect: Rect, color: Color32, opacity: f32) {
@@ -358,6 +448,7 @@ impl Icons {
             Icon::ArrowUp => &self.arrow_up,
             Icon::Clock => &self.clock,
             Icon::Close => &self.close,
+            Icon::Database => &self.database,
         };
         painter.image(
             texture.id(),
