@@ -74,6 +74,7 @@ cargo run
 - `scripts/setup-macos-signing.sh` 首次运行时在 `~/Library/Application Support/PeninsulaSigning/` 生成证书和私钥（权限 `0600`），导入登录钥匙串，并把证书加入当前用户的代码签名信任；这些文件不进入仓库。
 - 首次读取 Keychain 时点一次「始终允许」，之后用同一身份签名的更新会沿用该授权。自签名证书未加入系统根证书，其他用户或新机器首次仍需信任/打开。
 - 这是自签名证书，不受系统信任；`.app` 首次打开可能需要在 Finder 中右键「打开」。正式分发给其他人仍建议使用 Developer ID 签名和公证。
+- GitHub Actions 三平台发布、Secrets 配置和验签方法见 [docs/release-signing.md](docs/release-signing.md)。
 
 在 Windows 上构建安装包（需要 NSIS，`choco install nsis`）：
 

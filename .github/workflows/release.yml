@@ -1,0 +1,288 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-macos
+      - name: Resolve version and architecture
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "arch=$(uname -m)" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: cargo build --locked --release
+      - name: Import signing certificate
+        env:
+          SIGNING_P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
+          SIGNING_P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          P12="$RUNNER_TEMP/signing.p12"
+          printf '%s' "$SIGNING_P12_BASE64" | base64 -D > "$P12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$P12" -k "$KEYCHAIN" -P "$SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          EXISTING="$(security list-keychains -d user | tr -d '"')"
+          security list-keychains -d user -s "$KEYCHAIN" $EXISTING
+          security find-identity -p codesigning "$KEYCHAIN"
+      - name: Package and sign
+        env:
+          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          ARCH: ${{ steps.meta.outputs.arch }}
+        run: |
+          set -euo pipefail
+          IDENTITY="${SIGNING_IDENTITY:-Peninsula Local Signing}"
+          BUILD_VERSION="${VERSION%%-*}"
+          APP="Peninsula.app"
+          rm -rf "$APP" dist
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Licenses" dist
+          cp target/release/island-lab "$APP/Contents/MacOS/island-lab"
+          cp assets/icons/meteocons/LICENSE "$APP/Contents/Resources/Licenses/Meteocons.txt"
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>CFBundleExecutable</key><string>island-lab</string>
+          <key>CFBundleIdentifier</key><string>dev.peninsula.islandlab</string>
+          <key>CFBundleName</key><string>灵动岛</string>
+          <key>CFBundlePackageType</key><string>APPL</string>
+          <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+          <key>CFBundleVersion</key><string>${BUILD_VERSION}</string>
+          <key>LSMinimumSystemVersion</key><string>12.0</string>
+          <key>NSHighResolutionCapable</key><true/>
+          <key>NSAppTransportSecurity</key><dict>
+          <key>NSAllowsArbitraryLoadsInWebContent</key><true/>
+          </dict>
+          </dict></plist>
+          PLIST
+          codesign --force --sign "$IDENTITY" "$APP"
+          codesign --verify --strict "$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" \
+            "dist/Peninsula-$VERSION-macos-$ARCH.zip"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*
+          if-no-files-found: error
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/signing.p12"
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-windows
+      - name: Resolve version
+        id: meta
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $version = "${{ github.ref_name }}".TrimStart("v")
+          } else {
+            $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Build
+        run: cargo build --locked --release
+      - name: Sign executable
+        env:
+          SIGNING_P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
+          SIGNING_P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $p12 = Join-Path $env:RUNNER_TEMP "signing.p12"
+          [IO.File]::WriteAllBytes($p12, [Convert]::FromBase64String($env:SIGNING_P12_BASE64))
+          $kitRoots = @(
+            "${env:ProgramFiles(x86)}\Windows Kits\10\bin",
+            "${env:ProgramFiles}\Windows Kits\10\bin"
+          ) | Where-Object { Test-Path $_ }
+          $signtool = $kitRoots | ForEach-Object {
+            Get-ChildItem $_ -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue
+          } | Where-Object { $_.FullName -match '\\x64\\' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) {
+            $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
+          }
+          if (-not $signtool) { throw "signtool.exe not found" }
+          & $signtool sign /f $p12 /p $env:SIGNING_P12_PASSWORD /fd SHA256 target\release\island-lab.exe
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed on island-lab.exe" }
+          "SIGNTOOL=$signtool" >> $env:GITHUB_ENV
+          "SIGNING_P12=$p12" >> $env:GITHUB_ENV
+      - name: Package installer
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          SIGNING_P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          choco install nsis --yes --no-progress | Out-Null
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $makensis)) { $makensis = "$env:ProgramFiles\NSIS\makensis.exe" }
+          if (-not (Test-Path $makensis)) { throw "makensis.exe not found" }
+
+          $version = $env:VERSION
+          $quadParts = @($version.Split(".") | Select-Object -First 3)
+          while ($quadParts.Count -lt 4) { $quadParts += "0" }
+          $quad = $quadParts -join "."
+
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target\release\island-lab.exe dist\island-lab.exe
+          Copy-Item assets\icons\app.ico dist\app.ico
+          & $makensis "/DAPP_VERSION=$version" "/DAPP_VERSION_QUAD=$quad" `
+            "/DAPP_EXE_PATH=$PWD\dist\island-lab.exe" `
+            "/DICON_PATH=$PWD\assets\icons\app.ico" `
+            "/DOUT_DIR=$PWD\dist" scripts\installer.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
+
+          & $env:SIGNTOOL sign /f $env:SIGNING_P12 /p $env:SIGNING_P12_PASSWORD /fd SHA256 `
+            "dist\Peninsula-$version-windows-x64-setup.exe"
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed on installer" }
+
+          Compress-Archive -Path dist\island-lab.exe, dist\app.ico `
+            -DestinationPath "dist\Peninsula-$version-windows-x64-portable.zip" -Force
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*setup.exe
+            dist/*portable.zip
+          if-no-files-found: error
+      - name: Cleanup certificate
+        if: always()
+        run: |
+          if ($env:SIGNING_P12) {
+            Remove-Item -Force $env:SIGNING_P12 -ErrorAction SilentlyContinue
+          }
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux graphics libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxi-dev \
+            libxrandr-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-linux
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: cargo build --locked --release
+      - name: Package and sign
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          SIGNING_KEY_PEM_BASE64: ${{ secrets.SIGNING_KEY_PEM_BASE64 }}
+          SIGNING_CERT_PEM_BASE64: ${{ secrets.SIGNING_CERT_PEM_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          KEY="$RUNNER_TEMP/signing-key.pem"
+          CERT="$RUNNER_TEMP/signing-cert.pem"
+          PUB="$RUNNER_TEMP/signing-pub.pem"
+          trap 'rm -f "$KEY" "$CERT" "$PUB"' EXIT
+
+          printf '%s' "$SIGNING_KEY_PEM_BASE64" | base64 -d > "$KEY"
+          printf '%s' "$SIGNING_CERT_PEM_BASE64" | base64 -d > "$CERT"
+          openssl x509 -in "$CERT" -pubkey -noout > "$PUB"
+
+          mkdir -p package dist
+          cp target/release/island-lab package/
+          cp README.md THIRD_PARTY_NOTICES.md package/
+          tar -czf "dist/Peninsula-$VERSION-linux-x86_64.tar.gz" -C package .
+
+          openssl dgst -sha256 -sign "$KEY" \
+            -out "dist/Peninsula-$VERSION-linux-x86_64.tar.gz.sig" \
+            "dist/Peninsula-$VERSION-linux-x86_64.tar.gz"
+          openssl dgst -sha256 -verify "$PUB" \
+            -signature "dist/Peninsula-$VERSION-linux-x86_64.tar.gz.sig" \
+            "dist/Peninsula-$VERSION-linux-x86_64.tar.gz"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [macos, windows, linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Finish assets
+        env:
+          VERSION: ${{ github.ref_name }}
+          SIGNING_CERT_PEM_BASE64: ${{ secrets.SIGNING_CERT_PEM_BASE64 }}
+        run: |
+          set -euo pipefail
+          cd dist
+          printf '%s' "$SIGNING_CERT_PEM_BASE64" | base64 -d > Peninsula-Local-Signing.pem
+          openssl x509 -in Peninsula-Local-Signing.pem -outform der -out Peninsula-Local-Signing.cer
+          openssl x509 -in Peninsula-Local-Signing.pem -pubkey -noout > Peninsula-Local-Signing.pub.pem
+          version="${VERSION#v}"
+          openssl dgst -sha256 -verify Peninsula-Local-Signing.pub.pem \
+            -signature "Peninsula-$version-linux-x86_64.tar.gz.sig" \
+            "Peninsula-$version-linux-x86_64.tar.gz"
+          sha256sum * > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

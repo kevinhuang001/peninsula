@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main, codex/weather-integration]
-    tags: ["v*"]
 
 permissions:
   contents: write
@@ -93,13 +92,6 @@ jobs:
             dist/*setup.exe
             dist/*portable.zip
           if-no-files-found: error
-      - name: Attach to tag release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*setup.exe
-            dist/*portable.zip
       - name: sccache stats
         if: always()
         run: sccache --show-stats
