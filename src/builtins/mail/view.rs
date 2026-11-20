@@ -19,6 +19,19 @@ fn text(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNode {
     .color(color)
 }
 
+fn wrapped_text(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNode {
+    ViewNode::text(
+        value,
+        TextStyle {
+            font_size: FontSize::Custom(size),
+            align: Align::Start,
+            wrap: true,
+            ..Default::default()
+        },
+    )
+    .color(color)
+}
+
 fn column(children: Vec<ViewNode>, gap: f32) -> ViewNode {
     ViewNode::column(
         children,
@@ -424,7 +437,7 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
             .get(&account.id)
             .and_then(|box_| box_.error.as_ref())
         {
-            content.push(text(
+            content.push(wrapped_text(
                 format!("{}：{}", account.email, error),
                 10.0,
                 ColorSpec::Warning,
