@@ -118,13 +118,20 @@ impl IslandApp {
             extensions.widget_size(&active_widget, None, widget_limit(window_size), [None; 2])[1];
         let notifications =
             NotificationManager::open(extensions.data_dir().join("notifications.json"));
-        let datasources = DataSourceManager::open(&extensions.data_dir());
+        let mut datasources = DataSourceManager::open(extensions.data_dir());
+        if let Err(error) =
+            datasources.reconcile_alert_history(&notifications.datasource_alert_history())
+        {
+            eprintln!("Unable to reconcile data-source alert history: {error}");
+        }
         let compact_ids = datasources.compact_ids();
-        let mut datasource_preferences_changed = preferences.sync_data_source_items(&compact_ids);
+        let datasource_preferences_changed = preferences.sync_data_source_items(&compact_ids);
         for source in datasources.snapshots() {
             if let Ok(id) = ExtensionId::new(format!("datasource/{}/value", source.id)) {
-                datasource_preferences_changed |=
-                    preferences.set_compact_item_enabled(&id, source.compact);
+                if let Err(error) = datasources.set_compact(&source.id, preferences.is_enabled(&id))
+                {
+                    eprintln!("Unable to restore data-source Compact state: {error}");
+                }
             }
         }
         if datasource_preferences_changed {
@@ -433,10 +440,35 @@ impl eframe::App for IslandApp {
                 }
             }
         }
-        for notification in self.datasources.poll(now, &self.secret_store, context) {
-            if self.notifications.publish(notification) {
-                self.scheduler.on_event(Event::NotificationPublished);
-                context.request_repaint();
+        for pending_alert in self.datasources.poll(now, &self.secret_store, context) {
+            let notification_id = pending_alert.notification.id.clone();
+            if let Err(error) = self.datasources.prepare_alert(
+                &pending_alert.source_id,
+                &notification_id,
+                pending_alert.alerted_at_ms,
+            ) {
+                eprintln!("Unable to prepare data-source alert persistence: {error}");
+                continue;
+            }
+            match self.notifications.try_publish(pending_alert.notification) {
+                Ok(accepted) => {
+                    if let Err(error) = self.datasources.alert_accepted(
+                        &pending_alert.source_id,
+                        &notification_id,
+                        pending_alert.alerted_at_ms,
+                    ) {
+                        eprintln!("Unable to persist data-source alert time: {error}");
+                    }
+                    if accepted {
+                        self.scheduler.on_event(Event::NotificationPublished);
+                        context.request_repaint();
+                    }
+                }
+                Err(error) => {
+                    self.datasources
+                        .cancel_pending_alert(&pending_alert.source_id, &notification_id);
+                    eprintln!("Unable to accept data-source notification: {error}");
+                }
             }
         }
         let surface_limit = widget_limit((self.screen_size() * SCREEN_FRACTION).floor());

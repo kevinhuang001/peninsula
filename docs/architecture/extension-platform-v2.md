@@ -20,6 +20,16 @@ Only running owners receive updates, subscribed events, actions, Compact snapsho
 
 Execution supports EventDriven, Interval, WhenVisible and OnEnable. Clock uses a view refresh interval; Pomodoro uses monotonic deadlines. App wakes for running services, visible view refreshes, pending notifications, DND schedules, hover intent and shell/renderer animations. Removing the last source leaves no fixed 100ms repaint loop.
 
+## Declarative data sources
+
+`peninsula.datasource/v1` definitions declare request construction, ordinary user inputs, numeric extraction and an optional threshold rule. They do not declare refresh or repeat-notification intervals. Removed scheduling fields (`request.interval`, `alert.repeat_interval`, `alert.notify_on_initial`) are rejected; update the definition and reimport it.
+
+The imported source instance stores its own refresh interval and minimum alert interval in `data-sources/instances.json`. Defaults are five minutes and one hour; refresh accepts 30 seconds through 24 hours, and alert cooldown accepts one minute through 30 days. Compact visibility and ordering have one persisted owner: `CompactPreferences`; the data-source manager receives those values as runtime state.
+
+Successful fetches evaluate the current value against the threshold and `last_alert_ms`. The first matching value can alert immediately. A matching value can alert again when the configured cooldown has elapsed; a nonmatching result does not change the last-alert timestamp. That timestamp advances only after the notification has been durably accepted into notification history. On startup, notification history repairs a state-write interruption, while Do Not Disturb still controls popup presentation only.
+
+Data-source definitions, instance settings and values/alert state are stored separately. Invalid storage is preserved and reported by Doctor instead of being silently overwritten. Import-time icon checks fall back to the built-in glyph when an asset is invalid. Each source has one in-flight request, the global limit is four, requests have a 60-second maximum timeout, and disabling or replacing a source invalidates its old result.
+
 ## Mascot
 
 `core::mascot` owns the independent leading slot and its renderer. Its enabled state, size and Full/Reduced/Off motion settings live under Capsule, separately from ordinary Compact order.
@@ -54,7 +64,7 @@ Pomodoro preserves paused state on stop/restart, has schema-driven focus/break d
 
 ## Validation
 
-Unit and headless egui tests cover registry/schema validation, five-section navigation, generated settings controls while stopped, multiple same-kind contributions, idempotent lifecycle, rollback, scoped cancellation, disabled settings/restart behavior, Mascot priority/random rotation/expiry, notification persistence and DND, timer restoration, layout and existing browser/platform adapters.
+Unit and headless egui tests cover registry/schema validation, data-source scheduling and alert cooldown boundaries, notification acceptance and persistence, five-section navigation, generated settings controls while stopped, multiple same-kind contributions, idempotent lifecycle, rollback, scoped cancellation, disabled settings/restart behavior, Mascot priority/random rotation/expiry, DND, timer restoration, layout and existing browser/platform adapters.
 
 CI runs native tests and release builds on Linux, macOS and Windows. Formatting runs on every platform and strict all-target Clippy runs on Linux. Native OS integration and backend credentials remain dependent on their respective runners/machines.
 

@@ -10,6 +10,7 @@ pub struct NotificationRecord {
 pub struct NotificationStore {
     records: Vec<NotificationRecord>,
     path: Option<std::path::PathBuf>,
+    storage_error: Option<String>,
 }
 
 impl NotificationStore {
@@ -19,52 +20,74 @@ impl NotificationStore {
                 Ok(records) => Self {
                     records,
                     path: Some(path),
+                    storage_error: None,
                 },
                 Err(error) => {
                     eprintln!("Unable to read notifications; preserving file: {error}");
-                    Self::default()
+                    Self {
+                        records: vec![],
+                        path: Some(path),
+                        storage_error: Some(error.to_string()),
+                    }
                 }
             },
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Self {
                 records: vec![],
                 path: Some(path),
+                storage_error: None,
             },
             Err(error) => {
                 eprintln!("Unable to read notifications; preserving file: {error}");
-                Self::default()
+                Self {
+                    records: vec![],
+                    path: Some(path),
+                    storage_error: Some(error.to_string()),
+                }
             }
         }
     }
     fn save(&self) {
-        let Some(path) = &self.path else {
-            return;
-        };
-        let save = || -> std::io::Result<()> {
-            let parent = path
-                .parent()
-                .ok_or_else(|| std::io::Error::other("missing notification directory"))?;
-            std::fs::create_dir_all(parent)?;
-            let mut file = tempfile::NamedTempFile::new_in(parent)?;
-            serde_json::to_writer(&mut file, &self.records)?;
-            file.as_file().sync_all()?;
-            file.persist(path).map_err(|e| e.error)?;
-            Ok(())
-        };
-        if let Err(error) = save() {
+        if let Err(error) = self.save_result() {
             eprintln!("Unable to persist notifications: {error}");
         }
     }
-    pub fn insert(&mut self, notification: Notification) -> bool {
+    fn save_result(&self) -> Result<(), String> {
+        if let Some(error) = &self.storage_error {
+            return Err(format!(
+                "notification history is unreadable and was preserved: {error}"
+            ));
+        }
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let parent = path
+            .parent()
+            .ok_or_else(|| "missing notification directory".to_owned())?;
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        let mut file =
+            tempfile::NamedTempFile::new_in(parent).map_err(|error| error.to_string())?;
+        serde_json::to_writer(&mut file, &self.records).map_err(|error| error.to_string())?;
+        file.as_file()
+            .sync_all()
+            .map_err(|error| error.to_string())?;
+        file.persist(path)
+            .map_err(|error| error.error.to_string())?;
+        Ok(())
+    }
+    pub fn try_insert(&mut self, notification: Notification) -> Result<bool, String> {
         let key = notification.key();
         if self.get(&key).is_some() {
-            return false;
+            return Ok(false);
         }
         self.records.push(NotificationRecord {
             notification,
             status: NotificationStatus::Pending,
         });
-        self.save();
-        true
+        if let Err(error) = self.save_result() {
+            self.records.pop();
+            return Err(error);
+        }
+        Ok(true)
     }
 
     pub fn get(&self, key: &NotificationKey) -> Option<&NotificationRecord> {
@@ -91,6 +114,33 @@ impl NotificationStore {
             .iter()
             .filter(|record| record.status == NotificationStatus::Pending)
             .count()
+    }
+
+    pub fn datasource_alert_history(&self) -> std::collections::BTreeMap<String, u64> {
+        let mut history = std::collections::BTreeMap::new();
+        for record in &self.records {
+            let Some(id) = record
+                .notification
+                .source_id
+                .as_str()
+                .strip_prefix("datasource.")
+            else {
+                continue;
+            };
+            let Ok(timestamp) = record
+                .notification
+                .created_at
+                .duration_since(std::time::UNIX_EPOCH)
+            else {
+                continue;
+            };
+            let timestamp = timestamp.as_millis().min(u128::from(u64::MAX)) as u64;
+            history.insert(
+                format!("datasource.{id}:{}", record.notification.id),
+                timestamp,
+            );
+        }
+        history
     }
 
     pub fn acknowledge(&mut self, key: &NotificationKey) -> bool {

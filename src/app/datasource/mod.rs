@@ -8,7 +8,7 @@ use crate::{
 };
 use eframe::egui::{self, Align, Layout, Vec2};
 use serde_json::Value;
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, time::Duration};
 
 const VIEWPORT_ID: &str = "peninsula-datasources";
 const OPEN_REQUEST_ID: &str = "datasource-open-request";
@@ -30,6 +30,36 @@ pub struct DataSourceWindow {
     secret_drafts: HashMap<String, String>,
     secret_ref_drafts: HashMap<String, String>,
     secret_status: HashMap<String, Result<bool, String>>,
+    runtime_drafts: HashMap<String, (String, DurationUnit)>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum DurationUnit {
+    Seconds,
+    #[default]
+    Minutes,
+    Hours,
+    Days,
+}
+
+impl DurationUnit {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Seconds => "秒",
+            Self::Minutes => "分钟",
+            Self::Hours => "小时",
+            Self::Days => "天",
+        }
+    }
+
+    fn multiplier(self) -> u64 {
+        match self {
+            Self::Seconds => 1_000,
+            Self::Minutes => 60_000,
+            Self::Hours => 3_600_000,
+            Self::Days => 86_400_000,
+        }
+    }
 }
 
 impl DataSourceWindow {
@@ -116,6 +146,10 @@ impl DataSourceWindow {
             });
         });
         ui.separator();
+        if let Some(error) = manager.storage_error() {
+            ui.colored_label(ui.visuals().error_fg_color, format!("存储诊断：{error}"));
+            ui.add_space(6.0);
+        }
         ui.horizontal(|ui| {
             let height = ui.available_height();
             ui.allocate_ui_with_layout(
@@ -314,6 +348,8 @@ impl DataSourceWindow {
             .id_salt(("datasource-detail", &source.id))
             .auto_shrink([false; 2])
             .show(ui, |ui| {
+                self.runtime_settings(ui, source, manager);
+                ui.add_space(10.0);
                 self.inputs_form(ui, source, manager, secrets);
                 ui.add_space(10.0);
                 self.status_panel(ui, source, manager, secrets);
@@ -596,6 +632,138 @@ impl DataSourceWindow {
             });
     }
 
+    fn runtime_settings(
+        &mut self,
+        ui: &mut egui::Ui,
+        source: &SourceSnapshot,
+        manager: &mut DataSourceManager,
+    ) {
+        ui.heading("运行设置");
+        ui.label(
+            egui::RichText::new("仅影响 Peninsula 中此数据源实例，不会改写导入的定义文件。")
+                .small()
+                .weak(),
+        );
+        egui::Grid::new(("datasource-runtime-settings", &source.id))
+            .num_columns(if ui.available_width() < 680.0 { 1 } else { 2 })
+            .spacing([12.0, 8.0])
+            .show(ui, |ui| {
+                self.duration_setting(
+                    ui,
+                    source,
+                    manager,
+                    "refresh",
+                    "自动刷新间隔",
+                    source.refresh_interval_ms,
+                    Duration::from_secs(30),
+                    Duration::from_secs(24 * 60 * 60),
+                    true,
+                );
+                if ui.available_width() < 680.0 {
+                    ui.end_row();
+                }
+                if source.alert_enabled {
+                    self.duration_setting(
+                        ui,
+                        source,
+                        manager,
+                        "cooldown",
+                        "最短提醒间隔",
+                        source.min_alert_interval_ms,
+                        Duration::from_secs(60),
+                        Duration::from_secs(30 * 24 * 60 * 60),
+                        false,
+                    );
+                }
+                ui.end_row();
+            });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn duration_setting(
+        &mut self,
+        ui: &mut egui::Ui,
+        source: &SourceSnapshot,
+        manager: &mut DataSourceManager,
+        key: &str,
+        label: &str,
+        current_ms: u64,
+        min: Duration,
+        max: Duration,
+        refresh: bool,
+    ) {
+        let draft_key = format!("{}::{key}", source.id);
+        let draft = self
+            .runtime_drafts
+            .entry(draft_key.clone())
+            .or_insert_with(|| {
+                let (unit, value) = duration_parts(current_ms);
+                (value.to_string(), unit)
+            });
+        let mut save = false;
+        egui::Frame::group(ui.style())
+            .inner_margin(egui::Margin::same(10))
+            .show(ui, |ui| {
+                ui.set_min_width(280.0);
+                ui.label(egui::RichText::new(label).strong());
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [90.0, 28.0],
+                        egui::TextEdit::singleline(&mut draft.0)
+                            .desired_width(90.0)
+                            .hint_text("数值"),
+                    );
+                    egui::ComboBox::from_id_salt(("datasource-time-unit", &source.id, key))
+                        .selected_text(draft.1.label())
+                        .show_ui(ui, |ui| {
+                            for unit in [
+                                DurationUnit::Seconds,
+                                DurationUnit::Minutes,
+                                DurationUnit::Hours,
+                                DurationUnit::Days,
+                            ] {
+                                ui.selectable_value(&mut draft.1, unit, unit.label());
+                            }
+                        });
+                    save = ui.button("保存").clicked();
+                });
+                ui.label(
+                    egui::RichText::new(format!(
+                        "允许范围：{} – {}",
+                        display_duration(min),
+                        display_duration(max)
+                    ))
+                    .small()
+                    .weak(),
+                );
+            });
+        if save {
+            let draft_value = self
+                .runtime_drafts
+                .get(&draft_key)
+                .map(|(value, unit)| (value.trim().to_owned(), *unit));
+            match draft_value
+                .and_then(|(value, unit)| value.parse::<u64>().ok().map(|value| (value, unit)))
+            {
+                Some((value, unit)) => {
+                    let millis = value.saturating_mul(unit.multiplier());
+                    let interval = Duration::from_millis(millis);
+                    let result = if refresh {
+                        manager.set_refresh_interval(&source.id, interval)
+                    } else {
+                        manager.set_min_alert_interval(&source.id, interval)
+                    };
+                    let saved = result.is_ok();
+                    self.set_status(result);
+                    if saved {
+                        self.runtime_drafts.remove(&draft_key);
+                    }
+                }
+                None => self.status = "请输入有效的正整数时间间隔。".into(),
+            }
+        }
+    }
+
     fn status_panel(
         &mut self,
         ui: &mut egui::Ui,
@@ -604,11 +772,12 @@ impl DataSourceWindow {
         secrets: &SecretStore,
     ) {
         ui.heading("Doctor");
+        let now_ms = current_timestamp_ms();
         egui::Grid::new(("datasource-doctor", &source.id))
             .num_columns(2)
             .spacing([18.0, 5.0])
             .show(ui, |ui| {
-                doctor_row(ui, "Schema", "Passed");
+                doctor_row(ui, "Schema", "v1 · 已拒绝旧调度字段");
                 doctor_row(
                     ui,
                     "Icon",
@@ -661,32 +830,61 @@ impl DataSourceWindow {
                 doctor_row(ui, "HTTP", &http_status);
                 doctor_row(
                     ui,
-                    "JSON / Value",
+                    "Value",
                     if source.value.is_some() {
-                        "Passed"
+                        "提取与数值转换成功"
                     } else {
-                        "Unknown"
+                        "尚无有效结果"
                     },
                 );
-                doctor_row(
-                    ui,
-                    "Alert",
-                    if !source.alert_enabled {
-                        "No rule"
-                    } else if source.alerts {
-                        "Enabled"
-                    } else {
-                        "Disabled"
+                doctor_row(ui, "JSONPath", &source.value_path);
+                doctor_row(ui, "Alert", &source.alert_status);
+                let cooldown = source.last_alert_ms.map_or_else(
+                    || "此前没有已接受的提醒".to_owned(),
+                    |last| {
+                        let allowed_at = last.saturating_add(source.min_alert_interval_ms);
+                        let remaining = allowed_at.saturating_sub(now_ms);
+                        format!(
+                            "上次 {} · 最早下次 {}{}",
+                            timestamp_text(last),
+                            timestamp_text(allowed_at),
+                            if remaining > 0 {
+                                format!("（剩余 {}）", display_millis(remaining))
+                            } else {
+                                String::new()
+                            }
+                        )
                     },
                 );
+                doctor_row(ui, "Cooldown", &cooldown);
+                if source.last_alert_ms.is_some_and(|last| last > now_ms)
+                    || source.last_request_ms.is_some_and(|last| last > now_ms)
+                {
+                    doctor_row(ui, "Clock", "检测到时钟回拨，按保守策略延后提醒");
+                }
                 doctor_row(
                     ui,
-                    "Scheduler",
-                    if source.enabled && (source.compact || source.alerts) {
-                        "Running"
-                    } else {
-                        "Paused"
-                    },
+                    "Refresh",
+                    &format!(
+                        "{} · 下次检查 {} 后",
+                        display_millis(source.refresh_interval_ms),
+                        display_millis(source.next_refresh_in_ms)
+                    ),
+                );
+                let worker = if source.in_flight {
+                    "请求进行中".to_owned()
+                } else if !source.enabled {
+                    "数据源已停用".to_owned()
+                } else if let Some(error) = &source.last_error {
+                    classify_error(error)
+                } else {
+                    "等待计划执行".to_owned()
+                };
+                doctor_row(ui, "Worker", &worker);
+                doctor_row(
+                    ui,
+                    "Storage",
+                    source.storage_error.as_deref().unwrap_or("正常"),
                 );
             });
     }
@@ -808,6 +1006,11 @@ impl DataSourceWindow {
                                 if preferences.sync_data_source_items(&ids) {
                                     self.save_preferences(preferences);
                                 }
+                                let compact_id = compact_item_id(&candidate.id);
+                                let _ = manager.set_compact(
+                                    &candidate.id,
+                                    preferences.is_enabled(&compact_id),
+                                );
                                 self.selected = Some(candidate.id.clone());
                                 self.status = format!("已导入 {}。", candidate.name);
                                 self.candidate = None;
@@ -964,4 +1167,57 @@ fn timestamp_text(milliseconds: u64) -> String {
     time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(milliseconds) * 1_000_000)
         .map(|value| value.to_offset(time::UtcOffset::UTC).to_string())
         .unwrap_or_else(|_| milliseconds.to_string())
+}
+
+fn current_timestamp_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
+}
+
+fn duration_parts(milliseconds: u64) -> (DurationUnit, u64) {
+    for unit in [
+        DurationUnit::Days,
+        DurationUnit::Hours,
+        DurationUnit::Minutes,
+        DurationUnit::Seconds,
+    ] {
+        if milliseconds >= unit.multiplier() && milliseconds.is_multiple_of(unit.multiplier()) {
+            return (unit, milliseconds / unit.multiplier());
+        }
+    }
+    (DurationUnit::Seconds, milliseconds.div_ceil(1000))
+}
+
+fn display_duration(duration: Duration) -> String {
+    display_millis(duration.as_millis().min(u128::from(u64::MAX)) as u64)
+}
+
+fn display_millis(milliseconds: u64) -> String {
+    let (unit, value) = duration_parts(milliseconds);
+    format!("{value} {}", unit.label())
+}
+
+fn classify_error(error: &str) -> String {
+    if error.contains("缺少必填参数") || error.contains("请填写必填参数") {
+        format!("尚未配置完成：{error}")
+    } else if error.contains("Secret") {
+        format!("Secret 不可用：{error}")
+    } else if error.contains("授权") || error.contains("单独授权") {
+        format!("权限不足：{error}")
+    } else if error.contains("429") || error.contains("限流") {
+        format!("API 限流：{error}")
+    } else if error.contains("JSONPath") || error.contains("数值") {
+        format!("路径或类型转换失败：{error}")
+    } else if error.contains("JSON") || error.contains("响应") {
+        format!("响应解析失败：{error}")
+    } else if error.contains("超时") {
+        format!("请求超时：{error}")
+    } else if error.contains("HTTP 请求") || error.contains("解析请求目标") {
+        format!("网络失败：{error}")
+    } else {
+        format!("运行时错误：{error}")
+    }
 }

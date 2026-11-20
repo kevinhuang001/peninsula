@@ -86,8 +86,6 @@ pub struct RequestDefinition {
     pub body: Option<Value>,
     #[serde(default)]
     pub body_text: Option<String>,
-    #[serde(default = "default_interval")]
-    pub interval: String,
     #[serde(default = "default_timeout")]
     pub timeout_ms: u64,
 }
@@ -130,17 +128,10 @@ pub enum AlertOperator {
 pub struct AlertDefinition {
     pub operator: AlertOperator,
     pub threshold: Value,
-    #[serde(default)]
-    pub repeat_interval: Option<String>,
-    #[serde(default)]
-    pub notify_on_initial: bool,
     pub title: String,
     pub message: String,
 }
 
-fn default_interval() -> String {
-    "5m".into()
-}
 fn default_timeout() -> u64 {
     10_000
 }
@@ -251,10 +242,6 @@ impl Definition {
         if self.request.url[authority_start..authority_end].contains("${") {
             return Err("请求目标 Origin 不能使用占位符".into());
         }
-        let interval = duration_value(&self.request.interval, self)?;
-        if interval < MIN_REFRESH {
-            return Err("刷新间隔不能少于 30 秒".into());
-        }
         for (key, value) in &self.request.headers {
             if key.is_empty() || key.len() > 256 || value.len() > 16_384 {
                 return Err("HTTP Header 超出限制".into());
@@ -265,7 +252,6 @@ impl Definition {
             validate_placeholders(value, self, true, false)?;
         }
         validate_placeholders(&self.request.url, self, true, false)?;
-        validate_placeholders(&self.request.interval, self, false, false)?;
         if let Some(body) = &self.request.body {
             validate_json_placeholders(body, self)?;
         }
@@ -292,23 +278,6 @@ impl Definition {
                 || alert.message.chars().count() > 1000
             {
                 return Err("提醒标题或正文无效".into());
-            }
-            if let Some(interval) = &alert.repeat_interval {
-                if duration_value(interval, self)? < std::time::Duration::from_secs(300) {
-                    return Err("重复提醒间隔不能少于 5 分钟".into());
-                }
-                if let Some(name) = interval
-                    .strip_prefix("${input.")
-                    .and_then(|value| value.strip_suffix('}'))
-                {
-                    if self
-                        .inputs
-                        .get(name)
-                        .is_none_or(|input| input.kind != InputType::Duration)
-                    {
-                        return Err(format!("重复间隔参数 {name} 必须声明为 duration"));
-                    }
-                }
             }
             if let Some(value) = alert.threshold.as_f64() {
                 if !value.is_finite() {
@@ -357,7 +326,7 @@ fn validate_input_value(
     match definition.kind {
         InputType::String | InputType::Secret if !value.is_string() => return Err(invalid()),
         InputType::Number if !value.as_f64().is_some_and(f64::is_finite) => return Err(invalid()),
-        InputType::Integer if !value.as_i64().is_some() => return Err(invalid()),
+        InputType::Integer if value.as_i64().is_none() => return Err(invalid()),
         InputType::Boolean if !value.is_boolean() => return Err(invalid()),
         InputType::Enum
             if !value
@@ -367,9 +336,9 @@ fn validate_input_value(
             return Err(invalid());
         }
         InputType::Duration
-            if !value
+            if value
                 .as_str()
-                .is_some_and(|value| parse_duration(value).is_ok()) =>
+                .is_none_or(|value| parse_duration(value).is_err()) =>
         {
             return Err(invalid());
         }
@@ -482,28 +451,6 @@ fn replace_placeholders_for_check(value: &str) -> Result<String, String> {
     Ok(output)
 }
 
-pub fn duration_value(value: &str, definition: &Definition) -> Result<std::time::Duration, String> {
-    if let Some(name) = value
-        .strip_prefix("${input.")
-        .and_then(|value| value.strip_suffix('}'))
-    {
-        let input = definition
-            .inputs
-            .get(name)
-            .filter(|input| input.kind == InputType::Duration)
-            .ok_or_else(|| format!("刷新间隔参数 {name} 必须声明为 duration"))?;
-        if let Some(default) = &input.default {
-            return parse_duration(
-                default
-                    .as_str()
-                    .ok_or_else(|| format!("刷新间隔参数 {name} 的默认值无效"))?,
-            );
-        }
-        return Ok(std::time::Duration::from_secs(300));
-    }
-    parse_duration(value)
-}
-
 pub fn parse_duration(value: &str) -> Result<std::time::Duration, String> {
     let value = value.trim();
     let unit_start = value
@@ -522,4 +469,64 @@ pub fn parse_duration(value: &str) -> Result<std::time::Duration, String> {
         return Err("时间间隔超出限制".into());
     }
     Ok(std::time::Duration::from_millis(millis))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_duration, Definition, InputType};
+    use serde_json::Value;
+    use std::time::Duration;
+
+    fn sample() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../examples/datasources/shanghai-temperature.pds.json"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn current_sample_has_no_runtime_refresh_setting() {
+        let definition = Definition::parse(include_str!(
+            "../../../examples/datasources/shanghai-temperature.pds.json"
+        ))
+        .unwrap();
+        assert!(!serde_json::to_value(definition).unwrap()["request"]
+            .as_object()
+            .unwrap()
+            .contains_key("interval"));
+    }
+
+    #[test]
+    fn removed_request_interval_is_rejected() {
+        let mut document = sample();
+        document["request"]["interval"] = Value::String("10m".into());
+        assert!(Definition::parse(&document.to_string()).is_err());
+    }
+
+    #[test]
+    fn removed_alert_fields_are_rejected() {
+        for field in ["repeat_interval", "notify_on_initial"] {
+            let mut document = sample();
+            document["alert"][field] = if field == "notify_on_initial" {
+                Value::Bool(true)
+            } else {
+                Value::String("1h".into())
+            };
+            assert!(Definition::parse(&document.to_string()).is_err(), "{field}");
+        }
+    }
+
+    #[test]
+    fn ordinary_duration_inputs_still_parse_and_validate() {
+        let mut document = sample();
+        document["inputs"]["window"] = serde_json::json!({
+            "type": "duration",
+            "label": "统计窗口",
+            "default": "2m",
+            "required": true
+        });
+        let definition = Definition::parse(&document.to_string()).unwrap();
+        assert_eq!(definition.inputs["window"].kind, InputType::Duration);
+        assert_eq!(parse_duration("2m").unwrap(), Duration::from_secs(120));
+    }
 }

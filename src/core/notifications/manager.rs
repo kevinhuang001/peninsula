@@ -49,13 +49,26 @@ impl NotificationManager {
             .map(|(_, shown)| *shown + self.policy.alert_timeout)
     }
     pub fn publish(&mut self, notification: Notification) -> bool {
+        match self.try_publish(notification) {
+            Ok(accepted) => accepted,
+            Err(error) => {
+                eprintln!("Unable to accept notification: {error}");
+                false
+            }
+        }
+    }
+    pub fn try_publish(&mut self, notification: Notification) -> Result<bool, String> {
         let key = notification.key();
-        if !self.store.insert(notification) {
-            return false;
+        if !self.store.try_insert(notification)? {
+            return Ok(false);
         }
         self.revision = self.revision.wrapping_add(1);
         self.alert_queue.push_back(key);
-        true
+        Ok(true)
+    }
+
+    pub fn datasource_alert_history(&self) -> std::collections::BTreeMap<String, u64> {
+        self.store.datasource_alert_history()
     }
 
     pub fn update(&mut self, now: Instant, may_show: bool, quiet: bool) -> bool {
@@ -313,6 +326,16 @@ mod tests {
             Some("second")
         );
         assert_eq!(manager.pending_count(), 1);
+    }
+
+    #[test]
+    fn failed_persistence_does_not_accept_a_notification() {
+        let root = tempfile::tempdir().unwrap();
+        let blocked_parent = root.path().join("not-a-directory");
+        std::fs::write(&blocked_parent, b"x").unwrap();
+        let mut manager = NotificationManager::open(blocked_parent.join("notifications.json"));
+        assert!(manager.try_publish(item("not-saved")).is_err());
+        assert_eq!(manager.pending_count(), 0);
     }
 }
 

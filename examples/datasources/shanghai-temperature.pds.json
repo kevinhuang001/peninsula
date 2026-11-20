@@ -43,7 +43,6 @@
       "current": "temperature_2m",
       "timezone": "auto"
     },
-    "interval": "10m",
     "timeout_ms": 10000
   },
   "value": {
@@ -60,8 +59,6 @@
   "alert": {
     "operator": "gte",
     "threshold": "${input.alert_threshold}",
-    "repeat_interval": "1h",
-    "notify_on_initial": true,
     "title": "上海高温提醒",
     "message": "当前气温 ${value}，已达到设定阈值。"
   }
