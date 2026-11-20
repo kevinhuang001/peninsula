@@ -48,23 +48,10 @@ pub(super) fn load(executable: &Path) -> Option<RasterImage> {
             return None;
         }
         let result = (|| {
-            // Black/white compositing recovers alpha even for legacy mask icons.
-            let black = render(info.hIcon, 0)?;
-            let white = render(info.hIcon, 255)?;
-            let rgba = black
+            let bgra = render(info.hIcon)?;
+            let rgba = bgra
                 .chunks_exact(4)
-                .zip(white.chunks_exact(4))
-                .flat_map(|(b, w)| {
-                    let alpha = 255 - (0..3).map(|i| w[i].saturating_sub(b[i])).max().unwrap_or(0);
-                    let channel = |i: usize| {
-                        if alpha == 0 {
-                            0
-                        } else {
-                            (u32::from(b[i]) * 255 / u32::from(alpha)).min(255) as u8
-                        }
-                    };
-                    [channel(2), channel(1), channel(0), alpha]
-                })
+                .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
                 .collect();
             Some(RasterImage {
                 size: [32, 32],
@@ -76,7 +63,7 @@ pub(super) fn load(executable: &Path) -> Option<RasterImage> {
     }
 }
 
-unsafe fn render(icon: HICON, background: u8) -> Option<Vec<u8>> {
+unsafe fn render(icon: HICON) -> Option<Vec<u8>> {
     let dc = CreateCompatibleDC(HDC::default());
     if dc.0.is_null() {
         return None;
@@ -104,7 +91,7 @@ unsafe fn render(icon: HICON, background: u8) -> Option<Vec<u8>> {
     };
     let previous = SelectObject(dc, bitmap);
     let pixels = std::slice::from_raw_parts_mut(bits.cast::<u8>(), 32 * 32 * 4);
-    pixels.fill(background);
+    pixels.fill(0);
     let drawn = DrawIconEx(dc, 0, 0, icon, 32, 32, 0, HBRUSH::default(), DI_NORMAL).is_ok();
     let _ = GdiFlush();
     let result = drawn.then(|| pixels.to_vec());
