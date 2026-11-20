@@ -1100,7 +1100,7 @@ impl eframe::App for IslandApp {
 
 impl IslandApp {
     fn show_unlock_capsule(&mut self, context: &egui::Context) {
-        let size = egui::vec2(320.0, 64.0);
+        let size = egui::vec2(290.0, 64.0);
         if !self.lock_window_sized {
             context.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
             self.window_size = size;
@@ -1112,7 +1112,7 @@ impl IslandApp {
                 ui.set_min_size(size);
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
-                    let width = 300.0;
+                    let width = 270.0;
                     let height = compact_layout::CAPSULE_HEIGHT;
                     let (rect, _) =
                         ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
@@ -1140,13 +1140,14 @@ impl IslandApp {
                         1.0,
                     );
                     let input_rect = egui::Rect::from_min_size(
-                        egui::pos2(rect.left() + 55.0, rect.top() + 9.0),
-                        egui::vec2(160.0, 26.0),
+                        egui::pos2(rect.left() + 54.0, rect.top() + 11.0),
+                        egui::vec2(130.0, 22.0),
                     );
                     let response = ui.put(
                         input_rect,
                         egui::TextEdit::singleline(&mut self.unlock_password)
                             .password(true)
+                            .font(egui::FontId::proportional(12.0))
                             .hint_text(if self.unlock_error {
                                 "密码错误，请重试"
                             } else {
@@ -1157,10 +1158,15 @@ impl IslandApp {
                         response.request_focus();
                     }
                     let confirm = egui::Rect::from_min_size(
-                        egui::pos2(rect.left() + 223.0, rect.top() + 9.0),
-                        egui::vec2(56.0, 26.0),
+                        egui::pos2(rect.left() + 192.0, rect.top() + 11.0),
+                        egui::vec2(44.0, 22.0),
                     );
-                    if ui.put(confirm, egui::Button::new("确认")).clicked()
+                    if ui
+                        .put(
+                            confirm,
+                            egui::Button::new(egui::RichText::new("确认").size(12.0)),
+                        )
+                        .clicked()
                         || (response.lost_focus()
                             && context.input(|input| input.key_pressed(egui::Key::Enter)))
                     {
@@ -1169,7 +1175,7 @@ impl IslandApp {
                                 self.unlock_password.clear();
                                 self.unlock_error = false;
                                 self.lock_window_sized = false;
-                                self.state.begin_unlock_transition(300.0);
+                                self.state.begin_unlock_transition(270.0);
                                 context.request_repaint();
                             }
                             Err(_) => {

@@ -33,9 +33,9 @@ pub(super) fn paint_header(
         .strip_prefix("[widget:")
         .and_then(|value| value.split_once("] "))
         .map_or((None, title), |(icon, title)| (Some(icon), title));
-    let button_size = Vec2::splat(24.0);
-    let dashboard_rect = header_button(rect, 105.0, button_size);
-    let datasource_rect = header_button(rect, 134.0, button_size);
+    let button_size = Vec2::splat(20.0);
+    let datasource_rect = header_button(rect, 104.0, button_size);
+    let dashboard_rect = header_button(rect, 82.0, button_size);
     let title_bounds = Rect::from_min_max(
         Pos2::new(rect.left() + 15.0, rect.top()),
         Pos2::new(datasource_rect.left() - 8.0, rect.top() + 46.0),
@@ -99,7 +99,7 @@ pub(super) fn paint_header(
     .clicked();
     let pin_toggled = header_control(
         ui,
-        header_button(rect, 76.0, button_size),
+        header_button(rect, 60.0, button_size),
         icons,
         Icon::Pin,
         pinned,
@@ -114,7 +114,7 @@ pub(super) fn paint_header(
     .clicked();
     let quiet_toggled = header_control(
         ui,
-        header_button(rect, 47.0, button_size),
+        header_button(rect, 38.0, button_size),
         icons,
         Icon::Moon,
         do_not_disturb,
@@ -129,7 +129,7 @@ pub(super) fn paint_header(
     .clicked();
     let settings = header_control(
         ui,
-        header_button(rect, 19.0, button_size),
+        header_button(rect, 16.0, button_size),
         icons,
         if settings_open {
             Icon::Close
@@ -175,7 +175,7 @@ fn header_control(
     } else {
         text
     };
-    icons.paint(ui.painter(), icon, rect.shrink(5.0), color, opacity);
+    icons.paint(ui.painter(), icon, rect.shrink(3.0), color, opacity);
     response
 }
 
