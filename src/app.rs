@@ -136,10 +136,11 @@ impl IslandApp {
         let datasource_preferences_changed = preferences.sync_data_source_items(&compact_ids);
         for source in datasources.snapshots() {
             if let Ok(id) = ExtensionId::new(format!("datasource/{}/value", source.id)) {
-                if let Err(error) = datasources.set_compact(&source.id, preferences.is_enabled(&id))
-                {
-                    eprintln!("Unable to restore data-source Compact state: {error}");
+                let enabled = preferences.is_enabled(&id);
+                if let Err(error) = datasources.set_enabled(&source.id, enabled) {
+                    eprintln!("Unable to restore data-source enabled state: {error}");
                 }
+                let _ = datasources.set_compact(&source.id, enabled);
             }
         }
         if datasource_preferences_changed {
@@ -451,9 +452,19 @@ impl eframe::App for IslandApp {
         self.datasources.register_icons(context);
         for source in self.datasources.snapshots() {
             if let Ok(id) = ExtensionId::new(format!("datasource/{}/value", source.id)) {
-                let compact = self.preferences.is_enabled(&id);
-                if compact != source.compact {
-                    if let Err(error) = self.datasources.set_compact(&source.id, compact) {
+                let enabled = self.preferences.is_enabled(&id);
+                if enabled != source.enabled {
+                    if let Err(error) = self.datasources.set_enabled(&source.id, enabled) {
+                        eprintln!("Unable to update data-source enabled state: {error}");
+                        self.preferences
+                            .set_compact_item_enabled(&id, source.enabled);
+                        if let Err(error) = self.preferences.save() {
+                            eprintln!("Unable to restore data-source preference: {error}");
+                        }
+                    }
+                }
+                if enabled != source.compact {
+                    if let Err(error) = self.datasources.set_compact(&source.id, enabled) {
                         eprintln!("Unable to update data-source Compact state: {error}");
                     }
                 }
@@ -522,6 +533,17 @@ impl eframe::App for IslandApp {
             for output in self.extensions.on_event(&event, now) {
                 self.apply_extension_output(output, context);
             }
+        }
+
+        let mut dynamic_items_changed = false;
+        for (owner, items) in self.extensions.dynamic_compact_items() {
+            dynamic_items_changed |= self.preferences.sync_dynamic_compact_items(&owner, &items);
+        }
+        if dynamic_items_changed {
+            if let Err(error) = self.preferences.save() {
+                eprintln!("Unable to save dynamic Compact items: {error}");
+            }
+            context.request_repaint();
         }
 
         self.preferences.refresh_status(&self.extensions);
@@ -1202,7 +1224,7 @@ impl IslandApp {
                         ui.painter().rect_stroke(
                             input_rect.expand(1.5),
                             6.0,
-                            egui::Stroke::new(2.5, egui::Color32::from_rgb(255, 55, 72)),
+                            egui::Stroke::new(2.5, egui::Color32::from_rgb(194, 103, 109)),
                             egui::StrokeKind::Inside,
                         );
                     }

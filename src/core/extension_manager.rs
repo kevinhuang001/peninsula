@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::{mpsc, Arc},
     time::{Duration, Instant},
@@ -677,21 +677,48 @@ impl ExtensionManager {
             .clone()
     }
 
+    pub fn dynamic_compact_items(&self) -> Vec<(ExtensionId, Vec<(ExtensionId, String)>)> {
+        self.extensions
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| self.states[*index] == LifecycleState::Running)
+            .filter_map(|(index, extension)| {
+                extension
+                    .dynamic_compact_items()
+                    .map(|items| (self.registry.extensions()[index].id.clone(), items))
+            })
+            .collect()
+    }
+
     pub fn compact_views(&mut self, now: Instant) -> Vec<Arc<crate::extension::CompactView>> {
         // Build only stale sources, then borrow the resulting snapshots for this frame.
         // The cache borrows cannot overlap insertion, so do this in two passes.
+        let registered_dynamic_ids: HashSet<_> = self
+            .dynamic_compact_items()
+            .into_iter()
+            .flat_map(|(_, items)| items.into_iter().map(|(id, _)| id))
+            .collect();
         for (index, extension) in self
             .extensions
             .iter()
             .enumerate()
             .filter(|(i, _)| self.states[*i] == LifecycleState::Running)
         {
+            let dynamic_ids: HashSet<_> = extension
+                .dynamic_compact_items()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
             self.compact_cache.get_or_build(index, now, || {
                 (
                     extension
                         .compact_views()
                         .into_iter()
-                        .filter(|view| self.owners.get(&view.id) == Some(&index))
+                        .filter(|view| {
+                            self.owners.get(&view.id) == Some(&index)
+                                || dynamic_ids.contains(&view.id)
+                        })
                         .map(Arc::new)
                         .collect(),
                     extension.compact_refresh_interval(),
@@ -708,6 +735,7 @@ impl ExtensionManager {
                 self.registry
                     .get(&view.id)
                     .is_some_and(|d| d.kind == ContributionKind::Compact)
+                    || registered_dynamic_ids.contains(&view.id)
             })
             .cloned()
             .collect()
