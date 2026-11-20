@@ -293,6 +293,9 @@ impl SettingsView {
         if self.section == Section::Secrets && self.secret_dialog_open {
             changed |= self.secret_editor(&mut surface, panels.form.shrink(PANEL_INSET));
         }
+        if self.section == Section::General && self.encryption_dialog.is_some() {
+            self.encryption_editor(&mut surface, panels.form.shrink(PANEL_INSET));
+        }
         changed
     }
 
@@ -411,111 +414,111 @@ impl SettingsView {
 
     fn general(&mut self, ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
         let Some(store) = self.secret_store.clone() else {
-            general(ui, prefs);
-            ui.add_space(8.0);
-            ui.label(egui::RichText::new("Secret 默认以明文保存在本地").color(SECONDARY_TEXT));
-            return false;
+            return general(ui, prefs);
         };
+        let mut changed = general_theme(ui, prefs);
         let encrypted = store.is_encrypted();
         let mut enabled = encrypted;
-        let mut changed = forms::boolean(ui, "加密保存 Secret", &mut enabled);
-        if changed {
+        if forms::boolean(ui, "加密保存 Secret", &mut enabled) {
             self.encryption_dialog = Some(enabled);
             self.encryption_password.clear();
             self.encryption_confirmation.clear();
             self.encryption_status.clear();
-            changed = false;
+        } else {
+            changed |= general_accent(ui, prefs);
         }
-        ui.add_space(5.0);
-        ui.label(
-            egui::RichText::new(if encrypted {
-                "Secret 文件已加密；每次启动都需要输入密码解锁。"
-            } else {
-                "Secret 默认以明文保存在本地；开启后会加密已有 Secret。"
-            })
-            .color(SECONDARY_TEXT),
-        );
-        if !self.encryption_status.is_empty() {
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new(&self.encryption_status).color(SECONDARY_TEXT));
-        }
+        changed
+    }
 
-        if let Some(enable) = self.encryption_dialog {
-            let title = if enable {
+    fn encryption_editor(&mut self, ui: &mut egui::Ui, panel: Rect) {
+        let Some(enable) = self.encryption_dialog else {
+            return;
+        };
+        let Some(store) = self.secret_store.clone() else {
+            return;
+        };
+        let card = Rect::from_center_size(
+            panel.center(),
+            egui::vec2(panel.width().min(360.0), panel.height().min(190.0)),
+        );
+        let _ = ui.interact(
+            panel,
+            egui::Id::new("encryption-overlay-blocker"),
+            Sense::click(),
+        );
+        ui.painter().rect_filled(panel, 9.0, PANEL);
+        ui.painter().rect_filled(card, 12.0, ROW);
+        ui.painter().rect_stroke(
+            card,
+            12.0,
+            Stroke::new(1.0, BORDER),
+            egui::StrokeKind::Inside,
+        );
+        let mut editor = child(ui, card.shrink(14.0), "secret-encryption-editor");
+        editor.visuals_mut().extreme_bg_color = ROW;
+        editor.label(
+            egui::RichText::new(if enable {
                 "设置加密密码"
             } else {
                 "关闭 Secret 加密"
-            };
-            egui::Window::new(title)
-                .id(egui::Id::new("secret-encryption-dialog"))
-                .collapsible(false)
-                .resizable(false)
-                .anchor(Align2::CENTER_CENTER, egui::Vec2::ZERO)
-                .show(ui.ctx(), |ui| {
-                    ui.set_min_width(250.0);
-                    if enable {
-                        ui.label("设置密码后，已有 Secret 会立即加密。");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.encryption_password)
-                                .password(true)
-                                .hint_text("密码"),
-                        );
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.encryption_confirmation)
-                                .password(true)
-                                .hint_text("再次输入密码"),
-                        );
-                    } else {
-                        ui.label("输入当前密码以解密 Secret 并恢复明文存储。");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.encryption_password)
-                                .password(true)
-                                .hint_text("当前密码"),
-                        );
-                    }
-                    if !self.encryption_status.is_empty() {
-                        ui.colored_label(ui.visuals().error_fg_color, &self.encryption_status);
-                    }
-                    ui.horizontal(|ui| {
-                        if ui.button(if enable { "加密" } else { "解密" }).clicked() {
-                            let result = if enable {
-                                if self.encryption_password != self.encryption_confirmation {
-                                    Err("两次输入的密码不一致".to_owned())
-                                } else {
-                                    store
-                                        .enable_encryption(&self.encryption_password)
-                                        .map_err(|e| e.to_string())
-                                }
-                            } else {
-                                store
-                                    .disable_encryption(&self.encryption_password)
-                                    .map_err(|e| e.to_string())
-                            };
-                            match result {
-                                Ok(()) => {
-                                    self.encryption_dialog = None;
-                                    self.encryption_status = if enable {
-                                        "Secret 已加密"
-                                    } else {
-                                        "已恢复明文存储"
-                                    }
-                                    .into();
-                                    self.encryption_password.clear();
-                                    self.encryption_confirmation.clear();
-                                }
-                                Err(error) => self.encryption_status = error,
-                            }
-                        }
-                        if ui.button("取消").clicked() {
-                            self.encryption_dialog = None;
-                            self.encryption_password.clear();
-                            self.encryption_confirmation.clear();
-                            self.encryption_status.clear();
-                        }
-                    });
-                });
+            })
+            .size(15.0)
+            .strong()
+            .color(TEXT),
+        );
+        editor.add_space(8.0);
+        editor.add_sized(
+            [editor.available_width(), 28.0],
+            egui::TextEdit::singleline(&mut self.encryption_password)
+                .password(true)
+                .hint_text(if enable { "密码" } else { "当前密码" }),
+        );
+        if enable {
+            editor.add_space(7.0);
+            editor.add_sized(
+                [editor.available_width(), 28.0],
+                egui::TextEdit::singleline(&mut self.encryption_confirmation)
+                    .password(true)
+                    .hint_text("确认密码"),
+            );
         }
-        changed | general(ui, prefs)
+        if !self.encryption_status.is_empty() {
+            editor.add_space(4.0);
+            editor.colored_label(ui.visuals().error_fg_color, &self.encryption_status);
+        }
+        editor.add_space(9.0);
+        editor.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button(if enable { "确认" } else { "解密" }).clicked() {
+                let result = if enable {
+                    if self.encryption_password != self.encryption_confirmation {
+                        Err("两次输入的密码不一致".to_owned())
+                    } else {
+                        store
+                            .enable_encryption(&self.encryption_password)
+                            .map_err(|error| error.to_string())
+                    }
+                } else {
+                    store
+                        .disable_encryption(&self.encryption_password)
+                        .map_err(|error| error.to_string())
+                };
+                match result {
+                    Ok(()) => {
+                        self.encryption_dialog = None;
+                        self.encryption_password.clear();
+                        self.encryption_confirmation.clear();
+                        self.encryption_status.clear();
+                    }
+                    Err(error) => self.encryption_status = error,
+                }
+            }
+            if ui.button("取消").clicked() {
+                self.encryption_dialog = None;
+                self.encryption_password.clear();
+                self.encryption_confirmation.clear();
+                self.encryption_status.clear();
+            }
+        });
     }
 
     fn secret_editor(&mut self, ui: &mut egui::Ui, panel: Rect) -> bool {
@@ -870,7 +873,13 @@ impl SettingsView {
 }
 
 fn general(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
-    let mut changed = forms::row(ui, "主题", |ui| {
+    let mut changed = general_theme(ui, prefs);
+    changed |= general_accent(ui, prefs);
+    changed
+}
+
+fn general_theme(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
+    forms::row(ui, "主题", |ui| {
         let mut changed = false;
         egui::ComboBox::from_id_salt("global-theme")
             .width(ui.available_width())
@@ -883,8 +892,11 @@ fn general(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
                 }
             });
         changed
-    });
-    changed |= forms::row(ui, "强调色", |ui| {
+    })
+}
+
+fn general_accent(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
+    forms::row(ui, "强调色", |ui| {
         let mut changed = false;
         let colors = super::theme::ACCENT_PRESETS;
         let selected = colors
@@ -904,8 +916,7 @@ fn general(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
                 }
             });
         changed
-    });
-    changed
+    })
 }
 fn theme_label(theme: WidgetTheme) -> &'static str {
     match theme {
