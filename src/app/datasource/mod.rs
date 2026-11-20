@@ -46,7 +46,7 @@ fn panel(ui: &egui::Ui) -> egui::Frame {
     surface(ui).inner_margin(egui::Margin::symmetric(14, 12))
 }
 
-fn import_badge(ui: &mut egui::Ui) {
+fn import_badge(ui: &mut egui::Ui, icon: Option<&egui::TextureHandle>) {
     let color = accent(ui);
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(40.0), egui::Sense::hover());
     ui.painter().rect_filled(
@@ -54,13 +54,22 @@ fn import_badge(ui: &mut egui::Ui) {
         11.0,
         Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 38),
     );
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        "↓",
-        egui::FontId::proportional(20.0),
-        color,
-    );
+    if let Some(icon) = icon {
+        ui.painter().image(
+            icon.id(),
+            rect.shrink(2.0),
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
+            Color32::WHITE,
+        );
+    } else {
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "↓",
+            egui::FontId::proportional(20.0),
+            color,
+        );
+    }
 }
 
 fn method_pill(ui: &mut egui::Ui, method: &str) {
@@ -205,6 +214,7 @@ pub struct DataSourceWindow {
     open: bool,
     selected: Option<String>,
     candidate: Option<Definition>,
+    candidate_icon: Option<egui::TextureHandle>,
     allow_private_network: bool,
     status: String,
     /// `None` means the message is window-wide (import, storage, deletion). Messages tied to
@@ -398,7 +408,7 @@ impl DataSourceWindow {
                                 .on_hover_text("选择 .pds.json 文件")
                                 .clicked()
                             {
-                                self.pick_definition();
+                                self.pick_definition(ui.ctx(), manager);
                             }
                         },
                     );
@@ -922,7 +932,7 @@ impl DataSourceWindow {
             });
     }
 
-    fn pick_definition(&mut self) {
+    fn pick_definition(&mut self, context: &egui::Context, manager: &DataSourceManager) {
         let Some(path) = rfd::FileDialog::new()
             // Native dialogs generally match the final filename extension only. The import
             // handler below still checks the complete `.pds.json` suffix.
@@ -963,6 +973,7 @@ impl DataSourceWindow {
                 self.allow_private_network = false;
                 self.status.clear();
                 self.status_source = None;
+                self.candidate_icon = manager.preview_icon(context, &definition);
                 self.candidate = Some(definition);
             }
             Err(error) => {
@@ -995,7 +1006,7 @@ impl DataSourceWindow {
                 ui.spacing_mut().item_spacing.y = 8.0;
 
                 ui.horizontal(|ui| {
-                    import_badge(ui);
+                    import_badge(ui, self.candidate_icon.as_ref());
                     ui.add_space(2.0);
                     ui.vertical(|ui| {
                         ui.add(
@@ -1053,17 +1064,13 @@ impl DataSourceWindow {
                 ui.add_space(2.0);
                 panel(ui).show(ui, |ui| {
                     ui.set_width(card_width);
-                    ui.label(RichText::new("权限").size(10.0).weak());
-                    ui.add_space(3.0);
-                    ui.label(RichText::new("导入后只允许向上述 Origin 发起请求。").size(11.5));
-                    ui.add_space(6.0);
                     switch_row(
                         ui,
                         &mut self.allow_private_network,
                         "允许 HTTP / localhost / 私有网络目标",
                     );
                     ui.label(
-                        RichText::new("仅当接口不是 HTTPS 公网地址时开启")
+                        RichText::new("仅授权可信的数据源；私有网络访问请谨慎。")
                             .size(10.0)
                             .weak(),
                     );
@@ -1081,26 +1088,8 @@ impl DataSourceWindow {
                     });
                 }
 
-                ui.add_space(2.0);
-                panel(ui).show(ui, |ui| {
-                    ui.set_width(card_width);
-                    ui.label(RichText::new("参数中的 Secret").size(10.0).weak());
-                    ui.add_space(3.0);
-                    ui.label(
-                        RichText::new(
-                            "字符串参数可以填写明文，或在「秘密」页保存条目后填入 $名称$ 引用。",
-                        )
-                        .size(11.0),
-                    );
-                });
-
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("导入后可随时删除")
-                            .size(10.0)
-                            .color(ui.visuals().weak_text_color()),
-                    );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let primary =
                             egui::Button::new(RichText::new("授权并导入").color(Color32::WHITE))
@@ -1122,6 +1111,7 @@ impl DataSourceWindow {
                                     self.status.clear();
                                     self.status_source = None;
                                     self.candidate = None;
+                                    self.candidate_icon = None;
                                 }
                                 Err(error) => self.set_error(format!("导入失败：{error}")),
                             }
@@ -1131,12 +1121,14 @@ impl DataSourceWindow {
                             .clicked()
                         {
                             self.candidate = None;
+                            self.candidate_icon = None;
                         }
                     });
                 });
             });
         if !open {
             self.candidate = None;
+            self.candidate_icon = None;
         }
     }
 

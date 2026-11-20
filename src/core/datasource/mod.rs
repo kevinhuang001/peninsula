@@ -445,6 +445,20 @@ impl DataSourceManager {
         self.icon_textures.get(key.as_ref()?)
     }
 
+    pub fn preview_icon(
+        &self,
+        context: &egui::Context,
+        definition: &Definition,
+    ) -> Option<egui::TextureHandle> {
+        let icon = definition.icon.as_ref()?;
+        let key = format!(
+            "datasource-preview-icon/{}/{}",
+            definition.id,
+            icon_hash(Some(icon))
+        );
+        decode_icon(context, &key, icon).ok()
+    }
+
     pub fn import(
         &mut self,
         definition: Definition,

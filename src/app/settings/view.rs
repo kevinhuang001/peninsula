@@ -8,7 +8,11 @@ use super::{
 use crate::extension::{ContributionKind, ExtensionId};
 use crate::sdk::secrets::SecretStore;
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::HashMap,
+    sync::mpsc::{self, Receiver, TryRecvError},
+    time::{Duration, Instant},
+};
 
 const NAV_BACKGROUND: Color32 = Color32::from_rgb(23, 25, 30);
 const SIDEBAR_WIDTH: f32 = 104.0;
@@ -54,7 +58,9 @@ pub struct SettingsView {
     encryption_dialog: Option<bool>,
     encryption_password: String,
     encryption_confirmation: String,
-    encryption_status: String,
+    encryption_task: Option<Receiver<Result<(), String>>>,
+    encryption_in_progress: bool,
+    encryption_error_at: Option<Instant>,
 }
 
 #[derive(Clone, Copy)]
@@ -240,6 +246,7 @@ impl SettingsView {
         capsule: Rect,
         prefs: &mut CompactPreferences,
     ) -> bool {
+        self.poll_encryption();
         if capsule.width() < 180.0 || capsule.height() < 60.0 {
             return false;
         }
@@ -411,7 +418,7 @@ impl SettingsView {
             self.encryption_dialog = Some(enabled);
             self.encryption_password.clear();
             self.encryption_confirmation.clear();
-            self.encryption_status.clear();
+            self.encryption_error_at = None;
         } else {
             changed |= general_accent(ui, prefs);
         }
@@ -425,25 +432,62 @@ impl SettingsView {
         let Some(store) = self.secret_store.clone() else {
             return;
         };
-        let card = Rect::from_center_size(
+        let mut card = Rect::from_center_size(
             panel.center(),
             egui::vec2(panel.width().min(360.0), panel.height().min(190.0)),
         );
+        let error_progress = self.encryption_error_at.map(|start| {
+            (Instant::now().duration_since(start).as_secs_f32() / 0.45).clamp(0.0, 1.0)
+        });
+        if let Some(progress) = error_progress {
+            if progress >= 1.0 {
+                self.encryption_error_at = None;
+            } else {
+                let elapsed = Instant::now()
+                    .duration_since(self.encryption_error_at.unwrap())
+                    .as_secs_f32();
+                card = card.translate(egui::vec2(
+                    (1.0 - progress) * 7.0 * (elapsed * 48.0).sin(),
+                    0.0,
+                ));
+                ui.ctx().request_repaint_after(Duration::from_millis(16));
+            }
+        }
+        let error_active = error_progress.is_some_and(|progress| progress < 1.0);
         let _ = ui.interact(
             panel,
             egui::Id::new("encryption-overlay-blocker"),
             Sense::click(),
         );
         ui.painter().rect_filled(panel, 9.0, PANEL);
-        ui.painter().rect_filled(card, 12.0, ROW);
+        ui.painter().rect_filled(
+            card,
+            12.0,
+            if error_active {
+                Color32::from_rgb(75, 39, 45)
+            } else {
+                ROW
+            },
+        );
         ui.painter().rect_stroke(
             card,
             12.0,
-            Stroke::new(1.0, BORDER),
+            Stroke::new(
+                1.0,
+                if error_active {
+                    Color32::from_rgb(235, 88, 96)
+                } else {
+                    BORDER
+                },
+            ),
             egui::StrokeKind::Inside,
         );
         let mut editor = child(ui, card.shrink(14.0), "secret-encryption-editor");
-        editor.visuals_mut().extreme_bg_color = ROW;
+        editor.visuals_mut().extreme_bg_color = if error_active {
+            Color32::from_rgb(75, 39, 45)
+        } else {
+            ROW
+        };
         editor.label(
             egui::RichText::new(if enable {
                 "设置加密密码"
@@ -455,58 +499,85 @@ impl SettingsView {
             .color(TEXT),
         );
         editor.add_space(8.0);
-        editor.add_sized(
-            [editor.available_width(), 28.0],
-            egui::TextEdit::singleline(&mut self.encryption_password)
-                .password(true)
-                .hint_text(if enable { "密码" } else { "当前密码" }),
-        );
-        if enable {
-            editor.add_space(7.0);
+        if self.encryption_in_progress {
+            editor.horizontal(|ui| {
+                ui.add(egui::Spinner::new().size(16.0));
+                ui.label(if enable {
+                    "正在加密…"
+                } else {
+                    "正在解密…"
+                });
+            });
+            ui.ctx().request_repaint_after(Duration::from_millis(16));
+        } else {
             editor.add_sized(
                 [editor.available_width(), 28.0],
-                egui::TextEdit::singleline(&mut self.encryption_confirmation)
+                egui::TextEdit::singleline(&mut self.encryption_password)
                     .password(true)
-                    .hint_text("确认密码"),
+                    .hint_text(if enable { "密码" } else { "当前密码" }),
             );
-        }
-        if !self.encryption_status.is_empty() {
-            editor.add_space(4.0);
-            editor.colored_label(ui.visuals().error_fg_color, &self.encryption_status);
-        }
-        editor.add_space(9.0);
-        editor.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(if enable { "确认" } else { "解密" }).clicked() {
-                let result = if enable {
-                    if self.encryption_password != self.encryption_confirmation {
-                        Err("两次输入的密码不一致".to_owned())
-                    } else {
-                        store
-                            .enable_encryption(&self.encryption_password)
-                            .map_err(|error| error.to_string())
-                    }
-                } else {
-                    store
-                        .disable_encryption(&self.encryption_password)
-                        .map_err(|error| error.to_string())
-                };
-                match result {
-                    Ok(()) => {
-                        self.encryption_dialog = None;
-                        self.encryption_password.clear();
-                        self.encryption_confirmation.clear();
-                        self.encryption_status.clear();
-                    }
-                    Err(error) => self.encryption_status = error,
-                }
+            if enable {
+                editor.add_space(7.0);
+                editor.add_sized(
+                    [editor.available_width(), 28.0],
+                    egui::TextEdit::singleline(&mut self.encryption_confirmation)
+                        .password(true)
+                        .hint_text("确认密码"),
+                );
             }
-            if ui.button("取消").clicked() {
+            editor.add_space(9.0);
+            editor.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(if enable { "确认" } else { "解密" }).clicked() {
+                    if enable && self.encryption_password != self.encryption_confirmation {
+                        self.encryption_error_at = Some(Instant::now());
+                    } else {
+                        let password = self.encryption_password.clone();
+                        let store = store.clone();
+                        let (sender, receiver) = mpsc::channel();
+                        self.encryption_task = Some(receiver);
+                        self.encryption_in_progress = true;
+                        std::thread::spawn(move || {
+                            let result = if enable {
+                                store.enable_encryption(&password)
+                            } else {
+                                store.disable_encryption(&password)
+                            }
+                            .map_err(|error| error.to_string());
+                            let _ = sender.send(result);
+                        });
+                    }
+                }
+                if ui.button("取消").clicked() {
+                    self.encryption_dialog = None;
+                    self.encryption_password.clear();
+                    self.encryption_confirmation.clear();
+                    self.encryption_error_at = None;
+                }
+            });
+        }
+    }
+
+    fn poll_encryption(&mut self) {
+        let Some(receiver) = self.encryption_task.as_ref() else {
+            return;
+        };
+        let result = receiver.try_recv();
+        match result {
+            Ok(Ok(())) => {
+                self.encryption_task = None;
+                self.encryption_in_progress = false;
                 self.encryption_dialog = None;
                 self.encryption_password.clear();
                 self.encryption_confirmation.clear();
-                self.encryption_status.clear();
+                self.encryption_error_at = None;
             }
-        });
+            Ok(Err(_)) | Err(TryRecvError::Disconnected) => {
+                self.encryption_task = None;
+                self.encryption_in_progress = false;
+                self.encryption_error_at = Some(Instant::now());
+            }
+            Err(TryRecvError::Empty) => {}
+        }
     }
 
     fn secret_editor(&mut self, ui: &mut egui::Ui, panel: Rect) -> bool {
