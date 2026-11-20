@@ -42,6 +42,46 @@ fn accent(ui: &egui::Ui) -> Color32 {
     ui.visuals().hyperlink_color
 }
 
+fn panel(ui: &egui::Ui) -> egui::Frame {
+    surface(ui).inner_margin(egui::Margin::symmetric(14, 12))
+}
+
+fn import_badge(ui: &mut egui::Ui) {
+    let color = accent(ui);
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(40.0), egui::Sense::hover());
+    ui.painter().rect_filled(
+        rect,
+        11.0,
+        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 38),
+    );
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "↓",
+        egui::FontId::proportional(20.0),
+        color,
+    );
+}
+
+fn method_pill(ui: &mut egui::Ui, method: &str) {
+    let font = egui::FontId::monospace(10.0);
+    let text_width = ui
+        .painter()
+        .layout_no_wrap(method.to_owned(), font.clone(), Color32::WHITE)
+        .size()
+        .x;
+    let (rect, _) =
+        ui.allocate_exact_size(Vec2::new(text_width + 14.0, 18.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 5.0, accent(ui));
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        method,
+        font,
+        Color32::WHITE,
+    );
+}
+
 fn section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
     ui.label(RichText::new(title).size(16.0).strong());
     if !subtitle.is_empty() {
@@ -936,60 +976,143 @@ impl DataSourceWindow {
             return;
         };
         let origin = candidate.origin().unwrap_or_else(|_| "无效请求目标".into());
+        let dialog_width = 470.0;
+        let card_width = dialog_width - 28.0;
         let mut open = true;
-        egui::Window::new("授权并导入数据源")
+        egui::Window::new("导入数据源")
             .id(egui::Id::new("datasource-import"))
             .collapsible(false)
             .resizable(false)
             .open(&mut open)
+            .min_width(dialog_width)
             .show(context, |ui| {
-                ui.set_min_width(430.0);
-                ui.label(egui::RichText::new(&candidate.name).heading());
-                ui.label(format!("ID：{}", candidate.id));
-                ui.label(format!("请求目标：{}", origin));
-                ui.label(format!(
-                    "{} {}",
-                    method_text(candidate.request.method),
-                    candidate.request.url
-                ));
-                ui.add_space(8.0);
-                ui.label("导入即授予此数据源向上述 Origin 发起请求的权限。");
-                ui.label("字符串参数可填写明文，或在「秘密」页保存条目后填入 $名称$ 引用。");
-                switch(
-                    ui,
-                    &mut self.allow_private_network,
-                    "允许 HTTP 或 localhost / 私有网络请求目标",
-                );
-                if origin.starts_with("http://") {
-                    ui.colored_label(
-                        ui.visuals().warn_fg_color,
-                        "目标使用未加密的 HTTP；只有勾选后才会运行请求。 ",
-                    );
-                }
-                ui.add_space(12.0);
+                ui.set_min_width(dialog_width);
+                ui.spacing_mut().item_spacing.y = 8.0;
+
                 ui.horizontal(|ui| {
-                    if ui.button("取消").clicked() {
-                        self.candidate = None;
-                    }
-                    if ui.button("授权并导入").clicked() {
-                        match manager.import(candidate.clone(), self.allow_private_network) {
-                            Ok(_) => {
-                                let ids = manager.compact_ids();
-                                if preferences.sync_data_source_items(&ids) {
-                                    self.save_preferences(preferences);
+                    import_badge(ui);
+                    ui.add_space(2.0);
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(&candidate.name).size(19.0).strong());
+                        ui.add_space(1.0);
+                        ui.label(
+                            RichText::new(format!("ID  {}", candidate.id))
+                                .size(10.5)
+                                .color(ui.visuals().weak_text_color()),
+                        );
+                    });
+                });
+
+                ui.add_space(2.0);
+                panel(ui).show(ui, |ui| {
+                    ui.set_width(card_width);
+                    ui.label(RichText::new("请求目标").size(10.0).weak());
+                    ui.add_space(2.0);
+                    ui.label(
+                        RichText::new(&origin)
+                            .monospace()
+                            .size(12.0)
+                            .color(accent(ui)),
+                    );
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        method_pill(ui, method_text(candidate.request.method));
+                        ui.add_space(6.0);
+                        ui.label(RichText::new("请求地址").size(10.5).weak());
+                    });
+                    ui.add_space(3.0);
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(&candidate.request.url).monospace().size(11.0),
+                        )
+                        .wrap(),
+                    );
+                });
+
+                ui.add_space(2.0);
+                panel(ui).show(ui, |ui| {
+                    ui.set_width(card_width);
+                    ui.label(RichText::new("权限").size(10.0).weak());
+                    ui.add_space(3.0);
+                    ui.label(RichText::new("导入后只允许向上述 Origin 发起请求。").size(11.5));
+                    ui.add_space(6.0);
+                    switch_row(
+                        ui,
+                        &mut self.allow_private_network,
+                        "允许 HTTP / localhost / 私有网络目标",
+                    );
+                    ui.label(
+                        RichText::new("仅当接口不是 HTTPS 公网地址时开启")
+                            .size(10.0)
+                            .weak(),
+                    );
+                });
+
+                if origin.starts_with("http://") {
+                    ui.add_space(2.0);
+                    panel(ui).show(ui, |ui| {
+                        ui.set_width(card_width);
+                        ui.colored_label(
+                            ui.visuals().warn_fg_color,
+                            RichText::new("目标使用未加密的 HTTP；开启上面的权限后才会运行请求。")
+                                .size(11.0),
+                        );
+                    });
+                }
+
+                ui.add_space(2.0);
+                panel(ui).show(ui, |ui| {
+                    ui.set_width(card_width);
+                    ui.label(RichText::new("参数中的 Secret").size(10.0).weak());
+                    ui.add_space(3.0);
+                    ui.label(
+                        RichText::new(
+                            "字符串参数可以填写明文，或在「秘密」页保存条目后填入 $名称$ 引用。",
+                        )
+                        .size(11.0),
+                    );
+                });
+
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("导入后可随时删除")
+                            .size(10.0)
+                            .color(ui.visuals().weak_text_color()),
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let primary =
+                            egui::Button::new(RichText::new("授权并导入").color(Color32::WHITE))
+                                .min_size(Vec2::new(112.0, 32.0))
+                                .fill(Color32::from_rgb(28, 92, 154));
+                        if ui.add(primary).clicked() {
+                            match manager.import(candidate.clone(), self.allow_private_network) {
+                                Ok(_) => {
+                                    let ids = manager.compact_ids();
+                                    if preferences.sync_data_source_items(&ids) {
+                                        self.save_preferences(preferences);
+                                    }
+                                    let compact_id = compact_item_id(&candidate.id);
+                                    let _ = manager.set_compact(
+                                        &candidate.id,
+                                        preferences.is_enabled(&compact_id),
+                                    );
+                                    self.selected = Some(candidate.id.clone());
+                                    self.set_message(format!("已导入 {}。", candidate.name));
+                                    self.candidate = None;
                                 }
-                                let compact_id = compact_item_id(&candidate.id);
-                                let _ = manager.set_compact(
-                                    &candidate.id,
-                                    preferences.is_enabled(&compact_id),
-                                );
-                                self.selected = Some(candidate.id.clone());
-                                self.set_message(format!("已导入 {}。", candidate.name));
-                                self.candidate = None;
+                                Err(error) => self.set_message(format!("导入失败：{error}")),
                             }
-                            Err(error) => self.set_message(format!("导入失败：{error}")),
                         }
-                    }
+                        if ui
+                            .add(egui::Button::new("取消").min_size(Vec2::new(76.0, 32.0)))
+                            .clicked()
+                        {
+                            self.candidate = None;
+                        }
+                    });
                 });
             });
         if !open {
