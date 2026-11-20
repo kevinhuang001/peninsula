@@ -43,7 +43,19 @@ pub(super) fn row(
     label: &str,
     control: impl FnOnce(&mut egui::Ui) -> bool,
 ) -> bool {
-    let width = ui.available_width().max(1.0);
+    let width = if ui.is_sizing_pass() {
+        let label_width = ui
+            .painter()
+            .layout_no_wrap(label.into(), FontId::proportional(11.5), TEXT)
+            .size()
+            .x;
+        (label_width + CONTROL_WIDTH + 30.0)
+            .ceil()
+            .min(ui.available_width())
+    } else {
+        ui.available_width()
+    }
+    .max(1.0);
     let control_width = CONTROL_WIDTH.min(width * 0.47);
     let label_width = (width - control_width - 30.0).max(1.0);
     let galley = ui
@@ -159,7 +171,17 @@ pub(super) fn doctor(ui: &mut egui::Ui, checks: &[crate::extension::DiagnosticCh
             .corner_radius(9.0)
             .inner_margin(egui::Margin::symmetric(11, 9))
             .show(ui, |ui| {
-                ui.set_width(ui.available_width());
+                let width = if ui.is_sizing_pass() {
+                    (ui.painter()
+                        .layout_no_wrap(check.title.clone(), FontId::proportional(11.5), TEXT)
+                        .size()
+                        .x
+                        + 90.0)
+                        .min(ui.available_width())
+                } else {
+                    ui.available_width()
+                };
+                ui.set_width(width);
                 ui.horizontal(|ui| {
                     egui::Frame::new()
                         .fill(color.gamma_multiply(0.16))

@@ -86,9 +86,63 @@ impl Panels {
 }
 
 impl SettingsView {
+    // A fixed canvas is used only by existing interaction fixtures.
+    #[cfg(test)]
     pub const WIDTH: f32 = 680.0;
+
+    pub fn width(&self, context: &egui::Context, prefs: &CompactPreferences) -> f32 {
+        let extra_column = matches!(self.section, Section::Extensions | Section::Capsule);
+        let chrome = 24.0
+            + SIDEBAR_WIDTH
+            + COLUMN_GAP
+            + 2.0 * PANEL_INSET
+            + if extra_column {
+                PLUGIN_WIDTH + COLUMN_GAP
+            } else {
+                0.0
+            };
+        let limit = context.screen_rect().width() * 0.75;
+        let available = (limit - chrome).max(1.0);
+        let content_width = if self.section == Section::QuietHours {
+            quiet_view::preferred_width(context, &prefs.quiet_hours).max(
+                if self.quiet_dialog.is_some() {
+                    300.0
+                } else {
+                    0.0
+                },
+            )
+        } else {
+            let mut measure = egui::Ui::new(
+                context.clone(),
+                egui::Id::new("settings-width-measure"),
+                egui::UiBuilder::new()
+                    .max_rect(Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(available, 10_000.0),
+                    ))
+                    .sizing_pass()
+                    .invisible(),
+            );
+            configure(&mut measure);
+            let mut preview = Self {
+                section: self.section,
+                selected: self
+                    .selected
+                    .clone()
+                    .or_else(|| prefs.pages.first().map(|p| p.descriptor.id.clone())),
+                capsule_section: self.capsule_section,
+                searches: self.searches.clone(),
+                ..Default::default()
+            };
+            preview.content(&mut measure, &mut prefs.clone());
+            measure.min_rect().width()
+        };
+        // Leave room for the shared title bar; larger forms follow their content.
+        (chrome + content_width).ceil().max(380.0).min(limit)
+    }
+
     pub fn extra_height(&self, context: &egui::Context, prefs: &CompactPreferences) -> f32 {
-        let width = Self::WIDTH.min(context.screen_rect().width() * 0.75);
+        let width = self.width(context, prefs);
         let panels = Panels::new(
             Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 10_000.0)),
             matches!(self.section, Section::Extensions | Section::Capsule),

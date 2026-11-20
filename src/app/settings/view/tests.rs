@@ -249,3 +249,42 @@ fn capsule_submenus_keep_configuration_in_the_third_column() {
     toggle_for(&output, "显示 Mascot");
     assert_eq!(view.capsule_section, CapsuleSection::Mascot);
 }
+
+#[test]
+fn settings_width_follows_the_selected_content_and_screen_limit() {
+    let ctx = egui::Context::default();
+    let prefs = CompactPreferences::default();
+    let _ = ctx.run(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+            ..Default::default()
+        },
+        |ctx| {
+            let general = SettingsView::default().width(ctx, &prefs);
+            let quiet = SettingsView {
+                section: Section::QuietHours,
+                ..Default::default()
+            }
+            .width(ctx, &prefs);
+            assert!(general < 680.0);
+            assert!(quiet < 680.0);
+            let id = ExtensionId::builtin("builtin.clock");
+            let view = SettingsView {
+                section: Section::Extensions,
+                selected: Some(id.clone()),
+                ..Default::default()
+            };
+            let normal = view.width(ctx, &prefs);
+            let mut longer = prefs.clone();
+            let page = longer
+                .pages
+                .iter_mut()
+                .find(|page| page.descriptor.id == id)
+                .unwrap();
+            page.descriptor.settings[0].description =
+                "A much longer setting description that requires more room for the control".into();
+            assert!(view.width(ctx, &longer) > normal);
+            assert!(view.width(ctx, &longer) <= ctx.screen_rect().width() * 0.75);
+        },
+    );
+}

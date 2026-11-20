@@ -87,7 +87,7 @@ impl RuntimeExtension for BatteryExtension {
             visibility: Default::default(),
             min_width: 64.0,
             preferred_width: 64.0,
-            fit_width: false,
+            fit_width: true,
             priority: 0,
             tooltip: Some(power_label(&self.snapshot).into()),
         }]
@@ -247,12 +247,15 @@ fn battery_symbol(metrics: &PowerSnapshot, scale: f32, connection_prompt: bool) 
     ];
     if metrics.charging {
         layers.push(
-            ViewNode::new(Node::Container(Box::new(ViewNode::new(Node::Stack(
-                [Align::Center; 2],
-                vec![ViewNode::svg("compact/bolt", 10.0 * scale)
-                    .sized(Size::Fixed(5.0 * scale), Size::Fixed(10.0 * scale))
-                    .color(ColorSpec::OnAccent)],
-            )))))
+            ViewNode::new(Node::Container(Box::new(
+                ViewNode::new(Node::Stack(
+                    [Align::Center; 2],
+                    vec![ViewNode::svg("compact/bolt", 12.0 * scale)
+                        .sized(Size::Fixed(7.0 * scale), Size::Fixed(12.0 * scale))
+                        .color(ColorSpec::OnAccent)],
+                ))
+                .sized(Size::Fill(1.0), Size::Fill(1.0)),
+            )))
             .sized(Size::Fill(1.0), Size::Fill(1.0))
             .styled(Style {
                 padding: [0.0, 0.0, 3.0 * scale, 0.0],
@@ -350,6 +353,23 @@ mod appearance_tests {
                         );
                     });
                 });
+                if metrics.charging {
+                    let bolt = output
+                        .shapes
+                        .iter()
+                        .filter_map(|shape| match &shape.shape {
+                            egui::Shape::Rect(rect) if rect.brush.is_some() => Some(rect.rect),
+                            _ => None,
+                        })
+                        .last()
+                        .expect("charging bolt must render");
+                    let center = bounds.min + vec2(12.5 * scale, 9.0 * scale);
+                    assert!(
+                        bolt.center().distance(center) < 0.1,
+                        "bolt must be centered in the cell: {bolt:?}"
+                    );
+                    assert!(bolt.height() >= 11.0 * scale);
+                }
                 let width = 18.0 * scale * f32::from(percent) / 100.0;
                 assert!(
                     output.shapes.iter().any(|shape| {
@@ -362,5 +382,46 @@ mod appearance_tests {
                 );
             }
         }
+    }
+    #[test]
+    fn full_charge_percentage_is_not_elided_at_measured_width() {
+        let ctx = egui::Context::default();
+        let icons = Icons::load(&ctx);
+        let extension = BatteryExtension {
+            snapshot: PowerSnapshot {
+                percent: Some(100),
+                external: Some(true),
+                charging: false,
+            },
+            ..Default::default()
+        };
+        let views = extension.compact_views();
+        let view = &views[0];
+        assert!(view.fit_width);
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            let width = (renderer::natural_content_width(ctx, &view.content, 4096.0, &icons) + 6.0)
+                .ceil()
+                .max(view.min_width);
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let chip = Rect::from_min_size(pos2(40.0, 40.0), vec2(width, 28.0));
+                renderer::show_compact(
+                    ui,
+                    chip.shrink2(vec2(3.0, 0.0)),
+                    &view.id,
+                    &view.content,
+                    &icons,
+                    1.0,
+                );
+            });
+        });
+        let label = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == "100%" => Some(&text.galley),
+                _ => None,
+            })
+            .expect("full percentage must render");
+        assert!(!label.elided);
     }
 }

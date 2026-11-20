@@ -588,7 +588,9 @@ impl eframe::App for IslandApp {
             }
         }
         let width = if self.settings_open {
-            SettingsView::WIDTH.min(surface_limit[0])
+            self.settings_view
+                .width(context, &self.preferences)
+                .min(surface_limit[0])
         } else {
             widget_width
         };
@@ -792,7 +794,9 @@ impl eframe::App for IslandApp {
             if toggle_settings {
                 self.settings_open = !self.settings_open;
                 let width = if self.settings_open {
-                    SettingsView::WIDTH.min(surface_limit[0])
+                    self.settings_view
+                        .width(context, &self.preferences)
+                        .min(surface_limit[0])
                 } else {
                     widget_width
                 };
