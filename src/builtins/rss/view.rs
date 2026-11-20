@@ -43,6 +43,7 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
         .iter()
         .find(|feed| Some(&feed.url) == rss.selected.as_ref());
     let mut sources = Vec::new();
+    let mut source_menus = Vec::new();
     for feed in &rss.feeds {
         let active = Some(&feed.url) == rss.selected.as_ref();
         let unread = feed.unread_count();
@@ -91,34 +92,28 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
         });
         select.style.hovered.background = Some(ColorSpec::AccentSubtle);
         select.style.normal.corner_radius = Some(8.0);
-        sources.push(
-            ViewNode::row(
-                vec![
-                    select,
-                    ViewNode::subtle_button(
-                        "×",
-                        Action::Custom(format!("remove-feed:{}", feed.url)),
-                    )
-                    .sized(Size::Fixed(24.0), Size::Fixed(28.0)),
-                ],
-                Flow {
-                    gap: Some(3.0),
-                    align: Align::Center,
-                    ..Default::default()
-                },
-            )
-            .sized(Size::Fill(1.0), Size::Fixed(48.0)),
-        );
+        sources.push(vec![select]);
+        source_menus.push(Some(TableRowMenu {
+            title: feed.title.clone(),
+            label: "删除此订阅".into(),
+            action: Action::Custom(format!("remove-feed:{}", feed.url)),
+        }));
     }
     if sources.is_empty() {
-        sources.push(text("还没有订阅", 11.0, ColorSpec::SecondaryText));
+        sources.push(vec![text("还没有订阅", 11.0, ColorSpec::SecondaryText)]);
+        source_menus.push(None);
     }
+    let source_table = Table {
+        columns: vec![TableColumn::new("", 1.0)],
+        rows: sources,
+        row_menus: source_menus,
+    };
     let sidebar = panel(column(
         vec![
             text("订阅", 13.0, ColorSpec::PrimaryText),
             ViewNode::new(Node::Scroll(
                 ScrollAxes::Vertical,
-                Box::new(column(sources, 5.0)),
+                Box::new(ViewNode::new(Node::Table(source_table))),
             ))
             .sized(Size::Fill(1.0), Size::Fixed(246.0)),
             ViewNode::subtle_button("＋ 添加订阅", Action::Custom("add".into()))
@@ -279,7 +274,7 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
         ))
         .sized(Size::Fill(1.0), Size::Fixed(256.0)),
     );
-    let reading_list = panel(column(reader, 10.0)).sized(Size::Fill(1.0), Size::Auto);
+    let reading_list = column(reader, 10.0).sized(Size::Fill(1.0), Size::Auto);
     let mut grid = Grid::new(Columns::Tracks(vec![
         Track::Fraction(1.0),
         Track::Fraction(2.2),

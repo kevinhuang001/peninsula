@@ -3,7 +3,7 @@ use crate::{
     extension::Action,
     ui::declarative::{
         Align, ColorSpec, Flow, FontSize, FontWeight, Node, Overflow, ScrollAxes, Size, Style,
-        TextStyle, ViewNode, WidgetBounds, WidgetView,
+        Table, TableColumn, TableRowMenu, TextStyle, ViewNode, WidgetBounds, WidgetView,
     },
 };
 
@@ -130,42 +130,49 @@ fn account_row(mail: &MailExtension, account: &Account, unread: usize) -> ViewNo
     });
     select.style.hovered.background = Some(ColorSpec::AccentSubtle);
     select.style.normal.corner_radius = Some(8.0);
-    ViewNode::row(
-        vec![
-            select,
-            ViewNode::subtle_button(
-                "×",
-                Action::Custom(format!("remove-account:{}", account.id)),
-            )
-            .sized(Size::Fixed(24.0), Size::Fixed(28.0)),
-        ],
-        Flow {
-            gap: Some(3.0),
-            align: Align::Center,
-            ..Default::default()
-        },
-    )
-    .sized(Size::Fill(1.0), Size::Fixed(34.0))
+    select
 }
 
 fn sidebar(mail: &MailExtension) -> ViewNode {
-    let mut rows = Vec::new();
-    if mail.accounts.is_empty() {
-        rows.push(text("添加一个 IMAP 账号", 11.0, ColorSpec::SecondaryText));
+    let rows = if mail.accounts.is_empty() {
+        vec![vec![text(
+            "添加一个 IMAP 账号",
+            11.0,
+            ColorSpec::SecondaryText,
+        )]]
     } else {
-        rows.extend(mail.accounts.iter().map(|account| {
-            account_row(
-                mail,
-                account,
-                mail.mailboxes
-                    .get(&account.id)
-                    .map_or(0, |mailbox| mailbox.unread_count),
-            )
-        }));
-    }
+        mail.accounts
+            .iter()
+            .map(|account| {
+                vec![account_row(
+                    mail,
+                    account,
+                    mail.mailboxes
+                        .get(&account.id)
+                        .map_or(0, |mailbox| mailbox.unread_count),
+                )]
+            })
+            .collect()
+    };
+    let row_menus = mail
+        .accounts
+        .iter()
+        .map(|account| {
+            Some(TableRowMenu {
+                title: account.email.clone(),
+                label: "删除此邮箱账号".into(),
+                action: Action::Custom(format!("remove-account:{}", account.id)),
+            })
+        })
+        .collect();
+    let table = Table {
+        columns: vec![TableColumn::new("", 1.0)],
+        rows,
+        row_menus,
+    };
     let scroller = ViewNode::new(Node::Scroll(
         ScrollAxes::Vertical,
-        Box::new(column(rows, 5.0)),
+        Box::new(ViewNode::new(Node::Table(table))),
     ))
     .sized(Size::Fill(1.0), Size::Fill(1.0));
     card(column(
