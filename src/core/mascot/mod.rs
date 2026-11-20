@@ -1,12 +1,25 @@
-use crate::extension::ExtensionId;
-use rand::seq::IndexedRandom;
+mod animation;
+mod expression;
+mod renderer;
+mod scheduler;
+#[cfg(test)]
+mod tests;
+
+use crate::{
+    extension::{Action, CompactView, ExtensionId},
+    ui::declarative::{CompactLayout, Node, Size, ViewNode},
+};
+pub use animation::MascotPose;
+pub use expression::{MascotExpression, MascotMotion, Trigger};
+use rand::Rng;
+pub(crate) use renderer::paint;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     time::{Duration, Instant},
 };
-mod renderer;
-pub use renderer::register_assets;
+
 pub const MASCOT_SLOT_ID: &str = "core.mascot/slot";
+pub type MascotSource = (ExtensionId, Vec<MascotExpression>, BTreeMap<String, String>);
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum MotionPolicy {
@@ -16,216 +29,273 @@ pub enum MotionPolicy {
     Off,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Trigger {
-    While(Vec<(String, String)>),
-    OnEvent(String),
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UnlockMascotState {
+    Idle,
+    Typing,
+    Attentive,
+    Verifying,
+    Failed,
+    Succeeded,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct MascotExpression {
-    pub id: String,
-    pub name: String,
-    /// Index into the host's bundled sprite resource catalog.
-    pub asset: usize,
-    /// An optional declaration can use SVG, raster, sprite sequences or Motion nodes.
-    pub view: Option<crate::extension::ViewNode>,
-    pub trigger: Trigger,
-    pub priority: i32,
-    pub duration: Duration,
+impl UnlockMascotState {
+    fn motion(self) -> MascotMotion {
+        match self {
+            Self::Idle => MascotMotion::Idle,
+            Self::Typing | Self::Attentive => MascotMotion::Typing,
+            Self::Verifying => MascotMotion::Verifying,
+            Self::Failed => MascotMotion::Error,
+            Self::Succeeded => MascotMotion::Success,
+        }
+    }
 }
 
-impl MascotExpression {
-    pub fn event(id: &str, event: &str, asset: usize) -> Self {
-        Self {
-            id: id.into(),
-            name: id.into(),
-            asset,
-            view: None,
-            trigger: Trigger::OnEvent(event.into()),
-            priority: 10,
-            duration: Duration::from_secs(5),
-        }
-    }
-
-    pub fn state(id: &str, key: &str, value: &str, asset: usize) -> Self {
-        Self {
-            id: id.into(),
-            name: id.into(),
-            asset,
-            view: None,
-            trigger: Trigger::While(vec![(key.into(), value.into())]),
-            priority: 0,
-            duration: Duration::from_secs(7),
-        }
-    }
+struct Playback {
+    action: scheduler::Action,
+    start: Instant,
+    from: MascotPose,
 }
 
 #[derive(Default)]
 pub struct MascotHost {
-    renderer: renderer::Mascot,
-    current: Option<(ExtensionId, String)>,
-    candidates: BTreeSet<(ExtensionId, String)>,
-    event_deadlines: BTreeMap<(ExtensionId, String), Instant>,
-    deadline: Option<Instant>,
-    asset: usize,
-    view: Option<crate::extension::ViewNode>,
+    scheduler: scheduler::Scheduler,
+    playback: Option<Playback>,
+    idle_at: Option<Instant>,
+    idle_clock: BreathClock,
+    unlock_clock: BreathClock,
+    paused_at: Option<Instant>,
+    unlock: Option<(UnlockMascotState, Instant, MascotPose)>,
+    pose: MascotPose,
 }
-
-pub type MascotSource = (ExtensionId, Vec<MascotExpression>, BTreeMap<String, String>);
 
 impl MascotHost {
-    pub fn compact_slot(
+    pub fn node(&self) -> ViewNode {
+        ViewNode::new(Node::CoreMascot(self.pose)).sized(Size::Fill(1.0), Size::Fill(1.0))
+    }
+
+    pub fn compact_slot(&self, size: f32) -> CompactView {
+        let id = ExtensionId::builtin(MASCOT_SLOT_ID);
+        let leading = ViewNode::new(Node::ActionArea {
+            action: Action::Advance,
+            label: "切换吉祥物表情".into(),
+            content: Box::new(self.node()),
+            context_menu: None,
+        })
+        .sized(Size::Fill(1.0), Size::Fill(1.0));
+        CompactView {
+            id: id.clone(),
+            source_extension_id: id,
+            content: ViewNode::compact(
+                leading,
+                ViewNode::new(Node::Spacer),
+                CompactLayout {
+                    leading_size: [(size - 4.0).max(1.0), 38.0],
+                    gap: 0.0,
+                    ..Default::default()
+                },
+            ),
+            visibility: Default::default(),
+            min_width: size,
+            preferred_width: size,
+            fit_width: false,
+            priority: 0,
+            tooltip: Some("点击切换吉祥物表情".into()),
+        }
+    }
+
+    pub fn advance(&mut self, now: Instant) {
+        self.idle_at = Some(now);
+    }
+
+    pub fn event(&mut self, event: &str, sources: &[MascotSource], now: Instant) {
+        self.scheduler.publish(event, sources, now);
+    }
+
+    fn pause(&mut self, now: Instant) {
+        self.paused_at.get_or_insert(now);
+    }
+
+    fn resume(&mut self, now: Instant) {
+        if let Some(paused) = self.paused_at.take() {
+            let gap = now.saturating_duration_since(paused);
+            if let Some(playback) = &mut self.playback {
+                playback.start += gap;
+            }
+            if let Some(at) = &mut self.idle_at {
+                *at += gap;
+            }
+            for at in [&mut self.idle_clock.blink_at, &mut self.idle_clock.epoch]
+                .into_iter()
+                .flatten()
+            {
+                *at += gap;
+            }
+        }
+    }
+
+    fn frame(policy: MotionPolicy, active: bool) -> Option<Duration> {
+        match policy {
+            MotionPolicy::Full => Some(Duration::from_millis(if active { 32 } else { 72 })),
+            MotionPolicy::Reduced => Some(Duration::from_millis(if active { 64 } else { 100 })),
+            MotionPolicy::Off => None,
+        }
+    }
+
+    pub fn update(
         &mut self,
-        size: f32,
-        motion: MotionPolicy,
-    ) -> crate::extension::CompactView {
-        self.renderer.select(self.asset);
-        let mut view = self.renderer.compact_views().remove(0);
-        view.id = ExtensionId::builtin(MASCOT_SLOT_ID);
-        view.source_extension_id = view.id.clone();
-        if let Some(declaration) = &self.view {
-            view.content = declaration.clone();
+        sources: &[MascotSource],
+        visible: bool,
+        now: Instant,
+        policy: MotionPolicy,
+    ) -> Option<Duration> {
+        self.scheduler.prune(sources, now);
+        if self
+            .playback
+            .as_ref()
+            .is_some_and(|p| !p.action.valid(sources))
+        {
+            self.playback = None;
         }
-        if let crate::ui::declarative::Node::Compact(compact) = &mut view.content.kind {
-            compact.layout.leading_size[0] = (size - 6.0).max(1.0);
-            compact.leading.size.width = crate::ui::declarative::Size::Fixed((size - 6.0).max(1.0));
+        if !visible {
+            self.pause(now);
+            return None;
         }
-        view.min_width = size;
-        view.preferred_width = size;
-        if motion != MotionPolicy::Full {
-            renderer::freeze(&mut view.content);
+        if self.unlock.take().is_some() {
+            self.unlock_clock = BreathClock::default();
         }
-        view
-    }
-    pub fn cycle_idle(&mut self) {
-        if self.current.is_none() {
-            let choices: Vec<_> = (0..12).filter(|asset| *asset != self.asset).collect();
-            self.asset = *choices.choose(&mut rand::rng()).unwrap_or(&0);
-            self.deadline = Some(Instant::now() + Duration::from_secs(7));
+        self.resume(now);
+        let (time, blink) = self.idle_clock.sample(now);
+        let idle = animation::sample(MascotMotion::Idle, 0.0, time, blink, policy);
+        let complete = self
+            .playback
+            .as_ref()
+            .is_some_and(|p| now >= p.start + p.action.duration);
+        if complete {
+            self.playback = None;
+            self.pose = idle;
         }
-    }
-    pub fn next_wake(&self) -> Option<Instant> {
-        self.deadline
+        let idle_at = *self.idle_at.get_or_insert_with(|| now + random_pause());
+        let event = if self.playback.as_ref().is_none_or(|p| !p.action.event) {
+            self.scheduler.pop_event()
+        } else {
+            None
+        };
+        let next = event.or_else(|| {
+            (self.playback.is_none() && now >= idle_at && policy != MotionPolicy::Off)
+                .then(|| self.scheduler.choose(sources, &mut rand::rng()))
+        });
+        if let Some(action) = next {
+            self.idle_at = Some(now + action.duration + random_pause());
+            self.playback = Some(Playback {
+                action,
+                start: now,
+                from: self.pose,
+            });
+        }
+        let deadline = if let Some(p) = &self.playback {
+            let elapsed = now.saturating_duration_since(p.start).as_secs_f32();
+            let duration = p.action.duration.as_secs_f32();
+            let expression =
+                animation::sample(p.action.motion, elapsed / duration, time, blink, policy);
+            self.pose = if policy == MotionPolicy::Off {
+                expression
+            } else {
+                p.from
+                    .blend(expression, animation::ease(elapsed / 0.12))
+                    .blend(idle, animation::ease(1.0 - (duration - elapsed) / 0.20))
+            };
+            Some(p.start + p.action.duration)
+        } else {
+            self.pose = idle;
+            (policy != MotionPolicy::Off).then_some(idle_at)
+        };
+        deadline
+            .map(|at| at.saturating_duration_since(now))
             .into_iter()
-            .chain(self.event_deadlines.values().copied())
+            .chain(Self::frame(policy, self.playback.is_some() || blink > 0.0))
+            .chain(self.idle_clock.next_blink(now, policy))
             .min()
     }
-    pub fn event(&mut self, event: &str, sources: &[MascotSource], now: Instant) {
-        for (owner, expressions, _) in sources {
-            for e in expressions {
-                if matches!(&e.trigger, Trigger::OnEvent(name) if name == event) {
-                    self.event_deadlines
-                        .insert((owner.clone(), e.id.clone()), now + e.duration);
-                }
-            }
+
+    pub fn update_unlock(
+        &mut self,
+        state: UnlockMascotState,
+        now: Instant,
+        policy: MotionPolicy,
+    ) -> Option<Duration> {
+        self.pause(now);
+        if self.unlock.is_none_or(|(previous, _, _)| previous != state) {
+            self.unlock = Some((state, now, self.pose));
         }
-    }
-    pub fn update(&mut self, sources: &[MascotSource], enabled: bool, now: Instant) -> usize {
-        if !enabled {
-            self.current = None;
-            self.candidates.clear();
-            self.event_deadlines.clear();
-            self.deadline = None;
-            self.asset = 0;
-            self.view = None;
-            return 0;
+        let (_, start, from) = self.unlock.expect("unlock pose");
+        let (time, blink) = self.unlock_clock.sample(now);
+        let elapsed = now.saturating_duration_since(start).as_secs_f32();
+        let motion = state.motion();
+        let ratio = elapsed / motion.duration().as_secs_f32();
+        let phase = match state {
+            UnlockMascotState::Failed | UnlockMascotState::Succeeded => ratio.min(1.0),
+            UnlockMascotState::Attentive => 0.0,
+            _ => ratio.fract(),
+        };
+        let mut pose = animation::sample(motion, phase, time, blink, policy);
+        if state == UnlockMascotState::Succeeded && policy != MotionPolicy::Off {
+            let idle = animation::sample(MascotMotion::Idle, 0.0, time, blink, policy);
+            pose = pose.blend(idle, animation::ease((ratio - 0.76) / 0.24));
         }
-        self.event_deadlines.retain(|(owner, id), deadline| {
-            *deadline > now
-                && sources
-                    .iter()
-                    .any(|(o, es, _)| o == owner && es.iter().any(|e| &e.id == id))
-        });
-        let mut valid = Vec::new();
-        for (owner, expressions, state) in sources {
-            for e in expressions {
-                let key = (owner.clone(), e.id.clone());
-                let active = match &e.trigger {
-                    Trigger::While(conditions) => {
-                        !conditions.is_empty()
-                            && conditions.iter().all(|(k, v)| state.get(k) == Some(v))
-                    }
-                    Trigger::OnEvent(_) => self.event_deadlines.contains_key(&key),
-                };
-                if active {
-                    valid.push((key, e));
-                }
-            }
-        }
-        if let Some(priority) = valid.iter().map(|(_, e)| e.priority).max() {
-            valid.retain(|(_, e)| e.priority == priority);
-        }
-        let candidates: BTreeSet<_> = valid.iter().map(|(key, _)| key.clone()).collect();
-        if candidates != self.candidates || self.deadline.is_none_or(|deadline| now >= deadline) {
-            let previous = self.current.clone();
-            let mut choices: Vec<_> = valid.iter().collect();
-            if choices.len() > 1 {
-                choices.retain(|(key, _)| Some(key) != previous.as_ref());
-            }
-            if let Some((key, e)) = choices.choose(&mut rand::rng()) {
-                self.current = Some(key.clone());
-                self.asset = e.asset;
-                self.view = e.view.clone();
-                self.deadline = Some(now + e.duration.max(Duration::from_millis(100)));
-            } else {
-                self.current = None;
-                self.asset = 0;
-                self.view = None;
-                self.deadline = None;
-            }
-            self.candidates = candidates;
-        }
-        self.asset
+        self.pose = if policy == MotionPolicy::Off {
+            pose
+        } else {
+            from.blend(pose, animation::ease(elapsed / 0.12))
+        };
+        Self::frame(
+            policy,
+            blink > 0.0
+                || !matches!(
+                    state,
+                    UnlockMascotState::Idle | UnlockMascotState::Attentive
+                ),
+        )
+        .into_iter()
+        .chain(self.unlock_clock.next_blink(now, policy))
+        .min()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn expressions_do_not_flicker_and_stopped_sources_expire_immediately() {
-        let now = Instant::now();
-        let sources = vec![(
-            ExtensionId::builtin("music"),
-            vec![MascotExpression::state("listening", "playing", "true", 3)],
-            [("playing".into(), "true".into())].into(),
-        )];
-        let mut host = MascotHost::default();
-        assert_eq!(host.update(&sources, true, now), 3);
-        assert_eq!(
-            host.update(&sources, true, now + Duration::from_millis(16)),
-            3
-        );
-        assert_eq!(host.update(&[], true, now), 0);
-        assert_eq!(host.update(&sources, false, now), 0);
+fn random_pause() -> Duration {
+    Duration::from_millis(rand::rng().random_range(4000..=9000))
+}
+
+#[derive(Default)]
+struct BreathClock {
+    epoch: Option<Instant>,
+    blink_at: Option<Instant>,
+}
+
+impl BreathClock {
+    fn next_blink(&self, now: Instant, policy: MotionPolicy) -> Option<Duration> {
+        self.blink_at
+            .filter(|at| *at > now && policy != MotionPolicy::Off)
+            .map(|at| at - now)
     }
-    #[test]
-    fn highest_priority_event_expires_and_equal_candidates_alternate() {
-        let now = Instant::now();
-        let mut a = MascotExpression::state("a", "active", "true", 1);
-        a.duration = Duration::from_secs(1);
-        let mut b = a.clone();
-        b.id = "b".into();
-        b.asset = 2;
-        let mut event = a.clone();
-        event.id = "event".into();
-        event.asset = 3;
-        event.priority = 10;
-        event.trigger = Trigger::OnEvent("done".into());
-        let sources = vec![(
-            ExtensionId::builtin("test"),
-            vec![a, b, event],
-            [("active".into(), "true".into())].into(),
-        )];
-        let mut host = MascotHost::default();
-        let first = host.update(&sources, true, now);
-        assert_ne!(
-            first,
-            host.update(&sources, true, now + Duration::from_secs(1))
-        );
-        host.event("done", &sources, now);
-        assert_eq!(host.update(&sources, true, now), 3);
-        assert_ne!(host.update(&sources, true, now + Duration::from_secs(2)), 3);
+
+    fn sample(&mut self, now: Instant) -> (f32, f32) {
+        let time = now
+            .saturating_duration_since(*self.epoch.get_or_insert(now))
+            .as_secs_f32();
+        let mut rng = rand::rng();
+        let blink = *self
+            .blink_at
+            .get_or_insert_with(|| now + Duration::from_millis(rng.random_range(2200..5200)));
+        let elapsed = now.saturating_duration_since(blink);
+        if elapsed >= Duration::from_millis(190) {
+            self.blink_at = Some(now + Duration::from_millis(rng.random_range(2200..5200)));
+        }
+        let amount = if now >= blink && elapsed < Duration::from_millis(190) {
+            (elapsed.as_secs_f32() / 0.19 * std::f32::consts::PI).sin()
+        } else {
+            0.0
+        };
+        (time, amount)
     }
 }

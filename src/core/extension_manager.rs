@@ -350,12 +350,15 @@ impl ExtensionManager {
             .iter()
             .enumerate()
             .filter(|(i, _)| self.states[*i] == LifecycleState::Running)
-            .map(|(owner, e)| {
-                (
-                    self.registry.extensions()[owner].id.clone(),
-                    e.mascot_expressions(),
-                    e.mascot_state(),
-                )
+            .filter_map(|(owner, e)| {
+                let expressions = e.mascot_expressions();
+                (!expressions.is_empty()).then(|| {
+                    (
+                        self.registry.extensions()[owner].id.clone(),
+                        expressions,
+                        e.mascot_state(),
+                    )
+                })
             })
             .collect()
     }

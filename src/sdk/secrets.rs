@@ -142,7 +142,7 @@ impl SecretStore {
         };
         let meta_bytes = serde_json::to_vec(&meta)?;
         for (path, encrypted) in &replacements {
-            if let Err(error) = write_atomic(path, &encrypted) {
+            if let Err(error) = write_atomic(path, encrypted) {
                 restore_files(&originals);
                 return Err(error);
             }

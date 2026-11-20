@@ -34,9 +34,9 @@ Data-source definitions, instance settings and values/alert state are stored sep
 
 `core::mascot` owns the independent leading slot and its renderer. Its enabled state, size and Full/Reduced/Off motion settings live under Capsule, separately from ordinary Compact order.
 
-Expressions declare owner-local IDs, While conjunctions or OnEvent triggers, priority and duration. Selection collects active candidates, chooses randomly among the highest priority, and avoids repeating when alternatives exist. It reselects on candidate changes or expiry, never on every animation frame. Stopped owners and hidden slots lose candidates and event deadlines. Music, Pomodoro, Battery and Downloads supply expressions.
+Extensions declare owner-local IDs, typed motions, playback duration, bounded weights and either a state conjunction or an event trigger with its own expiry. When state expressions are active, scheduling selects their category 75% of the time. Events enter a bounded FIFO and can interrupt ordinary actions. Stopping an owner removes its pending and active actions. A hidden slot pauses playback while queued events retain their wall-clock expiry.
 
-The expression declaration can use the bundled sprite catalog or an optional declarative `ViewNode` (SVG, PNG/WebP raster assets, multi-frame sprites and Motion). Assets and animations use the common Core renderer. Hidden slots do not render; per-Mascot Reduced/Off freezes nested animation declarations independently of global motion policy.
+Compact and vault unlock share a procedural egui renderer. The unlock view supplies interaction states and has precedence over extension actions. Reduced scales body movement and removes particles. Off draws immediate static expressions without animation repaint requests.
 
 ## Settings and upgrade
 
@@ -64,7 +64,7 @@ Pomodoro preserves paused state on stop/restart, has schema-driven focus/break d
 
 ## Validation
 
-Unit and headless egui tests cover registry/schema validation, data-source scheduling and alert cooldown boundaries, notification acceptance and persistence, five-section navigation, generated settings controls while stopped, multiple same-kind contributions, idempotent lifecycle, rollback, scoped cancellation, disabled settings/restart behavior, Mascot priority/random rotation/expiry, DND, timer restoration, layout and existing browser/platform adapters.
+Unit and headless egui tests cover registry/schema validation, data-source scheduling and alert cooldown boundaries, notification acceptance and persistence, five-section navigation, generated settings controls while stopped, multiple same-kind contributions, idempotent lifecycle, rollback, scoped cancellation, disabled settings/restart behavior, Mascot category sampling, FIFO playback and expiry, DND, timer restoration, layout and existing browser/platform adapters.
 
 CI runs native tests and release builds on Linux, macOS and Windows. Formatting runs on every platform and strict all-target Clippy runs on Linux. Native OS integration and backend credentials remain dependent on their respective runners/machines.
 

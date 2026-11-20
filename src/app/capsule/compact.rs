@@ -84,14 +84,16 @@ pub(super) fn show(
             )
             .on_hover_text(tooltip);
         }
-        if let Some(clicked) = renderer::show_compact(
-            ui,
-            item_rect.shrink2(egui::vec2(3.0, 0.0)),
-            &view.id,
-            &view.content,
-            icons,
-            opacity,
-        ) {
+        let mut content_rect = item_rect.shrink2(egui::vec2(3.0, 0.0));
+        if view.id.as_str() == crate::core::mascot::MASCOT_SLOT_ID {
+            content_rect = Rect::from_center_size(
+                content_rect.center(),
+                Vec2::new(content_rect.width(), (rect.height() - 6.0).max(0.0)),
+            );
+        }
+        if let Some(clicked) =
+            renderer::show_compact(ui, content_rect, &view.id, &view.content, icons, opacity)
+        {
             action = Some(ActionInvocation {
                 source_extension_id: view.source_extension_id.clone(),
                 action: clicked,

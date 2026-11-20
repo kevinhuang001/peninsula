@@ -1,186 +1,135 @@
-use crate::{
-    extension::{Action, CompactView, ExtensionId},
-    ui::declarative::{
-        CompactLayout, Node, Playback, Repeat, Size, SpriteFrame, SpriteSequence, Trigger, ViewNode,
-    },
-};
+use super::MascotPose;
+use eframe::egui::{pos2, vec2, Color32, Painter, Pos2, Rect, Shape, Stroke};
 
-const ID: &str = super::MASCOT_SLOT_ID;
-
-const SHEETS: [(&str, &[u8]); 12] = [
-    (
-        "mascot/wink",
-        include_bytes!("../../../assets/mascot/expressions/00-wink.png"),
-    ),
-    (
-        "mascot/smug",
-        include_bytes!("../../../assets/mascot/expressions/01-smug.png"),
-    ),
-    (
-        "mascot/blush",
-        include_bytes!("../../../assets/mascot/expressions/02-blush.png"),
-    ),
-    (
-        "mascot/delighted",
-        include_bytes!("../../../assets/mascot/expressions/03-delighted.png"),
-    ),
-    (
-        "mascot/side-glance",
-        include_bytes!("../../../assets/mascot/expressions/04-side-glance.png"),
-    ),
-    (
-        "mascot/praised",
-        include_bytes!("../../../assets/mascot/expressions/05-praised.png"),
-    ),
-    (
-        "mascot/heart",
-        include_bytes!("../../../assets/mascot/expressions/06-heart.png"),
-    ),
-    (
-        "mascot/giggle",
-        include_bytes!("../../../assets/mascot/expressions/07-giggle.png"),
-    ),
-    (
-        "mascot/shy-peek",
-        include_bytes!("../../../assets/mascot/expressions/08-shy-peek.png"),
-    ),
-    (
-        "mascot/scan",
-        include_bytes!("../../../assets/mascot/expressions/09-scan.png"),
-    ),
-    (
-        "mascot/peek",
-        include_bytes!("../../../assets/mascot/expressions/10-peek.png"),
-    ),
-    (
-        "mascot/search",
-        include_bytes!("../../../assets/mascot/expressions/11-search.png"),
-    ),
-];
-
-const EXPRESSION_TIMES: [u32; 16] = [
-    350, 120, 120, 120, 130, 130, 140, 400, 180, 140, 120, 120, 120, 140, 140, 450,
-];
-const IDLE_TIMES: [u32; 16] = [
-    350, 130, 150, 180, 350, 280, 160, 110, 110, 160, 350, 280, 160, 140, 200, 350,
-];
-
-pub fn register_assets(ctx: &eframe::egui::Context) {
-    for (asset, bytes) in SHEETS {
-        crate::ui::renderer::register_png(ctx, asset, bytes);
+pub(crate) fn paint(painter: &Painter, rect: Rect, pose: MascotPose, dark: bool) {
+    if !rect.is_positive() {
+        return;
     }
-}
-
-#[derive(Default)]
-pub(crate) struct Mascot {
-    expression: usize,
-    revision: u64,
-}
-
-impl Mascot {
-    fn timings(&self) -> &[u32; 16] {
-        if self.expression >= 9 {
-            &IDLE_TIMES
-        } else {
-            &EXPRESSION_TIMES
-        }
-    }
-}
-
-impl Mascot {
-    pub fn select(&mut self, expression: usize) {
-        let expression = expression.min(SHEETS.len() - 1);
-        if expression != self.expression {
-            self.expression = expression;
-            self.revision += 1;
-        }
-    }
-
-    pub fn compact_views(&self) -> Vec<CompactView> {
-        let (asset, _) = SHEETS[self.expression];
-        let mut frames: Vec<_> = self
-            .timings()
-            .iter()
+    let unit = rect.width().min(rect.height()) / 2.85;
+    let center = rect.center() + vec2(0.0, -0.29 * unit * pose.lift);
+    let (sin, cos) = pose.tilt.sin_cos();
+    let point = |x: f32, y: f32| {
+        let x = x * (1.0 - pose.squash * 0.55);
+        let y = y * (1.0 + pose.squash);
+        center + unit * vec2(x * cos - y * sin, x * sin + y * cos)
+    };
+    let shell = if dark {
+        Color32::from_rgb(152, 229, 219)
+    } else {
+        Color32::from_rgb(62, 156, 151)
+    };
+    let visor = Color32::from_rgb(21, 39, 58);
+    let eye = Color32::from_rgb(192, 255, 237);
+    let coral = Color32::from_rgb(255, 144, 139);
+    let gold = Color32::from_rgb(255, 212, 108);
+    let rounded = |x: f32, y: f32, r: f32, color| {
+        let corners = [
+            (x - r, y - r),
+            (-x + r, y - r),
+            (-x + r, -y + r),
+            (x - r, -y + r),
+        ];
+        let vertices: Vec<Pos2> = corners
+            .into_iter()
             .enumerate()
-            .map(|(index, duration_ms)| SpriteFrame {
-                asset: asset.into(),
-                duration_ms: *duration_ms,
-                uv: [0.0, index as f32 / 16.0, 1.0, (index + 1) as f32 / 16.0],
+            .flat_map(|(i, (cx, cy))| {
+                (0..=5).map(move |j| {
+                    let angle = (i as f32 + j as f32 / 5.0) * std::f32::consts::FRAC_PI_2;
+                    point(cx + r * angle.cos(), cy + r * angle.sin())
+                })
             })
             .collect();
-        frames.push(SpriteFrame {
-            duration_ms: 16,
-            ..frames[0].clone()
-        });
-        let mut sprite = ViewNode::new(Node::SpriteSequence(SpriteSequence {
-            frames,
-            trigger: Trigger::While(self.revision > 0),
-            playback: Playback::Running,
-            repeat: Repeat::Once,
-            delay_ms: 0,
-            gap_ms: 0,
-            speed: 1.0,
-        }))
-        .sized(Size::Fill(1.0), Size::Fill(1.0));
-        sprite.key = Some(self.revision.to_string());
-        let leading = ViewNode::new(Node::ActionArea {
-            action: Action::Advance,
-            label: "切换吉祥物表情".into(),
-            content: Box::new(sprite),
-            context_menu: None,
-        })
-        .sized(Size::Fill(1.0), Size::Fill(1.0));
-        vec![CompactView {
-            id: ExtensionId::builtin(ID),
-            source_extension_id: ExtensionId::builtin(ID),
-            content: ViewNode::compact(
-                leading,
-                ViewNode::new(Node::Spacer),
-                CompactLayout {
-                    leading_size: [32.0, 28.0],
-                    gap: 0.0,
-                    ..Default::default()
-                },
-            ),
-            visibility: Default::default(),
-            min_width: 38.0,
-            preferred_width: 38.0,
-            fit_width: false,
-            priority: 0,
-            tooltip: Some("点击切换吉祥物表情".into()),
-        }]
-    }
-}
+        painter.add(Shape::convex_polygon(vertices, color, Stroke::NONE));
+    };
 
-pub(super) fn freeze(node: &mut ViewNode) {
-    match &mut node.kind {
-        Node::SpriteSequence(sequence) => {
-            sequence.playback = Playback::Paused;
-            sequence.trigger = Trigger::While(false);
+    painter.line_segment(
+        [point(0.59, -0.57), point(0.68, -0.94)],
+        Stroke::new(unit * 0.1, shell),
+    );
+    painter.circle_filled(point(0.69, -0.96), unit * 0.13, gold);
+    rounded(0.96, 0.72, 0.39, shell);
+    rounded(0.77, 0.50, 0.28, visor);
+    for (index, side) in [-1.0, 1.0].into_iter().enumerate() {
+        let x = side * (0.31 + 0.15 * pose.spacing) + 0.13 * pose.gaze[0];
+        let y = -0.10 + 0.14 * pose.gaze[1];
+        let h = (0.17 * pose.eyes[index]).max(0.018);
+        painter.line_segment(
+            [point(x, y - h * 0.62), point(x, y + h * 0.62)],
+            Stroke::new(unit * 0.15, eye),
+        );
+        if pose.brow > 0.04 {
+            painter.line_segment(
+                [
+                    point(x - 0.12, y - 0.28 - side * 0.10 * pose.brow),
+                    point(x + 0.12, y - 0.28 + side * 0.10 * pose.brow),
+                ],
+                Stroke::new(unit * 0.07, eye),
+            );
         }
-        Node::Compact(compact) => {
-            freeze(&mut compact.leading);
-            freeze(&mut compact.content);
+        if pose.blush > 0.02 {
+            painter.circle_filled(
+                point(side * 0.59, 0.24),
+                unit * 0.09,
+                coral.linear_multiply(pose.blush),
+            );
         }
-        Node::Motion { child, motion } => {
-            motion.playback = Playback::Paused;
-            freeze(child);
+    }
+    if pose.mouth > 0.12 {
+        painter.add(Shape::ellipse_filled(
+            point(0.0, 0.25),
+            vec2(0.13, 0.06 + 0.11 * pose.mouth) * unit,
+            eye,
+        ));
+    } else {
+        let mouth = (0..=8)
+            .map(|i| {
+                let x = i as f32 / 4.0 - 1.0;
+                point(x * 0.21, 0.22 + (1.0 - x * x) * 0.17 * pose.smile)
+            })
+            .collect();
+        painter.add(Shape::line(mouth, Stroke::new(unit * 0.064, eye)));
+    }
+    if pose.heart > 0.02 {
+        let color = coral.linear_multiply(pose.heart);
+        for x in [-1.02, -0.82] {
+            painter.circle_filled(point(x, -0.83), 0.13 * unit, color);
         }
-        Node::ActionArea { content, .. } | Node::Container(content) | Node::Scroll(_, content) => {
-            freeze(content)
+        painter.add(Shape::convex_polygon(
+            vec![
+                point(-1.14, -0.80),
+                point(-0.70, -0.80),
+                point(-0.92, -0.53),
+            ],
+            color,
+            Stroke::NONE,
+        ));
+    }
+    if pose.bolt > 0.02 {
+        painter.add(Shape::line(
+            vec![
+                point(-0.95, -0.91),
+                point(-1.13, -0.68),
+                point(-0.95, -0.68),
+                point(-1.13, -0.45),
+            ],
+            Stroke::new(unit * 0.09, gold.linear_multiply(pose.bolt)),
+        ));
+    }
+    if pose.sparks > 0.02 {
+        for (x, y) in [(-1.12, -0.65), (1.13, -0.24), (0.94, 0.75)] {
+            let c = point(x, y);
+            let r = unit * (0.08 + pose.lift * 0.05);
+            let color = gold.linear_multiply(pose.sparks);
+            painter.add(Shape::convex_polygon(
+                vec![
+                    pos2(c.x - r, c.y),
+                    pos2(c.x, c.y - r),
+                    pos2(c.x + r, c.y),
+                    pos2(c.x, c.y + r),
+                ],
+                color,
+                Stroke::NONE,
+            ));
         }
-        Node::Sprite { frames, .. } => {
-            frames.truncate(1);
-        }
-        Node::Row(_, children)
-        | Node::Column(_, children)
-        | Node::Wrap(_, children)
-        | Node::Stack(_, children)
-        | Node::Grid(_, children) => {
-            for child in children {
-                freeze(child);
-            }
-        }
-        _ => {}
     }
 }

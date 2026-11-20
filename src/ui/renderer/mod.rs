@@ -5,7 +5,7 @@ mod layout;
 mod paint;
 
 pub(crate) use animation::{reduced_motion, set_reduced_motion};
-pub(crate) use assets::{register_png, register_svg};
+pub(crate) use assets::register_svg;
 
 use crate::{
     app::icons::Icons,

@@ -87,7 +87,6 @@ impl Icons {
         ] {
             register_svg(context, asset, source);
         }
-        crate::core::mascot::register_assets(context);
         let icons = Self {
             pin: load(
                 context,

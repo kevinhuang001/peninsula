@@ -14,10 +14,7 @@ use crate::{
 };
 use eframe::egui::{self, Vec2};
 use std::{
-    sync::{
-        mpsc::{self, Receiver, TryRecvError},
-        Arc,
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -33,6 +30,7 @@ mod platform;
 mod settings;
 mod state;
 mod trackpad;
+mod unlock;
 mod widget_layout;
 mod widgets;
 
@@ -77,11 +75,7 @@ struct IslandApp {
     datasources: DataSourceManager,
     datasource_window: datasource::DataSourceWindow,
     secret_store: crate::sdk::secrets::SecretStore,
-    unlock_password: String,
-    unlock_error: bool,
-    unlock_error_at: Option<Instant>,
-    unlock_task: Option<Receiver<Result<(), String>>>,
-    unlock_in_progress: bool,
+    unlock: unlock::UnlockView,
     scheduler: Scheduler,
     action_dispatcher: ActionDispatcher,
     extensions: ExtensionManager,
@@ -164,11 +158,7 @@ impl IslandApp {
             datasources,
             datasource_window: datasource::DataSourceWindow::default(),
             secret_store,
-            unlock_password: String::new(),
-            unlock_error: false,
-            unlock_error_at: None,
-            unlock_task: None,
-            unlock_in_progress: false,
+            unlock: Default::default(),
             scheduler: Scheduler::default(),
             action_dispatcher: ActionDispatcher::default(),
             extensions,
@@ -369,7 +359,7 @@ impl IslandApp {
         context: &egui::Context,
     ) {
         if invocation.source_extension_id.as_str() == crate::core::mascot::MASCOT_SLOT_ID {
-            self.mascot.cycle_idle();
+            self.mascot.advance(Instant::now());
             context.request_repaint();
             return;
         }
@@ -441,13 +431,13 @@ impl eframe::App for IslandApp {
     }
 
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
-        self.poll_unlock_task(context);
-        if self.secret_store.is_locked() {
+        let now = Instant::now();
+        self.poll_unlock_task(context, now);
+        if self.unlock.visible(self.secret_store.is_locked(), now) {
             self.update_viewport_size(context, 270.0);
-            self.show_unlock_capsule(context);
+            self.show_unlock_capsule(context, now);
             return;
         }
-        let now = Instant::now();
         self.datasources.register_icons(context);
         for source in self.datasources.snapshots() {
             if let Ok(id) = ExtensionId::new(format!("datasource/{}/value", source.id)) {
@@ -742,30 +732,24 @@ impl eframe::App for IslandApp {
             available_views.extend(self.datasources.compact_views().into_iter().map(Arc::new));
         }
         let sources = self.extensions.mascot_sources();
-        let mascot_visible =
-            self.preferences.mascot_enabled && !self.state.expanded && !prompt_active;
-        self.mascot.update(&sources, mascot_visible, now);
+        let mascot_visible = self.preferences.mascot_enabled
+            && !self.state.expanded
+            && !prompt_active
+            && !context.input(|input| input.viewport().minimized.unwrap_or(false));
+        if let Some(delay) = self
+            .mascot
+            .update(&sources, mascot_visible, now, self.mascot_policy())
+        {
+            context.request_repaint_after(delay);
+        }
         if self.preferences.mascot_enabled && !prompt_active {
-            let policy = if self.preferences.motion_off || self.preferences.mascot_motion == "Off" {
-                crate::core::mascot::MotionPolicy::Off
-            } else if self.preferences.reduced_motion || self.preferences.mascot_motion == "Reduced"
-            {
-                crate::core::mascot::MotionPolicy::Reduced
-            } else {
-                crate::core::mascot::MotionPolicy::Full
-            };
             available_views.insert(
                 0,
                 Arc::new(
                     self.mascot
-                        .compact_slot(f32::from(self.preferences.mascot_size), policy),
+                        .compact_slot(f32::from(self.preferences.mascot_size)),
                 ),
             );
-        }
-        if mascot_visible {
-            if let Some(wake) = self.mascot.next_wake() {
-                context.request_repaint_after(wake.saturating_duration_since(now));
-            }
         }
         let mut compact_views = compact_layout::measure_views(
             context,
@@ -1104,153 +1088,6 @@ impl eframe::App for IslandApp {
         if let Some(wake) = wake {
             context.request_repaint_after(wake.saturating_duration_since(Instant::now()));
         }
-    }
-}
-
-impl IslandApp {
-    fn poll_unlock_task(&mut self, context: &egui::Context) {
-        let Some(receiver) = self.unlock_task.as_ref() else {
-            return;
-        };
-        match receiver.try_recv() {
-            Ok(Ok(())) => {
-                self.unlock_task = None;
-                self.unlock_in_progress = false;
-                self.unlock_password.clear();
-                self.unlock_error = false;
-                self.unlock_error_at = None;
-                self.state.begin_unlock_transition(270.0);
-                context.request_repaint();
-            }
-            Ok(Err(_)) | Err(TryRecvError::Disconnected) => {
-                self.unlock_task = None;
-                self.unlock_in_progress = false;
-                self.unlock_error = true;
-                self.unlock_error_at = Some(Instant::now());
-                context.request_repaint();
-            }
-            Err(TryRecvError::Empty) => {}
-        }
-    }
-
-    fn show_unlock_capsule(&mut self, context: &egui::Context) {
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show(context, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(8.0);
-                    let width = 270.0;
-                    let height = compact_layout::CAPSULE_HEIGHT;
-                    let (base_rect, _) =
-                        ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
-                    let mut rect = base_rect;
-                    if let Some(start) = self.unlock_error_at {
-                        let elapsed = Instant::now().duration_since(start).as_secs_f32();
-                        let progress = (elapsed / 0.6).clamp(0.0, 1.0);
-                        if progress < 1.0 {
-                            rect = base_rect.translate(egui::vec2(
-                                (1.0 - progress) * 9.0 * (elapsed * 42.0).sin(),
-                                0.0,
-                            ));
-                            context.request_repaint_after(Duration::from_millis(16));
-                        } else {
-                            self.unlock_error_at = None;
-                        }
-                    }
-                    let fill = ui.visuals().panel_fill;
-                    ui.painter().rect_filled(rect, height * 0.5, fill);
-                    ui.painter().rect_stroke(
-                        rect,
-                        height * 0.5,
-                        egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 76)),
-                        egui::StrokeKind::Inside,
-                    );
-                    let mascot_rect = egui::Rect::from_min_size(
-                        egui::pos2(rect.left() + 10.0, rect.top() + 5.0),
-                        egui::vec2(38.0, 38.0),
-                    );
-                    let mascot = self
-                        .mascot
-                        .compact_slot(36.0, crate::core::mascot::MotionPolicy::Off);
-                    let _ = crate::ui::renderer::show_compact(
-                        ui,
-                        mascot_rect,
-                        &mascot.id,
-                        &mascot.content,
-                        &self.icons,
-                        1.0,
-                    );
-                    let input_rect = egui::Rect::from_min_size(
-                        egui::pos2(rect.left() + 54.0, rect.top() + 11.0),
-                        egui::vec2(130.0, 22.0),
-                    );
-                    ui.painter()
-                        .rect_filled(input_rect, 5.0, ui.visuals().extreme_bg_color);
-                    let response = ui.put(
-                        input_rect,
-                        egui::TextEdit::singleline(&mut self.unlock_password)
-                            .password(true)
-                            .font(egui::FontId::proportional(12.0))
-                            .frame(false)
-                            .hint_text("输入密码解锁"),
-                    );
-                    if response.changed() {
-                        self.unlock_error = false;
-                        self.unlock_error_at = None;
-                    }
-                    if self.unlock_error {
-                        ui.painter().rect_stroke(
-                            input_rect.expand(1.5),
-                            6.0,
-                            egui::Stroke::new(2.5, egui::Color32::from_rgb(255, 55, 72)),
-                            egui::StrokeKind::Inside,
-                        );
-                    }
-                    if self.unlock_password.is_empty() {
-                        response.request_focus();
-                    }
-                    let confirm = egui::Rect::from_min_size(
-                        egui::pos2(rect.left() + 192.0, rect.top() + 11.0),
-                        egui::vec2(44.0, 22.0),
-                    );
-                    let confirm_response = ui.put(
-                        confirm,
-                        egui::Button::new(if self.unlock_in_progress {
-                            egui::RichText::new("")
-                        } else {
-                            egui::RichText::new("确认").size(12.0)
-                        }),
-                    );
-                    if self.unlock_in_progress {
-                        let mut spinner = ui.new_child(
-                            egui::UiBuilder::new()
-                                .id_salt("vault-unlock-spinner")
-                                .max_rect(confirm),
-                        );
-                        spinner.centered_and_justified(|ui| {
-                            ui.add(egui::Spinner::new().size(13.0));
-                        });
-                        context.request_repaint_after(Duration::from_millis(16));
-                    }
-                    if (confirm_response.clicked()
-                        || (response.lost_focus()
-                            && context.input(|input| input.key_pressed(egui::Key::Enter))))
-                        && !self.unlock_in_progress
-                    {
-                        let password = self.unlock_password.clone();
-                        let store = self.secret_store.clone();
-                        let (sender, receiver) = mpsc::channel();
-                        self.unlock_task = Some(receiver);
-                        self.unlock_in_progress = true;
-                        self.unlock_error = false;
-                        self.unlock_error_at = None;
-                        std::thread::spawn(move || {
-                            let result = store.unlock(&password).map_err(|error| error.to_string());
-                            let _ = sender.send(result);
-                        });
-                    }
-                });
-            });
     }
 }
 

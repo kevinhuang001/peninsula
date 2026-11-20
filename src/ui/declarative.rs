@@ -431,6 +431,8 @@ pub struct ViewNode {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Node {
+    #[serde(skip)]
+    CoreMascot(crate::core::mascot::MascotPose),
     Compact(Box<Compact>),
     Motion {
         motion: Box<Motion>,

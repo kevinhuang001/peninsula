@@ -195,9 +195,23 @@ impl RuntimeExtension for PomodoroExtension {
     fn mascot_expressions(&self) -> Vec<crate::core::mascot::MascotExpression> {
         use crate::core::mascot::MascotExpression as E;
         vec![
-            E::state("focusing", "phase", "focus", 9),
-            E::state("resting", "phase", "break", 10),
-            E::event("celebrating", "timer.completed", 3),
+            E::state(
+                "focusing",
+                "phase",
+                "focus",
+                crate::core::mascot::MascotMotion::Focused,
+            ),
+            E::state(
+                "resting",
+                "phase",
+                "break",
+                crate::core::mascot::MascotMotion::Sleepy,
+            ),
+            E::event(
+                "celebrating",
+                "timer.completed",
+                crate::core::mascot::MascotMotion::Celebrate,
+            ),
         ]
     }
     fn widget_view(&self, widget_id: &ExtensionId) -> Option<WidgetView> {

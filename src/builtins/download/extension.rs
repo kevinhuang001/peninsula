@@ -90,7 +90,7 @@ impl RuntimeExtension for DownloadExtension {
         vec![crate::core::mascot::MascotExpression::event(
             "happy",
             "download.completed",
-            3,
+            crate::core::mascot::MascotMotion::Celebrate,
         )]
     }
     fn on_start(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {

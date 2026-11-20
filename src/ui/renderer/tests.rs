@@ -914,15 +914,21 @@ fn motion_transforms_paint_without_moving_compact_regions_and_reduced_motion_is_
 fn sprite_uses_atlas_frames_and_respects_the_reduced_motion_preference() {
     let ctx = egui::Context::default();
     let icons = Icons::load(&ctx);
+    let atlas = ctx.load_texture(
+        "test.sprite-atlas",
+        egui::ColorImage::new([16, 256], Color32::WHITE),
+        egui::TextureOptions::NEAREST,
+    );
+    register_image(&ctx, "test.sprite-atlas", atlas);
     let node = ViewNode::new(Node::SpriteSequence(SpriteSequence {
         frames: vec![
             SpriteFrame {
-                asset: "mascot/wink".into(),
+                asset: "test.sprite-atlas".into(),
                 duration_ms: 100,
                 uv: [0.0, 0.0, 1.0, 0.0625],
             },
             SpriteFrame {
-                asset: "mascot/wink".into(),
+                asset: "test.sprite-atlas".into(),
                 duration_ms: 100,
                 uv: [0.0, 0.0625, 1.0, 0.125],
             },

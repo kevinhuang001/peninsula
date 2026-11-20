@@ -96,7 +96,12 @@ impl RuntimeExtension for BatteryExtension {
         [("charging".into(), self.snapshot.charging.to_string())].into()
     }
     fn mascot_expressions(&self) -> Vec<MascotExpression> {
-        vec![MascotExpression::state("charging", "charging", "true", 6)]
+        vec![MascotExpression::state(
+            "charging",
+            "charging",
+            "true",
+            crate::core::mascot::MascotMotion::Charging,
+        )]
     }
 }
 fn battery_compact(metrics: &PowerSnapshot) -> ViewNode {

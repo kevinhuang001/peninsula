@@ -342,7 +342,7 @@ impl SettingsView {
         if self.secret_keys.is_empty() {
             egui::Frame::new()
                 .fill(ROW)
-                .stroke(Stroke::new(1.0, BORDER))
+                .stroke(Stroke::new(1.0_f32, BORDER))
                 .corner_radius(9.0)
                 .inner_margin(egui::Margin::symmetric(16, 22))
                 .show(ui, |ui| {
@@ -367,7 +367,7 @@ impl SettingsView {
         for key in self.secret_keys.clone() {
             egui::Frame::new()
                 .fill(ROW)
-                .stroke(Stroke::new(1.0, BORDER))
+                .stroke(Stroke::new(1.0_f32, BORDER))
                 .corner_radius(9.0)
                 .inner_margin(egui::Margin::symmetric(11, 8))
                 .show(ui, |ui| {
@@ -468,7 +468,7 @@ impl SettingsView {
         ui.painter().rect_stroke(
             card,
             12.0,
-            Stroke::new(1.0, BORDER),
+            Stroke::new(1.0_f32, BORDER),
             egui::StrokeKind::Inside,
         );
         let mut editor = child(ui, card.shrink(14.0), "secret-encryption-editor");
@@ -485,7 +485,7 @@ impl SettingsView {
         );
         editor.add_space(8.0);
         let input_stroke = if error_active {
-            Stroke::new(3.0, Color32::from_rgb(255, 55, 72))
+            Stroke::new(3.0_f32, Color32::from_rgb(255, 55, 72))
         } else {
             Stroke::NONE
         };
@@ -624,7 +624,7 @@ impl SettingsView {
         ui.painter().rect_stroke(
             dialog,
             12.0,
-            Stroke::new(1.0, BORDER),
+            Stroke::new(1.0_f32, BORDER),
             egui::StrokeKind::Inside,
         );
         let mut editor = child(ui, dialog.shrink(16.0), "secret-editor");

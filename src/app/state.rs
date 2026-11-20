@@ -40,6 +40,8 @@ impl Default for IslandState {
 impl IslandState {
     pub fn begin_unlock_transition(&mut self, compact_width: f32) {
         self.expanded = false;
+        self.hover_elapsed = 0.0;
+        self.suppress_hover_until_exit = true;
         self.compact_width = compact_width;
         self.width = Spring::new(compact_width);
         self.height = Spring::new(0.0);

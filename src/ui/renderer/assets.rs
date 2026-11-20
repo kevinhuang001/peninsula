@@ -7,26 +7,7 @@ pub(super) fn image_id(asset: &str) -> Id {
 }
 
 pub(super) fn image(ui: &Ui, asset: &str) -> Option<TextureHandle> {
-    if let Some(texture) = ui.data(|data| data.get_temp(image_id(asset))) {
-        return Some(texture);
-    }
-    let bytes = ui.data(|data| data.get_temp::<&'static [u8]>(Id::new(("widget-png", asset))))?;
-    let decoded = ::image::load_from_memory_with_format(bytes, ::image::ImageFormat::Png)
-        .ok()?
-        .into_rgba8();
-    let pixels = egui::ColorImage::from_rgba_unmultiplied(
-        [decoded.width() as usize, decoded.height() as usize],
-        decoded.as_raw(),
-    );
-    let texture = ui
-        .ctx()
-        .load_texture(asset, pixels, egui::TextureOptions::LINEAR);
-    super::register_image(ui.ctx(), asset, texture.clone());
-    Some(texture)
-}
-
-pub(crate) fn register_png(ctx: &egui::Context, asset: &str, bytes: &'static [u8]) {
-    ctx.data_mut(|data| data.insert_temp(Id::new(("widget-png", asset)), bytes));
+    ui.data(|data| data.get_temp(image_id(asset)))
 }
 
 /// Resource registration is host-side. View descriptors reference catalog keys.

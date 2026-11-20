@@ -29,7 +29,7 @@ fn surface(ui: &egui::Ui) -> egui::Frame {
     };
     egui::Frame::new()
         .fill(fill)
-        .stroke(Stroke::new(1.0, border))
+        .stroke(Stroke::new(1.0_f32, border))
         .corner_radius(12.0)
         .inner_margin(egui::Margin::same(16))
 }
@@ -446,7 +446,7 @@ impl DataSourceWindow {
                     ui.painter().rect_stroke(
                         rect,
                         8.0,
-                        Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+                        Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
                         egui::StrokeKind::Inside,
                     );
                     if let Some(icon) = manager.icon_texture(&source.id) {
@@ -576,12 +576,15 @@ impl DataSourceWindow {
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
     ) {
-        let secret_hint = source
+        let secret_hint = if source
             .input_schema
             .values()
             .any(|schema| schema.kind == InputType::String)
-            .then_some("字符串参数可使用 $secret$ 引用「秘密」中的 Secret")
-            .unwrap_or("");
+        {
+            "字符串参数可使用 $secret$ 引用「秘密」中的 Secret"
+        } else {
+            ""
+        };
         section_title(ui, "参数", secret_hint);
         if source.input_schema.is_empty() {
             ui.label("此数据源没有用户参数。");

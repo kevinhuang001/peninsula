@@ -115,7 +115,7 @@ impl RuntimeExtension for MusicExtension {
             "listening",
             "playing",
             "true",
-            7,
+            crate::core::mascot::MascotMotion::Listening,
         )]
     }
     fn on_start(&mut self, _context: &ExtensionContext) -> Result<(), String> {

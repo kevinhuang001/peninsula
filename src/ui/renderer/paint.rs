@@ -711,6 +711,11 @@ impl Renderer<'_> {
                     paint_image(ui, &painter, asset, rect, opacity);
                 }
             }
+            Node::CoreMascot(pose) => {
+                let mut mascot_painter = painter.with_clip_rect(rect);
+                mascot_painter.multiply_opacity(opacity);
+                crate::core::mascot::paint(&mascot_painter, rect, *pose, ui.visuals().dark_mode);
+            }
             Node::SpriteSequence(spec) => {
                 let index = self.sprite_index(ui, id, spec);
                 if let Some(frame) = spec.frames.get(index) {
