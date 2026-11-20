@@ -993,13 +993,22 @@ impl DataSourceWindow {
                     import_badge(ui);
                     ui.add_space(2.0);
                     ui.vertical(|ui| {
-                        ui.label(RichText::new(&candidate.name).size(19.0).strong());
+                        ui.add(
+                            egui::Label::new(RichText::new(&candidate.name).size(19.0).strong())
+                                .truncate(),
+                        )
+                        .on_hover_text(&candidate.name);
                         ui.add_space(1.0);
-                        ui.label(
-                            RichText::new(format!("ID  {}", candidate.id))
-                                .size(10.5)
-                                .color(ui.visuals().weak_text_color()),
-                        );
+                        let id = format!("ID  {}", candidate.id);
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(&id)
+                                    .size(10.5)
+                                    .color(ui.visuals().weak_text_color()),
+                            )
+                            .truncate(),
+                        )
+                        .on_hover_text(&candidate.id);
                     });
                 });
 
@@ -1008,12 +1017,16 @@ impl DataSourceWindow {
                     ui.set_width(card_width);
                     ui.label(RichText::new("请求目标").size(10.0).weak());
                     ui.add_space(2.0);
-                    ui.label(
-                        RichText::new(&origin)
-                            .monospace()
-                            .size(12.0)
-                            .color(accent(ui)),
-                    );
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(&origin)
+                                .monospace()
+                                .size(12.0)
+                                .color(accent(ui)),
+                        )
+                        .truncate(),
+                    )
+                    .on_hover_text(&origin);
                     ui.add_space(8.0);
                     ui.separator();
                     ui.add_space(8.0);
@@ -1027,8 +1040,9 @@ impl DataSourceWindow {
                         egui::Label::new(
                             RichText::new(&candidate.request.url).monospace().size(11.0),
                         )
-                        .wrap(),
-                    );
+                        .truncate(),
+                    )
+                    .on_hover_text(&candidate.request.url);
                 });
 
                 ui.add_space(2.0);
