@@ -362,217 +362,238 @@ impl DataSourceWindow {
         }
         .min(source.input_schema.len());
 
-        ui.columns(columns_count, |columns| {
-            for (index, (key, schema)) in source.input_schema.iter().enumerate() {
-                let column = &mut columns[index % columns_count];
-                let current = source
-                    .inputs
-                    .get(key)
-                    .cloned()
-                    .or_else(|| schema.default.clone())
-                    .unwrap_or(Value::Null);
-                let draft_id = format!("{}::{key}", source.id);
-                let secret_exists = (schema.kind == InputType::Secret).then(|| {
-                    self.secret_status
-                        .get(&draft_id)
+        let spacing = 10.0;
+        let card_width = ((ui.available_width() - spacing * (columns_count - 1) as f32)
+            / columns_count as f32)
+            .max(220.0);
+        egui::Grid::new(("datasource-input-cards", &source.id))
+            .num_columns(columns_count)
+            .spacing([spacing, spacing])
+            .show(ui, |ui| {
+                for (index, (key, schema)) in source.input_schema.iter().enumerate() {
+                    let current = source
+                        .inputs
+                        .get(key)
                         .cloned()
-                        .unwrap_or_else(|| {
-                            let result = manager.secret_exists(secrets, &source.id, key);
-                            self.secret_status.insert(draft_id.clone(), result.clone());
-                            result
-                        })
-                });
-                let mut input_update = None;
-                let mut save_secret = None;
-                let mut clear_secret = false;
-                let mut set_secret_ref = None;
-                let mut invalid_number = false;
+                        .or_else(|| schema.default.clone())
+                        .unwrap_or(Value::Null);
+                    let draft_id = format!("{}::{key}", source.id);
+                    let secret_exists = (schema.kind == InputType::Secret).then(|| {
+                        self.secret_status
+                            .get(&draft_id)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                let result = manager.secret_exists(secrets, &source.id, key);
+                                self.secret_status.insert(draft_id.clone(), result.clone());
+                                result
+                            })
+                    });
+                    let mut input_update = None;
+                    let mut save_secret = None;
+                    let mut clear_secret = false;
+                    let mut set_secret_ref = None;
+                    let mut invalid_number = false;
 
-                egui::Frame::group(column.style())
-                    .inner_margin(egui::Margin::same(12))
-                    .show(column, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(&schema.label).strong());
-                            if schema.required {
-                                ui.label(egui::RichText::new("必填").small().weak());
-                            }
-                        });
-                        if !schema.description.is_empty() {
-                            ui.add_space(2.0);
-                            ui.label(egui::RichText::new(&schema.description).small().weak());
-                        }
-                        ui.add_space(8.0);
-
-                        match schema.kind {
-                            InputType::Secret => {
-                                let exists = secret_exists.as_ref().expect("Secret state was read");
-                                ui.label(
-                                    egui::RichText::new(match exists {
-                                        Ok(true) => "已保存到系统凭证存储",
-                                        Ok(false) => "尚未填写",
-                                        Err(_) => "凭证存储暂不可用",
-                                    })
-                                    .small()
-                                    .weak(),
-                                );
-                                let draft = self.secret_drafts.entry(draft_id.clone()).or_default();
-                                ui.add_sized(
-                                    [ui.available_width(), 30.0],
-                                    egui::TextEdit::singleline(draft)
-                                        .password(true)
-                                        .hint_text("输入后保存"),
-                                );
-                                ui.horizontal_wrapped(|ui| {
-                                    if ui.small_button("保存 Secret").clicked() {
-                                        save_secret = Some(draft.clone());
-                                    }
-                                    if matches!(exists, Ok(true))
-                                        && ui.small_button("清除").clicked()
-                                    {
-                                        clear_secret = true;
-                                    }
-                                });
-
-                                let reference = source.secret_refs.get(key).cloned();
-                                let ref_draft = self
-                                    .secret_ref_drafts
-                                    .entry(draft_id.clone())
-                                    .or_insert_with(|| reference.clone().unwrap_or_default());
-                                ui.add_sized(
-                                    [ui.available_width(), 30.0],
-                                    egui::TextEdit::singleline(ref_draft)
-                                        .hint_text("已保存的 Secret 名称"),
-                                );
-                                if reference.as_deref().is_some_and(|value| value == ref_draft) {
-                                    if ui.small_button("解除引用").clicked() {
-                                        set_secret_ref = Some(None);
-                                    }
-                                } else if ui.small_button("引用此 Secret").clicked() {
-                                    set_secret_ref = Some(Some(ref_draft.trim().to_owned()));
+                    egui::Frame::group(ui.style())
+                        .inner_margin(egui::Margin::same(12))
+                        .show(ui, |ui| {
+                            ui.set_width((card_width - 24.0).max(180.0));
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(&schema.label).strong());
+                                if schema.required {
+                                    ui.label(egui::RichText::new("必填").small().weak());
                                 }
+                            });
+                            if !schema.description.is_empty() {
+                                ui.add_space(2.0);
+                                ui.label(egui::RichText::new(&schema.description).small().weak());
                             }
-                            InputType::Boolean => {
-                                let mut value = current.as_bool().unwrap_or(false);
-                                if ui.checkbox(&mut value, "开启").changed() {
-                                    input_update = Some(Value::Bool(value));
-                                }
-                            }
-                            InputType::Enum => {
-                                let mut value = current.as_str().unwrap_or("").to_owned();
-                                egui::ComboBox::from_id_salt((&source.id, key))
-                                    .selected_text(if value.is_empty() {
-                                        "选择…"
-                                    } else {
-                                        &value
-                                    })
-                                    .show_ui(ui, |ui| {
-                                        for option in &schema.options {
-                                            ui.selectable_value(&mut value, option.clone(), option);
+                            ui.add_space(8.0);
+
+                            match schema.kind {
+                                InputType::Secret => {
+                                    let exists =
+                                        secret_exists.as_ref().expect("Secret state was read");
+                                    ui.label(
+                                        egui::RichText::new(match exists {
+                                            Ok(true) => "已保存到系统凭证存储",
+                                            Ok(false) => "尚未填写",
+                                            Err(_) => "凭证存储暂不可用",
+                                        })
+                                        .small()
+                                        .weak(),
+                                    );
+                                    let draft =
+                                        self.secret_drafts.entry(draft_id.clone()).or_default();
+                                    ui.add_sized(
+                                        [ui.available_width(), 30.0],
+                                        egui::TextEdit::singleline(draft)
+                                            .password(true)
+                                            .hint_text("输入后保存"),
+                                    );
+                                    ui.horizontal_wrapped(|ui| {
+                                        if ui.small_button("保存 Secret").clicked() {
+                                            save_secret = Some(draft.clone());
+                                        }
+                                        if matches!(exists, Ok(true))
+                                            && ui.small_button("清除").clicked()
+                                        {
+                                            clear_secret = true;
                                         }
                                     });
-                                if value != current.as_str().unwrap_or("") {
-                                    input_update = Some(Value::String(value));
-                                }
-                            }
-                            InputType::String
-                            | InputType::Number
-                            | InputType::Integer
-                            | InputType::Duration => {
-                                let initial = match schema.kind {
-                                    InputType::String | InputType::Duration => {
-                                        current.as_str().map(str::to_owned).unwrap_or_default()
-                                    }
-                                    _ => current
-                                        .as_number()
-                                        .map(ToString::to_string)
-                                        .unwrap_or_default(),
-                                };
-                                let draft = self
-                                    .text_drafts
-                                    .entry(draft_id.clone())
-                                    .or_insert_with(|| initial.clone());
-                                let response = ui.add_sized(
-                                    [ui.available_width(), 30.0],
-                                    egui::TextEdit::singleline(draft),
-                                );
-                                if response.changed() && schema.kind == InputType::String {
-                                    input_update = Some(Value::String(draft.clone()));
-                                }
-                                let commit = response.lost_focus()
-                                    || (response.has_focus()
-                                        && ui.input(|input| input.key_pressed(egui::Key::Enter)));
-                                if commit && draft != &initial && schema.kind != InputType::String {
-                                    let parsed = match schema.kind {
-                                        InputType::Number => draft
-                                            .parse::<f64>()
-                                            .ok()
-                                            .filter(|value| value.is_finite())
-                                            .map(Value::from),
-                                        InputType::Integer => {
-                                            draft.parse::<i64>().ok().map(Value::from)
-                                        }
-                                        InputType::Duration
-                                            if datasource::parse_duration(draft).is_ok() =>
-                                        {
-                                            Some(Value::String(draft.clone()))
-                                        }
-                                        _ => None,
-                                    };
-                                    if let Some(value) = parsed {
-                                        input_update = Some(value);
-                                    } else {
-                                        invalid_number = true;
-                                    }
-                                }
-                            }
-                        }
-                    });
 
-                if let Some(value) = input_update {
-                    self.set_status(manager.set_input(&source.id, key, value));
-                }
-                if let Some(value) = save_secret {
-                    match manager.set_secret(secrets, &source.id, key, &value) {
-                        Ok(()) => {
-                            if let Some(draft) = self.secret_drafts.get_mut(&draft_id) {
-                                draft.clear();
+                                    let reference = source.secret_refs.get(key).cloned();
+                                    let ref_draft = self
+                                        .secret_ref_drafts
+                                        .entry(draft_id.clone())
+                                        .or_insert_with(|| reference.clone().unwrap_or_default());
+                                    ui.add_sized(
+                                        [ui.available_width(), 30.0],
+                                        egui::TextEdit::singleline(ref_draft)
+                                            .hint_text("已保存的 Secret 名称"),
+                                    );
+                                    if reference.as_deref().is_some_and(|value| value == ref_draft)
+                                    {
+                                        if ui.small_button("解除引用").clicked() {
+                                            set_secret_ref = Some(None);
+                                        }
+                                    } else if ui.small_button("引用此 Secret").clicked() {
+                                        set_secret_ref = Some(Some(ref_draft.trim().to_owned()));
+                                    }
+                                }
+                                InputType::Boolean => {
+                                    let mut value = current.as_bool().unwrap_or(false);
+                                    if ui.checkbox(&mut value, "开启").changed() {
+                                        input_update = Some(Value::Bool(value));
+                                    }
+                                }
+                                InputType::Enum => {
+                                    let mut value = current.as_str().unwrap_or("").to_owned();
+                                    egui::ComboBox::from_id_salt((&source.id, key))
+                                        .selected_text(if value.is_empty() {
+                                            "选择…"
+                                        } else {
+                                            &value
+                                        })
+                                        .show_ui(ui, |ui| {
+                                            for option in &schema.options {
+                                                ui.selectable_value(
+                                                    &mut value,
+                                                    option.clone(),
+                                                    option,
+                                                );
+                                            }
+                                        });
+                                    if value != current.as_str().unwrap_or("") {
+                                        input_update = Some(Value::String(value));
+                                    }
+                                }
+                                InputType::String
+                                | InputType::Number
+                                | InputType::Integer
+                                | InputType::Duration => {
+                                    let initial = match schema.kind {
+                                        InputType::String | InputType::Duration => {
+                                            current.as_str().map(str::to_owned).unwrap_or_default()
+                                        }
+                                        _ => current
+                                            .as_number()
+                                            .map(ToString::to_string)
+                                            .unwrap_or_default(),
+                                    };
+                                    let draft = self
+                                        .text_drafts
+                                        .entry(draft_id.clone())
+                                        .or_insert_with(|| initial.clone());
+                                    let response = ui.add_sized(
+                                        [ui.available_width(), 30.0],
+                                        egui::TextEdit::singleline(draft),
+                                    );
+                                    if response.changed() && schema.kind == InputType::String {
+                                        input_update = Some(Value::String(draft.clone()));
+                                    }
+                                    let commit = response.lost_focus()
+                                        || (response.has_focus()
+                                            && ui.input(|input| {
+                                                input.key_pressed(egui::Key::Enter)
+                                            }));
+                                    if commit
+                                        && draft != &initial
+                                        && schema.kind != InputType::String
+                                    {
+                                        let parsed = match schema.kind {
+                                            InputType::Number => draft
+                                                .parse::<f64>()
+                                                .ok()
+                                                .filter(|value| value.is_finite())
+                                                .map(Value::from),
+                                            InputType::Integer => {
+                                                draft.parse::<i64>().ok().map(Value::from)
+                                            }
+                                            InputType::Duration
+                                                if datasource::parse_duration(draft).is_ok() =>
+                                            {
+                                                Some(Value::String(draft.clone()))
+                                            }
+                                            _ => None,
+                                        };
+                                        if let Some(value) = parsed {
+                                            input_update = Some(value);
+                                        } else {
+                                            invalid_number = true;
+                                        }
+                                    }
+                                }
                             }
-                            self.secret_status.insert(draft_id.clone(), Ok(true));
-                            self.status = "Secret 已保存到 Peninsula 凭证存储。".into();
+                        });
+
+                    if let Some(value) = input_update {
+                        self.set_status(manager.set_input(&source.id, key, value));
+                    }
+                    if let Some(value) = save_secret {
+                        match manager.set_secret(secrets, &source.id, key, &value) {
+                            Ok(()) => {
+                                if let Some(draft) = self.secret_drafts.get_mut(&draft_id) {
+                                    draft.clear();
+                                }
+                                self.secret_status.insert(draft_id.clone(), Ok(true));
+                                self.status = "Secret 已保存到 Peninsula 凭证存储。".into();
+                                let _ = manager.request_now(&source.id);
+                            }
+                            Err(error) => self.status = error,
+                        }
+                    }
+                    if clear_secret {
+                        match manager.delete_secret(secrets, &source.id, key) {
+                            Ok(()) => {
+                                self.secret_status.insert(draft_id.clone(), Ok(false));
+                                self.status = "Secret 已清除。".into();
+                            }
+                            Err(error) => self.status = error,
+                        }
+                    }
+                    if let Some(reference) = set_secret_ref {
+                        let result = manager.set_secret_reference(
+                            secrets,
+                            &source.id,
+                            key,
+                            reference.as_deref(),
+                        );
+                        let saved = result.is_ok();
+                        self.set_status(result);
+                        self.secret_status.remove(&draft_id);
+                        if saved {
                             let _ = manager.request_now(&source.id);
                         }
-                        Err(error) => self.status = error,
+                    }
+                    if invalid_number {
+                        self.status = format!("{} 的格式或范围无效。", schema.label);
+                    }
+                    if (index + 1) % columns_count == 0 {
+                        ui.end_row();
                     }
                 }
-                if clear_secret {
-                    match manager.delete_secret(secrets, &source.id, key) {
-                        Ok(()) => {
-                            self.secret_status.insert(draft_id.clone(), Ok(false));
-                            self.status = "Secret 已清除。".into();
-                        }
-                        Err(error) => self.status = error,
-                    }
-                }
-                if let Some(reference) = set_secret_ref {
-                    let result = manager.set_secret_reference(
-                        secrets,
-                        &source.id,
-                        key,
-                        reference.as_deref(),
-                    );
-                    let saved = result.is_ok();
-                    self.set_status(result);
-                    self.secret_status.remove(&draft_id);
-                    if saved {
-                        let _ = manager.request_now(&source.id);
-                    }
-                }
-                if invalid_number {
-                    self.status = format!("{} 的格式或范围无效。", schema.label);
-                }
-                column.add_space(8.0);
-            }
-        });
+            });
     }
 
     fn status_panel(
