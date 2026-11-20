@@ -658,10 +658,18 @@ impl DataSourceManager {
         validate_runtime_input(input, &value)?;
         let previous = source.config.inputs.insert(key.to_owned(), value);
         let previous_next_refresh = source.next_refresh;
+        let previous_force_refresh = source.force_refresh;
+        let previous_retry_at = source.state.retry_at_ms;
+        let previous_retry_count = source.retry_count;
         source.generation = source.generation.wrapping_add(1);
         if let Some(token) = &source.cancellation {
             token.cancel();
         }
+        // A user edit should refresh immediately and drop any backoff caused by the previous
+        // value, such as the "required parameter is empty" preflight failure.
+        source.force_refresh = true;
+        source.state.retry_at_ms = None;
+        source.retry_count = 0;
         source.next_refresh = Instant::now();
         if let Err(error) = self.save_all() {
             if let Some(source) = self.sources.get_mut(id) {
@@ -671,6 +679,9 @@ impl DataSourceManager {
                     source.config.inputs.remove(key);
                 }
                 source.next_refresh = previous_next_refresh;
+                source.force_refresh = previous_force_refresh;
+                source.state.retry_at_ms = previous_retry_at;
+                source.retry_count = previous_retry_count;
             }
             return Err(error);
         }
@@ -829,20 +840,24 @@ impl DataSourceManager {
             if !source.config.enabled {
                 return Err("数据源已停用".into());
             }
-            if source
-                .last_request
-                .is_some_and(|last| last.elapsed() < schema::MIN_REFRESH)
-            {
-                source.next_refresh = now + schema::MIN_REFRESH;
-                source.force_refresh = false;
-                return Err("请求频率受限，至少间隔 30 秒".into());
-            }
-            if let Some(last) = source.state.last_request_ms {
-                let wait_ms = minimum_request_wait_ms(last, now_ms);
-                if wait_ms > 0 {
-                    source.next_refresh = now + Duration::from_millis(wait_ms);
+            // Explicit parameter edits refresh immediately and may skip the local 30 s
+            // rate limit; scheduled refreshes still respect it.
+            if !source.force_refresh {
+                if source
+                    .last_request
+                    .is_some_and(|last| last.elapsed() < schema::MIN_REFRESH)
+                {
+                    source.next_refresh = now + schema::MIN_REFRESH;
                     source.force_refresh = false;
                     return Err("请求频率受限，至少间隔 30 秒".into());
+                }
+                if let Some(last) = source.state.last_request_ms {
+                    let wait_ms = minimum_request_wait_ms(last, now_ms);
+                    if wait_ms > 0 {
+                        source.next_refresh = now + Duration::from_millis(wait_ms);
+                        source.force_refresh = false;
+                        return Err("请求频率受限，至少间隔 30 秒".into());
+                    }
                 }
             }
             if let Some(retry_at) = source.state.retry_at_ms {
@@ -1926,6 +1941,37 @@ mod tests {
         };
         let error = validate_icon_data(&icon).unwrap_err();
         assert!(error.contains("<text>"), "{error}");
+    }
+
+    #[test]
+    fn editing_an_input_requests_an_immediate_refresh() {
+        let root = tempfile::tempdir().unwrap();
+        let mut manager = DataSourceManager::open(root.path());
+        manager.import(definition(), false).unwrap();
+        {
+            let source = manager
+                .sources
+                .get_mut("open-meteo-shanghai-temperature")
+                .unwrap();
+            source.state.retry_at_ms = Some(u64::MAX);
+            source.retry_count = 3;
+            source.next_refresh = Instant::now() + Duration::from_secs(300);
+        }
+        manager
+            .set_input(
+                "open-meteo-shanghai-temperature",
+                "alert_threshold",
+                Value::from(12),
+            )
+            .unwrap();
+        let source = manager
+            .sources
+            .get("open-meteo-shanghai-temperature")
+            .unwrap();
+        assert!(source.force_refresh);
+        assert!(source.state.retry_at_ms.is_none());
+        assert_eq!(source.retry_count, 0);
+        assert!(source.next_refresh <= Instant::now());
     }
 
     #[test]

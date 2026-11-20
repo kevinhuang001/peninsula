@@ -593,23 +593,23 @@ impl DataSourceWindow {
                                     .text_drafts
                                     .entry(draft_id.clone())
                                     .or_insert_with(|| initial.clone());
-                                let mut editor = egui::TextEdit::singleline(draft);
-                                if schema.kind == InputType::String {
-                                    editor = editor.hint_text("明文，或 $名称$");
-                                }
+                                let editor = egui::TextEdit::singleline(draft);
                                 ui.add_space((ui.available_width() - 220.0).max(0.0));
                                 let response = ui.add_sized(
                                     [ui.available_width().min(220.0), 28.0],
                                     editor.horizontal_align(Align::RIGHT),
                                 );
-                                if response.changed() && schema.kind == InputType::String {
-                                    input_update = Some(Value::String(draft.clone()));
-                                }
+                                let response = if schema.kind == InputType::String {
+                                    response.on_hover_text("可填明文，或用 $名称$ 引用「秘密」条目")
+                                } else {
+                                    response
+                                };
                                 let commit = response.lost_focus()
                                     || (response.has_focus()
                                         && ui.input(|input| input.key_pressed(egui::Key::Enter)));
-                                if commit && draft != &initial && schema.kind != InputType::String {
+                                if commit && draft != &initial {
                                     let parsed = match schema.kind {
+                                        InputType::String => Some(Value::String(draft.clone())),
                                         InputType::Number => draft
                                             .parse::<f64>()
                                             .ok()
@@ -630,15 +630,6 @@ impl DataSourceWindow {
                                     } else {
                                         invalid_number = true;
                                     }
-                                }
-                                if schema.kind == InputType::String {
-                                    ui.label(
-                                        egui::RichText::new(
-                                            "明文会保存在本机；用 $名称$ 可引用「秘密」页的条目。",
-                                        )
-                                        .small()
-                                        .weak(),
-                                    );
                                 }
                             }
                         }
