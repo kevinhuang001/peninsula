@@ -327,34 +327,36 @@ impl DataSourceWindow {
         {
             self.selected = sources.first().map(|source| source.id.clone());
         }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let can_refresh = self.selected.as_ref().is_some_and(|id| {
-                sources
-                    .iter()
-                    .any(|source| &source.id == id && source.enabled)
-            });
-            let refreshing = self.selected.as_ref().is_some_and(|id| {
-                sources
-                    .iter()
-                    .any(|source| &source.id == id && source.in_flight)
-            });
-            if ui
-                .add_enabled(
-                    can_refresh,
-                    egui::Button::new(if refreshing {
-                        "刷新中…"
-                    } else {
-                        "↻  刷新"
-                    })
-                    .min_size(Vec2::new(96.0, 32.0)),
-                )
-                .on_hover_text("立即刷新当前数据源")
-                .clicked()
-            {
-                if let Some(id) = self.selected.clone() {
-                    self.set_source_status(&id, manager.refresh_now(&id));
+        ui.horizontal(|ui| {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let can_refresh = self.selected.as_ref().is_some_and(|id| {
+                    sources
+                        .iter()
+                        .any(|source| &source.id == id && source.enabled)
+                });
+                let refreshing = self.selected.as_ref().is_some_and(|id| {
+                    sources
+                        .iter()
+                        .any(|source| &source.id == id && source.in_flight)
+                });
+                if ui
+                    .add_enabled(
+                        can_refresh,
+                        egui::Button::new(if refreshing {
+                            "刷新中…"
+                        } else {
+                            "↻  刷新"
+                        })
+                        .min_size(Vec2::new(96.0, 32.0)),
+                    )
+                    .on_hover_text("立即刷新当前数据源")
+                    .clicked()
+                {
+                    if let Some(id) = self.selected.clone() {
+                        self.set_source_status(&id, manager.refresh_now(&id));
+                    }
                 }
-            }
+            });
         });
         ui.add_space(12.0);
         if let Some(error) = manager.storage_error() {

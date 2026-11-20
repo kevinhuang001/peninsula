@@ -76,7 +76,6 @@ struct IslandApp {
     secret_store: crate::sdk::secrets::SecretStore,
     unlock_password: String,
     unlock_error: bool,
-    lock_window_sized: bool,
     scheduler: Scheduler,
     action_dispatcher: ActionDispatcher,
     extensions: ExtensionManager,
@@ -161,7 +160,6 @@ impl IslandApp {
             secret_store,
             unlock_password: String::new(),
             unlock_error: false,
-            lock_window_sized: false,
             scheduler: Scheduler::default(),
             action_dispatcher: ActionDispatcher::default(),
             extensions,
@@ -435,6 +433,7 @@ impl eframe::App for IslandApp {
 
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
         if self.secret_store.is_locked() {
+            self.update_viewport_size(context, 270.0);
             self.show_unlock_capsule(context);
             return;
         }
@@ -1100,16 +1099,9 @@ impl eframe::App for IslandApp {
 
 impl IslandApp {
     fn show_unlock_capsule(&mut self, context: &egui::Context) {
-        let size = egui::vec2(290.0, 64.0);
-        if !self.lock_window_sized {
-            context.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
-            self.window_size = size;
-            self.lock_window_sized = true;
-        }
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(context, |ui| {
-                ui.set_min_size(size);
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
                     let width = 270.0;
@@ -1174,7 +1166,6 @@ impl IslandApp {
                             Ok(()) => {
                                 self.unlock_password.clear();
                                 self.unlock_error = false;
-                                self.lock_window_sized = false;
                                 self.state.begin_unlock_transition(270.0);
                                 context.request_repaint();
                             }
