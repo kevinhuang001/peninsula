@@ -189,6 +189,13 @@ pub struct TableRowMenu {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ContextMenuAction {
+    pub title: String,
+    pub label: String,
+    pub action: Action,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TableColumn {
     pub title: String,
     /// Relative share of the width available for cells.
@@ -531,6 +538,8 @@ pub enum Node {
         action: Action,
         label: String,
         content: Box<ViewNode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context_menu: Option<ContextMenuAction>,
     },
 }
 

@@ -244,6 +244,88 @@ fn table_context_menu_keeps_its_target_when_rows_are_reordered() {
 }
 
 #[test]
+fn sidebar_context_menu_deletes_the_right_clicked_item_after_reordering() {
+    let context = egui::Context::default();
+    let icons = Icons::load(&context);
+    let source = ExtensionId::builtin("test.widget");
+    let rect = Rect::from_min_size(pos2(30.0, 30.0), vec2(180.0, 100.0));
+    let frame = |events, names: [&str; 2]| {
+        let rows = names
+            .iter()
+            .map(|name| {
+                let mut row = ViewNode::new(Node::ActionArea {
+                    action: Action::Select((*name).into()),
+                    label: (*name).into(),
+                    content: Box::new(ViewNode::text(*name, TextStyle::default())),
+                    context_menu: Some(ContextMenuAction {
+                        title: (*name).into(),
+                        label: "Delete".into(),
+                        action: Action::Custom((*name).into()),
+                    }),
+                })
+                .sized(Size::Fill(1.0), Size::Fixed(34.0));
+                row.key = Some((*name).into());
+                row
+            })
+            .collect();
+        let view = WidgetView::new(
+            ViewNode::column(
+                rows,
+                Flow {
+                    gap: Some(5.0),
+                    ..Default::default()
+                },
+            ),
+            [180.0, 100.0],
+        );
+        let mut result = None;
+        let _ = context.run(
+            RawInput {
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let capsule =
+                        ui.interact(rect.expand(4.0), Id::new("capsule"), egui::Sense::click());
+                    let action = show_widget(ui, rect, &source, &view, &icons, 1.0);
+                    context_menu(&capsule, |ui| {
+                        ui.label("Exit capsule");
+                        false
+                    });
+                    result = Some((action.map(|action| action.action), context_menu_rect(ctx)));
+                });
+            },
+        );
+        result.unwrap()
+    };
+
+    let click = |pos, button, pressed| Event::PointerButton {
+        pos,
+        button,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    let row = pos2(rect.left() + 12.0, rect.top() + 8.0);
+    let order = ["Firefox", "Code"];
+    assert_eq!(frame(vec![Event::PointerMoved(row)], order), (None, None));
+    frame(vec![click(row, PointerButton::Secondary, true)], order);
+    assert_eq!(
+        frame(vec![click(row, PointerButton::Secondary, false)], order).0,
+        None
+    );
+    let reversed = ["Code", "Firefox"];
+    let menu = frame(vec![], reversed).1.unwrap();
+    let button = pos2(menu.center().x, menu.bottom() - 12.0);
+    frame(vec![Event::PointerMoved(button)], reversed);
+    frame(vec![click(button, PointerButton::Primary, true)], reversed);
+    assert_eq!(
+        frame(vec![click(button, PointerButton::Primary, false)], reversed),
+        (Some(Action::Custom("Firefox".into())), None)
+    );
+}
+
+#[test]
 fn grid_reserves_spans_and_uses_mixed_tracks() {
     with_ui(|ui, icons| {
         let mut span = spacer(Size::Auto, Size::Auto);
@@ -1107,4 +1189,46 @@ fn small_svg_uses_target_physical_size_and_antialiased_edges_at_fractional_dpi()
         image.size == [physical_size, physical_size]
             && image.pixels.iter().any(|p| p.a() > 0 && p.a() < 255)
     }));
+}
+
+#[test]
+fn reader_sidebars_fill_height_and_keep_the_footer_inside_at_multiple_sizes() {
+    let views: Vec<_> = crate::builtins::runtimes()
+        .into_iter()
+        .filter_map(|extension| match extension.descriptor().id.as_str() {
+            "builtin.rss" => extension.widget_view(&ExtensionId::builtin("builtin.rss/reader")),
+            "builtin.mail" => extension.widget_view(&ExtensionId::builtin("builtin.mail/inbox")),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(views.len(), 2);
+    with_ui(|ui, icons| {
+        for view in views {
+            let row = match &view.root.kind {
+                Node::Column(_, children) => children.last().unwrap(),
+                _ => &view.root,
+            };
+            let Node::Row(_, children) = &row.kind else {
+                panic!("reader must have two columns")
+            };
+            for available in [vec2(500.0, 300.0), vec2(720.0, 450.0), vec2(900.0, 720.0)] {
+                let mut renderer = Renderer::new(ui, icons);
+                let columns = renderer.layout(ui, row, available, 0).unwrap();
+                let left = columns.cells[0].1;
+                let right = columns.cells[1].1;
+                assert_eq!(left.height(), available.y);
+                assert!(right.left() >= left.right() + 9.0);
+                assert!(right.right() <= available.x + 0.01);
+                let sidebar = &children[0];
+                let inner = layout::inset(
+                    Rect::from_min_size(Pos2::ZERO, left.size()),
+                    sidebar.style.padding,
+                );
+                let rows = renderer.layout(ui, sidebar, inner.size(), 1).unwrap();
+                let footer = rows.cells.last().unwrap().1;
+                assert!((footer.bottom() - inner.height()).abs() < 0.01);
+                assert!(rows.cells[1].1.bottom() < footer.top());
+            }
+        }
+    });
 }

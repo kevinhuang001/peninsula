@@ -7,8 +7,8 @@ use crate::{
         RuntimeExtension,
     },
     ui::declarative::{
-        ColorSpec, Easing, FontSize, FontWeight, Motion, MotionProperty, MotionTrack, Repeat,
-        TextStyle, ViewNode,
+        ColorSpec, Easing, FontSize, FontWeight, Motion, MotionProperty, MotionTrack, TextStyle,
+        ViewNode,
     },
 };
 #[cfg(any(target_os = "linux", test))]
@@ -110,47 +110,20 @@ fn usb_prompt(name: &str, inserted: bool) -> Prompt {
         ("已移除", [239, 160, 94], ColorSpec::rgb(255, 192, 130))
     };
     let label = format!("USB {verb} · {}", short_name(name));
-    let pulse = Motion {
-        duration_ms: 1050,
-        repeat: Repeat::Reverse(None),
-        easing: Easing::EaseInOut,
+    let entrance = Motion {
+        duration_ms: 650,
+        easing: Easing::EaseOut,
         tracks: vec![
-            MotionTrack::new(MotionProperty::Scale, &[(0, 0.82), (1050, 1.16)]),
-            MotionTrack::new(MotionProperty::Opacity, &[(0, 0.55), (1050, 1.0)]),
+            MotionTrack::new(MotionProperty::Scale, &[(0, 0.78), (320, 1.08), (650, 1.0)]),
+            MotionTrack::new(MotionProperty::Opacity, &[(0, 0.0), (180, 1.0)]),
         ],
         ..Default::default()
-    };
-    let spark = |x: f32, delay_ms| {
-        PromptLayer::new(
-            [x, 0.09, 0.07, 0.8],
-            ViewNode::text(
-                "✦",
-                TextStyle {
-                    font_size: FontSize::Custom(9.0),
-                    ..Default::default()
-                },
-            )
-            .color(color)
-            .motion(Motion {
-                delay_ms,
-                duration_ms: 1400,
-                repeat: Repeat::Infinite,
-                tracks: vec![
-                    MotionTrack::new(MotionProperty::TranslateY, &[(0, 7.0), (1400, -7.0)]),
-                    MotionTrack::new(
-                        MotionProperty::Opacity,
-                        &[(0, 0.0), (350, 1.0), (1400, 0.0)],
-                    ),
-                ],
-                ..Default::default()
-            }),
-        )
     };
     Prompt::new(
         ExtensionId::builtin(ID),
         ExtensionId::builtin(PROMPT_ID),
         ViewNode::text(label, TextStyle::default()),
-        Duration::from_secs(4),
+        Duration::from_secs(3),
     )
     .with_width(230.0, 266.0)
     .with_accent(accent)
@@ -167,7 +140,7 @@ fn usb_prompt(name: &str, inserted: bool) -> Prompt {
                 },
             )
             .color(color)
-            .motion(pulse),
+            .motion(entrance),
         ),
         PromptLayer::new(
             [0.24, 0.06, 0.27, 0.88],
@@ -191,8 +164,6 @@ fn usb_prompt(name: &str, inserted: bool) -> Prompt {
                 },
             ),
         ),
-        spark(0.15, 220),
-        spark(0.90, 830),
     ])
 }
 

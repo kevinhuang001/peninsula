@@ -15,7 +15,7 @@ use crate::{
         storage::ExtensionStorage,
         tasks::{CancellationToken, TaskScope},
     },
-    ui::declarative::{Overflow, ScrollAxes, WidgetBounds},
+    ui::declarative::WidgetBounds,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -699,8 +699,6 @@ impl RuntimeExtension for MailExtension {
             min: [500.0, 300.0],
             max: [Some(900.0), Some(720.0)],
             resizable: true,
-            fit_height: true,
-            overflow: Overflow::Scroll(ScrollAxes::Vertical),
             ..Default::default()
         });
         let notifications = ContributionDescriptor::builtin(

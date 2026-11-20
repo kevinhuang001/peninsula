@@ -43,7 +43,6 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
         .iter()
         .find(|feed| Some(&feed.url) == rss.selected.as_ref());
     let mut sources = Vec::new();
-    let mut source_menus = Vec::new();
     for feed in &rss.feeds {
         let active = Some(&feed.url) == rss.selected.as_ref();
         let unread = feed.unread_count();
@@ -67,6 +66,11 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
         let mut select = ViewNode::new(Node::ActionArea {
             action: Action::Select(feed.url.clone()),
             label: feed.title.clone(),
+            context_menu: Some(ContextMenuAction {
+                title: feed.title.clone(),
+                label: "删除此订阅".into(),
+                action: Action::Custom(format!("remove-feed:{}", feed.url)),
+            }),
             content: Box::new(column(
                 vec![
                     ViewNode::row(
@@ -92,30 +96,19 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
         });
         select.style.hovered.background = Some(ColorSpec::AccentSubtle);
         select.style.normal.corner_radius = Some(8.0);
-        sources.push(vec![select]);
-        source_menus.push(Some(TableRowMenu {
-            title: feed.title.clone(),
-            label: "删除此订阅".into(),
-            action: Action::Custom(format!("remove-feed:{}", feed.url)),
-        }));
+        sources.push(select);
     }
     if sources.is_empty() {
-        sources.push(vec![text("还没有订阅", 11.0, ColorSpec::SecondaryText)]);
-        source_menus.push(None);
+        sources.push(text("还没有订阅", 11.0, ColorSpec::SecondaryText));
     }
-    let source_table = Table {
-        columns: vec![TableColumn::new("", 1.0)],
-        rows: sources,
-        row_menus: source_menus,
-    };
     let sidebar = panel(column(
         vec![
             text("订阅", 13.0, ColorSpec::PrimaryText),
             ViewNode::new(Node::Scroll(
                 ScrollAxes::Vertical,
-                Box::new(ViewNode::new(Node::Table(source_table))),
+                Box::new(column(sources, 5.0)),
             ))
-            .sized(Size::Fill(1.0), Size::Fixed(246.0)),
+            .sized(Size::Fill(1.0), Size::Fill(1.0)),
             ViewNode::subtle_button("＋ 添加订阅", Action::Custom("add".into()))
                 .sized(Size::Fill(1.0), Size::Fixed(30.0)),
         ],
@@ -162,6 +155,7 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
                     action: Action::Custom(format!("read:{}", article.id)),
                     label: "标为已读".into(),
                     content: Box::new(dot),
+                    context_menu: None,
                 })
                 .sized(Size::Fixed(18.0), Size::Fixed(18.0));
                 state.style.padding = [5.0; 4];
@@ -186,6 +180,7 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
                 action: Action::Custom(format!("open:{}", article.id)),
                 label: article.title.clone(),
                 content: Box::new(column(content, 5.0)),
+                context_menu: None,
             })
             .sized(Size::Fill(1.0), Size::Auto);
             row.key = Some(article.id.clone());
@@ -193,10 +188,6 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
             row.style.normal.corner_radius = Some(8.0);
             row.style.hovered.background = Some(ColorSpec::AccentSubtle);
             articles.push(row);
-            articles.push(
-                ViewNode::new(Node::Divider { vertical: false })
-                    .sized(Size::Fill(1.0), Size::Fixed(1.0)),
-            );
         }
         if feed.articles.is_empty() {
             articles.push(text(
@@ -270,25 +261,39 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
     reader.push(
         ViewNode::new(Node::Scroll(
             ScrollAxes::Vertical,
-            Box::new(column(articles, 1.0)),
+            Box::new(column(articles, 6.0)),
         ))
-        .sized(Size::Fill(1.0), Size::Fixed(256.0)),
+        .sized(Size::Fill(1.0), Size::Fill(1.0)),
     );
-    let reading_list = column(reader, 10.0).sized(Size::Fill(1.0), Size::Auto);
-    let mut grid = Grid::new(Columns::Tracks(vec![
-        Track::Fraction(1.0),
-        Track::Fraction(2.2),
-    ]));
-    grid.column_gap = Some(10.0);
+    let mut reading_list = column(reader, 10.0)
+        .sized(Size::Fill(1.0), Size::Fill(1.0))
+        .styled(Style {
+            padding: [8.0, 10.0, 8.0, 2.0],
+            ..Default::default()
+        });
+    reading_list.clip = true;
     let mut children = Vec::new();
     if let Some(error) = &rss.error {
         children.push(text(error, 11.0, ColorSpec::Danger));
     }
     children.push(
-        ViewNode::new(Node::Grid(grid, vec![sidebar, reading_list]))
-            .sized(Size::Fill(1.0), Size::Auto),
+        ViewNode::row(
+            vec![sidebar, reading_list],
+            Flow {
+                gap: Some(10.0),
+                align: Align::Stretch,
+                ..Default::default()
+            },
+        )
+        .sized(Size::Fill(1.0), Size::Fill(1.0)),
     );
-    let mut view = WidgetView::new(column(children, 10.0), [580.0, 340.0]);
-    view.bounds.fit_height = true;
+    let root = column(children, 10.0).sized(Size::Fill(1.0), Size::Fill(1.0));
+    let mut view = WidgetView::new(root, [720.0, 450.0]);
+    view.bounds = WidgetBounds {
+        min: [500.0, 300.0],
+        max: [Some(900.0), Some(720.0)],
+        resizable: true,
+        ..Default::default()
+    };
     view
 }

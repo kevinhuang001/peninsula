@@ -92,6 +92,7 @@ fn item(entry: &NotificationCenterEntry) -> ViewNode {
         action: Action::Select(id.clone()),
         label: entry.view.title.clone(),
         content: Box::new(content),
+        context_menu: None,
     })
     .sized(Size::Fill(1.0), Size::Fill(1.0))
     .styled(Style {

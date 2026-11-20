@@ -62,7 +62,7 @@ impl RuntimeExtension for BatteryExtension {
                         ExtensionId::builtin("builtin.battery"),
                         ExtensionId::builtin(PROMPT_ID),
                         battery_prompt(&self.snapshot),
-                        std::time::Duration::from_secs(5),
+                        std::time::Duration::from_secs(3),
                     )
                     .with_width(204.0, 222.0)
                     .with_accent([78, 218, 151])
@@ -121,48 +121,21 @@ fn battery_prompt_layers(metrics: &PowerSnapshot) -> Vec<PromptLayer> {
         "已接通电源"
     };
     let glow = ColorSpec::rgb(99, 238, 174);
-    let pulse = Motion {
-        duration_ms: 1300,
-        repeat: Repeat::Reverse(None),
-        easing: Easing::EaseInOut,
+    let entrance = Motion {
+        duration_ms: 650,
+        easing: Easing::EaseOut,
         tracks: vec![
-            MotionTrack::new(MotionProperty::Scale, &[(0, 0.88), (1300, 1.13)]),
-            MotionTrack::new(MotionProperty::Opacity, &[(0, 0.6), (1300, 1.0)]),
+            MotionTrack::new(MotionProperty::Scale, &[(0, 0.78), (320, 1.08), (650, 1.0)]),
+            MotionTrack::new(MotionProperty::Opacity, &[(0, 0.0), (180, 1.0)]),
         ],
         ..Default::default()
-    };
-    let sparkle = |delay_ms, x| {
-        PromptLayer::new(
-            [x, 0.08, 0.08, 0.84],
-            ViewNode::text(
-                "✦",
-                TextStyle {
-                    font_size: FontSize::Custom(10.0),
-                    ..Default::default()
-                },
-            )
-            .color(glow)
-            .motion(Motion {
-                delay_ms,
-                duration_ms: 1500,
-                repeat: Repeat::Infinite,
-                tracks: vec![
-                    MotionTrack::new(MotionProperty::TranslateY, &[(0, 8.0), (1500, -8.0)]),
-                    MotionTrack::new(
-                        MotionProperty::Opacity,
-                        &[(0, 0.0), (450, 1.0), (1500, 0.0)],
-                    ),
-                ],
-                ..Default::default()
-            }),
-        )
     };
     vec![
         PromptLayer::new(
             [0.06, 0.04, 0.19, 0.92],
             ViewNode::svg("compact/battery", 27.0)
                 .color(glow)
-                .motion(pulse),
+                .motion(entrance),
         ),
         PromptLayer::new(
             [0.28, 0.08, 0.47, 0.84],
@@ -186,8 +159,6 @@ fn battery_prompt_layers(metrics: &PowerSnapshot) -> Vec<PromptLayer> {
             )
             .color(glow),
         ),
-        sparkle(180, 0.15),
-        sparkle(850, 0.88),
     ]
 }
 

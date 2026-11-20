@@ -292,15 +292,11 @@ impl RuntimeExtension for RssExtension {
             true,
             8,
         )
-        .with_size_hint(580.0, 340.0)
+        .with_size_hint(720.0, 450.0)
         .with_widget_bounds(crate::ui::declarative::WidgetBounds {
-            min: [400.0, 240.0],
-            max: [Some(760.0), Some(560.0)],
+            min: [500.0, 300.0],
+            max: [Some(900.0), Some(720.0)],
             resizable: true,
-            fit_height: true,
-            overflow: crate::ui::declarative::Overflow::Scroll(
-                crate::ui::declarative::ScrollAxes::Vertical,
-            ),
             ..Default::default()
         });
         let notifications = ContributionDescriptor::builtin(

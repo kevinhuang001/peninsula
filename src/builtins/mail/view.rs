@@ -2,8 +2,8 @@ use super::{Account, EmailMessage, MailExtension, NotificationTarget};
 use crate::{
     extension::Action,
     ui::declarative::{
-        Align, ColorSpec, Flow, FontSize, FontWeight, Node, Overflow, ScrollAxes, Size, Style,
-        Table, TableColumn, TableRowMenu, TextStyle, ViewNode, WidgetBounds, WidgetView,
+        Align, ColorSpec, ContextMenuAction, Flow, FontSize, FontWeight, Node, ScrollAxes, Size,
+        Style, TextStyle, ViewNode, WidgetBounds, WidgetView,
     },
 };
 
@@ -111,6 +111,11 @@ fn account_row(mail: &MailExtension, account: &Account, unread: usize) -> ViewNo
     let select = ViewNode::new(Node::ActionArea {
         action: Action::Select(account.id.clone()),
         label: account.email.clone(),
+        context_menu: Some(ContextMenuAction {
+            title: account.email.clone(),
+            label: "删除此邮箱账号".into(),
+            action: Action::Custom(format!("remove-account:{}", account.id)),
+        }),
         content: Box::new(ViewNode::row(
             content,
             Flow {
@@ -135,44 +140,24 @@ fn account_row(mail: &MailExtension, account: &Account, unread: usize) -> ViewNo
 
 fn sidebar(mail: &MailExtension) -> ViewNode {
     let rows = if mail.accounts.is_empty() {
-        vec![vec![text(
-            "添加一个 IMAP 账号",
-            11.0,
-            ColorSpec::SecondaryText,
-        )]]
+        vec![text("添加一个 IMAP 账号", 11.0, ColorSpec::SecondaryText)]
     } else {
         mail.accounts
             .iter()
             .map(|account| {
-                vec![account_row(
+                account_row(
                     mail,
                     account,
                     mail.mailboxes
                         .get(&account.id)
                         .map_or(0, |mailbox| mailbox.unread_count),
-                )]
+                )
             })
             .collect()
     };
-    let row_menus = mail
-        .accounts
-        .iter()
-        .map(|account| {
-            Some(TableRowMenu {
-                title: account.email.clone(),
-                label: "删除此邮箱账号".into(),
-                action: Action::Custom(format!("remove-account:{}", account.id)),
-            })
-        })
-        .collect();
-    let table = Table {
-        columns: vec![TableColumn::new("", 1.0)],
-        rows,
-        row_menus,
-    };
     let scroller = ViewNode::new(Node::Scroll(
         ScrollAxes::Vertical,
-        Box::new(ViewNode::new(Node::Table(table))),
+        Box::new(column(rows, 5.0)),
     ))
     .sized(Size::Fill(1.0), Size::Fill(1.0));
     card(column(
@@ -269,8 +254,8 @@ fn message_row(message: &EmailMessage, account: &Account, pending: bool) -> View
                 FontWeight::Bold
             },
             align: Align::Start,
-            max_lines: Some(1),
-            wrap: false,
+            max_lines: Some(2),
+            wrap: true,
             ..Default::default()
         },
     )
@@ -302,7 +287,6 @@ fn message_row(message: &EmailMessage, account: &Account, pending: bool) -> View
                     )
                     .sized(Size::Fill(1.0), Size::Auto),
                     subject,
-                    text(&account.email, 9.0, ColorSpec::MutedText),
                 ],
                 3.0,
             )
@@ -319,12 +303,12 @@ fn message_row(message: &EmailMessage, account: &Account, pending: bool) -> View
         action: Action::Custom(format!("open:{target}")),
         label: format!("{}：{}", message.from, message.subject),
         content: Box::new(content),
+        context_menu: None,
     })
-    .sized(Size::Fill(1.0), Size::Fixed(62.0));
+    .sized(Size::Fill(1.0), Size::Fixed(68.0));
     row.style.padding = [8.0, 9.0, 8.0, 9.0];
-    row.style.normal.background = Some(ColorSpec::Surface);
-    row.style.normal.border_color = Some(ColorSpec::Border);
-    row.style.normal.border_width = Some(1.0);
+    row.style.normal.background = Some(ColorSpec::Transparent);
+
     row.style.normal.corner_radius = Some(9.0);
     row.style.hovered.background = Some(ColorSpec::AccentSubtle);
     row.clip = true;
@@ -474,12 +458,19 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
         .sized(Size::Fill(1.0), Size::Fill(1.0));
         content.push(list);
     }
-    let main = column(vec![top, column(content, 7.0)], 8.0)
-        .sized(Size::Fill(1.0), Size::Fill(1.0))
-        .styled(Style {
-            padding: [8.0, 10.0, 8.0, 2.0],
-            ..Default::default()
-        });
+    let mut main = column(
+        vec![
+            top,
+            column(content, 7.0).sized(Size::Fill(1.0), Size::Fill(1.0)),
+        ],
+        8.0,
+    )
+    .sized(Size::Fill(1.0), Size::Fill(1.0))
+    .styled(Style {
+        padding: [8.0, 10.0, 8.0, 2.0],
+        ..Default::default()
+    });
+    main.clip = true;
     let root = ViewNode::row(
         vec![sidebar(mail), main],
         Flow {
@@ -494,7 +485,7 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
         min: [500.0, 300.0],
         max: [Some(900.0), Some(720.0)],
         resizable: true,
-        overflow: Overflow::Scroll(ScrollAxes::Vertical),
+
         ..Default::default()
     };
     view

@@ -204,6 +204,7 @@ fn lyric_action(value: &str, action: &str) -> ViewNode {
         label: value.to_owned(),
         action: Action::Custom(action.into()),
         content: Box::new(label(value, 11.0, ColorSpec::Info)),
+        context_menu: None,
     })
 }
 
