@@ -161,11 +161,49 @@ fn navigation_font(screen_width: f32) -> f32 {
     10.0 * (screen_width / 1440.0).sqrt().clamp(0.9, 1.2)
 }
 const TAB_PADDING: f32 = 3.0;
+const NAVIGATION_SIDE: f32 = 28.0;
+
+fn navigation_font_size(context: &egui::Context) -> f32 {
+    navigation_font(context.input(|input| {
+        input
+            .viewport()
+            .monitor_size
+            .unwrap_or(input.screen_rect.size())
+            .x
+    }))
+}
+
+/// Include the same font, per-tab padding and shell margins used when painting.
+pub(in crate::app) fn navigation_width(
+    context: &egui::Context,
+    widget_ids: &[ExtensionId],
+    titles: &[String],
+) -> f32 {
+    let font = FontId::proportional(navigation_font_size(context));
+    let required: f32 = context.fonts(|fonts| {
+        widget_ids
+            .iter()
+            .enumerate()
+            .map(|(index, _)| {
+                let title = titles.get(index).map(String::as_str).unwrap_or("扩展");
+                fonts
+                    .layout_no_wrap(title.into(), font.clone(), Color32::PLACEHOLDER)
+                    .size()
+                    .x
+                    + 2.0 * TAB_PADDING
+            })
+            .sum()
+    });
+    (required + 2.0 * NAVIGATION_SIDE).ceil() + 1.0
+}
 
 pub(in crate::app) fn navigation_rect(rect: Rect) -> Rect {
     Rect::from_min_max(
-        Pos2::new(rect.left() + 16.0, rect.bottom() - NAVIGATION_HEIGHT),
-        Pos2::new(rect.right() - 16.0, rect.bottom() - 2.0),
+        Pos2::new(
+            rect.left() + NAVIGATION_SIDE,
+            rect.bottom() - NAVIGATION_HEIGHT,
+        ),
+        Pos2::new(rect.right() - NAVIGATION_SIDE, rect.bottom() - 2.0),
     )
 }
 
@@ -179,13 +217,7 @@ pub(super) fn paint_tabs(
     titles: &[String],
     opacity: f32,
 ) {
-    let font_size = navigation_font(ui.input(|input| {
-        input
-            .viewport()
-            .monitor_size
-            .unwrap_or(input.screen_rect.size())
-            .x
-    }));
+    let font_size = navigation_font_size(ui.ctx());
     let bounds = navigation_rect(rect);
     if !bounds.is_positive() {
         return;
@@ -389,6 +421,70 @@ mod navigation_tests {
         let updated = draw(&ctx, &mut active, vec![]);
         assert!((indicator(&updated).center().x - text_center(&updated, "通知中心").x).abs() < 1.0);
         assert!(indicator(&updated).center().x < mark.center().x);
+    }
+
+    #[test]
+    fn long_navigation_expands_the_shell_and_keeps_every_title_inside_its_clip() {
+        let ctx = egui::Context::default();
+        crate::app::fonts::install(&ctx);
+        let titles: Vec<String> = [
+            "通知中心",
+            "性能监控",
+            "番茄钟",
+            "快递",
+            "天气",
+            "健康",
+            "市场行情",
+            "RSS",
+            "邮件",
+            "更多扩展页面",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        let ids: Vec<_> = (0..titles.len())
+            .map(|i| ExtensionId::new(format!("test/widget-{i}")).unwrap())
+            .collect();
+        let mut active = ids.last().unwrap().clone();
+        let mut width = 0.0;
+        let output = ctx.run(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1440.0, 900.0))),
+                ..Default::default()
+            },
+            |ctx| {
+                width = navigation_width(ctx, &ids, &titles).max(300.0);
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    paint_tabs(
+                        ui,
+                        Rect::from_min_size(Pos2::ZERO, vec2(width, 220.0)),
+                        &mut active,
+                        &ids,
+                        &titles,
+                        1.0,
+                    );
+                });
+            },
+        );
+        assert!(width > 300.0, "navigation must widen a smaller widget");
+        for title in &titles {
+            let (clip, text) = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.job.text == *title => {
+                        Some((shape.clip_rect, text))
+                    }
+                    _ => None,
+                })
+                .expect("every navigation title must render");
+            let bounds = Rect::from_min_size(text.pos, text.galley.size());
+            assert!(!text.galley.elided);
+            assert!(
+                bounds.left() >= clip.left() && bounds.right() <= clip.right(),
+                "title {title} clipped at width {width}"
+            );
+        }
     }
 
     #[test]

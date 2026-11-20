@@ -537,6 +537,10 @@ impl eframe::App for IslandApp {
             [fitted_width, None],
         );
         let widget_width = widget_width
+            .max(
+                capsule::navigation_width(context, &widget_ids, &widget_titles)
+                    .min(widget_limit[0]),
+            )
             .max(minimum.x.min(widget_limit[0]))
             .min(widget_limit[0]);
         let content_height =
