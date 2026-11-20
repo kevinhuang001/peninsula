@@ -156,6 +156,23 @@ impl NotificationManager {
         changed
     }
 
+    pub fn remove_source(&mut self, source: &crate::extension::ExtensionId) -> usize {
+        self.alert_queue
+            .retain(|key| &key.source_extension_id != source);
+        if self
+            .presentation
+            .current_key()
+            .is_some_and(|key| &key.source_extension_id == source)
+        {
+            self.presentation.current = None;
+        }
+        let removed = self.store.remove_source(source);
+        if removed > 0 {
+            self.revision = self.revision.wrapping_add(1);
+        }
+        removed
+    }
+
     pub fn record_action(&mut self, key: NotificationKey, action: NotificationAction) {
         self.action_log
             .push(RecordedNotificationAction { key, action });

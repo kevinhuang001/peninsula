@@ -5,6 +5,7 @@ use std::collections::HashMap;
 pub(crate) enum Icon {
     Pin,
     Dashboard,
+    Database,
     Music,
     MusicNote,
     Speaker,
@@ -39,6 +40,7 @@ pub(crate) struct Icons {
     arrow_up: TextureHandle,
     clock: TextureHandle,
     close: TextureHandle,
+    database: TextureHandle,
     widget_icons: HashMap<&'static str, TextureHandle>,
 }
 
@@ -131,6 +133,11 @@ impl Icons {
                 context,
                 "lucide-close",
                 include_bytes!("../../assets/icons/lucide/x.svg"),
+            ),
+            database: load(
+                context,
+                "lucide-database",
+                include_bytes!("../../assets/icons/lucide/database.svg"),
             ),
             widget_icons: [
                 (
@@ -441,6 +448,7 @@ impl Icons {
             Icon::ArrowUp => &self.arrow_up,
             Icon::Clock => &self.clock,
             Icon::Close => &self.close,
+            Icon::Database => &self.database,
         };
         painter.image(
             texture.id(),

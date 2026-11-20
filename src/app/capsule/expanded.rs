@@ -35,9 +35,10 @@ pub(super) fn paint_header(
         .map_or((None, title), |(icon, title)| (Some(icon), title));
     let button_size = Vec2::splat(24.0);
     let dashboard_rect = header_button(rect, 105.0, button_size);
+    let datasource_rect = header_button(rect, 134.0, button_size);
     let title_bounds = Rect::from_min_max(
         Pos2::new(rect.left() + 15.0, rect.top()),
-        Pos2::new(dashboard_rect.left() - 8.0, rect.top() + 46.0),
+        Pos2::new(datasource_rect.left() - 8.0, rect.top() + 46.0),
     );
     if title_bounds.is_positive() {
         let painter = ui.painter().with_clip_rect(title_bounds);
@@ -68,6 +69,22 @@ pub(super) fn paint_header(
             galley,
             text.linear_multiply(opacity),
         );
+    }
+    if header_control(
+        ui,
+        datasource_rect,
+        icons,
+        Icon::Database,
+        false,
+        text,
+        opacity,
+    )
+    .on_hover_text("管理数据源")
+    .clicked()
+    {
+        ui.ctx().data_mut(|data| {
+            data.insert_temp(egui::Id::new("datasource-open-request"), true);
+        });
     }
     let dashboard_requested = header_control(
         ui,

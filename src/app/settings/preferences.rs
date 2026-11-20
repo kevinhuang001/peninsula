@@ -238,6 +238,52 @@ impl CompactPreferences {
             .is_some_and(|item| item.enabled)
     }
 
+    pub fn sync_data_source_items(&mut self, ids: &[ExtensionId]) -> bool {
+        let valid: std::collections::HashSet<_> = ids.iter().cloned().collect();
+        let before = self.compact_items.len();
+        self.compact_items.retain(|item| {
+            !item.id.as_str().starts_with("datasource/") || valid.contains(&item.id)
+        });
+        let mut changed = before != self.compact_items.len();
+        for id in ids {
+            if !self.compact_items.iter().any(|item| item.id == *id) {
+                let order = self
+                    .compact_items
+                    .iter()
+                    .map(|item| item.order)
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_add(1);
+                self.compact_items.push(CompactItemPreference {
+                    id: id.clone(),
+                    enabled: true,
+                    order,
+                });
+                changed = true;
+            }
+        }
+        if changed {
+            self.normalize_order();
+        }
+        changed
+    }
+
+    pub fn set_compact_item_enabled(&mut self, id: &ExtensionId, enabled: bool) -> bool {
+        let Some(item) = self.compact_items.iter_mut().find(|item| &item.id == id) else {
+            return false;
+        };
+        if item.enabled == enabled {
+            return false;
+        }
+        item.enabled = enabled;
+        true
+    }
+
+    pub fn remove_compact_item(&mut self, id: &ExtensionId) {
+        self.compact_items.retain(|item| &item.id != id);
+        self.normalize_order();
+    }
+
     #[cfg(test)]
     pub fn set_enabled(&mut self, id: &ExtensionId, enabled: bool) {
         if let Some(item) = self.compact_items.iter_mut().find(|item| &item.id == id) {

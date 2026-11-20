@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod datasource;
 pub mod external;
 pub(crate) mod latest;
 pub mod notifications;

@@ -118,4 +118,15 @@ impl NotificationStore {
         }
         changed
     }
+
+    pub fn remove_source(&mut self, source: &crate::extension::ExtensionId) -> usize {
+        let before = self.records.len();
+        self.records
+            .retain(|record| &record.notification.source_id != source);
+        let removed = before - self.records.len();
+        if removed > 0 {
+            self.save();
+        }
+        removed
+    }
 }

@@ -3,6 +3,7 @@ use crate::{
     core::extension_manager::ExtensionManager,
     core::{
         actions::ActionDispatcher,
+        datasource::DataSourceManager,
         notifications::{self, NotificationCenterEntry, NotificationManager},
         Scheduler,
     },
@@ -21,6 +22,7 @@ mod animation;
 mod capsule;
 mod compact_layout;
 mod dashboard;
+mod datasource;
 mod fonts;
 pub(crate) mod icons;
 mod notification;
@@ -69,6 +71,9 @@ struct FittedMeasure {
 
 struct IslandApp {
     notifications: NotificationManager,
+    datasources: DataSourceManager,
+    datasource_window: datasource::DataSourceWindow,
+    secret_store: crate::sdk::secrets::SecretStore,
     scheduler: Scheduler,
     action_dispatcher: ActionDispatcher,
     extensions: ExtensionManager,
@@ -113,21 +118,37 @@ impl IslandApp {
             extensions.widget_size(&active_widget, None, widget_limit(window_size), [None; 2])[1];
         let notifications =
             NotificationManager::open(extensions.data_dir().join("notifications.json"));
+        let datasources = DataSourceManager::open(&extensions.data_dir());
+        let compact_ids = datasources.compact_ids();
+        let mut datasource_preferences_changed = preferences.sync_data_source_items(&compact_ids);
+        for source in datasources.snapshots() {
+            if let Ok(id) = ExtensionId::new(format!("datasource/{}/value", source.id)) {
+                datasource_preferences_changed |=
+                    preferences.set_compact_item_enabled(&id, source.compact);
+            }
+        }
+        if datasource_preferences_changed {
+            let _ = preferences.save();
+        }
         let secret_index_path = extensions.data_dir().join("secret-keys.json");
         let secret_keys = std::fs::read(&secret_index_path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
             .unwrap_or_default();
+        let secret_store = crate::sdk::secrets::SecretStore::new(
+            "Peninsula::core.host",
+            extensions.data_dir().join("secrets.json"),
+        );
         let settings_view = SettingsView::default().with_secret_store(
-            crate::sdk::secrets::SecretStore::new(
-                "Peninsula::core.host",
-                extensions.data_dir().join("secrets.json"),
-            ),
+            secret_store.clone(),
             secret_index_path,
             &secret_keys,
         );
         Self {
             notifications,
+            datasources,
+            datasource_window: datasource::DataSourceWindow::default(),
+            secret_store,
             scheduler: Scheduler::default(),
             action_dispatcher: ActionDispatcher::default(),
             extensions,
@@ -401,6 +422,23 @@ impl eframe::App for IslandApp {
 
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
         let now = Instant::now();
+        self.datasources.register_icons(context);
+        for source in self.datasources.snapshots() {
+            if let Ok(id) = ExtensionId::new(format!("datasource/{}/value", source.id)) {
+                let compact = self.preferences.is_enabled(&id);
+                if compact != source.compact {
+                    if let Err(error) = self.datasources.set_compact(&source.id, compact) {
+                        eprintln!("Unable to update data-source Compact state: {error}");
+                    }
+                }
+            }
+        }
+        for notification in self.datasources.poll(now, &self.secret_store, context) {
+            if self.notifications.publish(notification) {
+                self.scheduler.on_event(Event::NotificationPublished);
+                context.request_repaint();
+            }
+        }
         let surface_limit = widget_limit((self.screen_size() * SCREEN_FRACTION).floor());
         let mut widget_limit = surface_limit;
         if self
@@ -649,6 +687,9 @@ impl eframe::App for IslandApp {
             || self.extensions.compact_views(now),
             |prompt| vec![Arc::new(prompt.compact_view())],
         );
+        if !prompt_active {
+            available_views.extend(self.datasources.compact_views().into_iter().map(Arc::new));
+        }
         let sources = self.extensions.mascot_sources();
         let mascot_visible =
             self.preferences.mascot_enabled && !self.state.expanded && !prompt_active;
@@ -860,6 +901,14 @@ impl eframe::App for IslandApp {
             }
         }
 
+        self.datasource_window.show(
+            context,
+            &mut self.datasources,
+            &mut self.preferences,
+            &self.secret_store,
+            &mut self.notifications,
+        );
+
         if self.settings_open {
             for request in self.settings_view.take_due_searches(&self.preferences, now) {
                 if let Err(error) = self.extensions.search_setting(
@@ -991,6 +1040,7 @@ impl eframe::App for IslandApp {
             .scheduler
             .next_deadline()
             .into_iter()
+            .chain(self.datasources.next_wake())
             .chain(extension_wake)
             .chain(quiet_wake)
             .chain(self.notifications.next_deadline())
