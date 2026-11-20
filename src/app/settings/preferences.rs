@@ -133,6 +133,10 @@ impl CompactPreferences {
                     {
                         item.enabled = enabled;
                         item.order = order;
+                    } else if id.as_str().starts_with("builtin.market/assets/") {
+                        settings
+                            .compact_items
+                            .push(CompactItemPreference { id, enabled, order });
                     }
                 }
                 "quiet_periods" => {
@@ -238,6 +242,40 @@ impl CompactPreferences {
         });
         let mut changed = before != self.compact_items.len();
         for id in ids {
+            if !self.compact_items.iter().any(|item| item.id == *id) {
+                let order = self
+                    .compact_items
+                    .iter()
+                    .map(|item| item.order)
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_add(1);
+                self.compact_items.push(CompactItemPreference {
+                    id: id.clone(),
+                    enabled: false,
+                    order,
+                });
+                changed = true;
+            }
+        }
+        if changed {
+            self.normalize_order();
+        }
+        changed
+    }
+
+    pub fn sync_dynamic_compact_items(
+        &mut self,
+        owner: &ExtensionId,
+        items: &[(ExtensionId, String)],
+    ) -> bool {
+        let prefix = format!("{}/assets/", owner.as_str());
+        let valid: std::collections::HashSet<_> = items.iter().map(|(id, _)| id.clone()).collect();
+        let before = self.compact_items.len();
+        self.compact_items
+            .retain(|item| !item.id.as_str().starts_with(&prefix) || valid.contains(&item.id));
+        let mut changed = before != self.compact_items.len();
+        for (id, _) in items {
             if !self.compact_items.iter().any(|item| item.id == *id) {
                 let order = self
                     .compact_items
