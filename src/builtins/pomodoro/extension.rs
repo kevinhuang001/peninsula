@@ -294,6 +294,7 @@ impl RuntimeExtension for PomodoroExtension {
                     [Align::Center; 2],
                     vec![
                         ViewNode::ring(progress, "", 26.0, 1.8, 7.0)
+                            .color(self.phase_color())
                             .motion(Motion::progress(progress, 190)),
                         ViewNode::text(
                             if self.timer.phase == Phase::Focus {
@@ -315,8 +316,7 @@ impl RuntimeExtension for PomodoroExtension {
                         super::super::compact_value(
                             format_time(self.timer.remaining_at(now)),
                             true,
-                        )
-                        .color(self.phase_color()),
+                        ),
                         super::super::compact_detail(if self.timer.running {
                             "剩余时间"
                         } else {
@@ -329,7 +329,7 @@ impl RuntimeExtension for PomodoroExtension {
                         ..Default::default()
                     },
                 )
-                .color(self.phase_color()),
+                .color(ColorSpec::PrimaryText),
                 CompactLayout {
                     leading_size: [26.0, 26.0],
                     gap: 6.0,

@@ -113,6 +113,19 @@ impl IslandApp {
             extensions.widget_size(&active_widget, None, widget_limit(window_size), [None; 2])[1];
         let notifications =
             NotificationManager::open(extensions.data_dir().join("notifications.json"));
+        let secret_index_path = extensions.data_dir().join("secret-keys.json");
+        let secret_keys = std::fs::read(&secret_index_path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
+            .unwrap_or_default();
+        let settings_view = SettingsView::default().with_secret_store(
+            crate::sdk::secrets::SecretStore::new(
+                "Peninsula::core.host",
+                extensions.data_dir().join("secrets.json"),
+            ),
+            secret_index_path,
+            &secret_keys,
+        );
         Self {
             notifications,
             scheduler: Scheduler::default(),
@@ -122,7 +135,7 @@ impl IslandApp {
             state: IslandState::default(),
             icons: Icons::load(context),
             preferences,
-            settings_view: SettingsView::default(),
+            settings_view,
             settings_open: false,
             dashboard_open: false,
             notification_center_page: 0,
@@ -381,6 +394,24 @@ impl IslandApp {
     }
 }
 
+fn widget_icon(id: &str) -> &'static str {
+    match id.split('/').next().unwrap_or(id) {
+        "builtin.notifications" => "🔔",
+        "builtin.system-monitor" => "◉",
+        "builtin.pomodoro" => "◷",
+        "builtin.kuaidi" => "▣",
+        "builtin.weather" => "☁",
+        "builtin.health" => "♥",
+        "builtin.market" => "↗",
+        "builtin.rss" => "◔",
+        "builtin.mail" => "✉",
+        "builtin.music" => "♫",
+        "builtin.download" => "↓",
+        "builtin.bilibili" => "▣",
+        _ => "◆",
+    }
+}
+
 impl eframe::App for IslandApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0; 4]
@@ -610,7 +641,11 @@ impl eframe::App for IslandApp {
             }
             self.last_expanded_width = Some(width);
         }
-        let widget_title = self.extensions.widget_title(&self.active_widget);
+        let widget_title = format!(
+            "{} {}",
+            widget_icon(self.active_widget.as_str()),
+            self.extensions.widget_title(&self.active_widget)
+        );
         crate::ui::renderer::set_reduced_motion(
             context,
             self.preferences.reduced_motion || self.preferences.motion_off,

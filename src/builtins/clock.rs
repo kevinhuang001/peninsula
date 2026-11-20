@@ -103,8 +103,7 @@ impl RuntimeExtension for ClockExtension {
                         }
                     ),
                     true,
-                )
-                .color(ColorSpec::Warning),
+                ),
                 CompactLayout {
                     leading_size: [18.0, 20.0],
                     gap: 4.0,

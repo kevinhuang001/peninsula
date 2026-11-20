@@ -448,7 +448,7 @@ impl RuntimeExtension for WeatherExtension {
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
-        let (icon, label, color, tooltip) = if let Some(snapshot) = &self.snapshot {
+        let (icon, label, _color, tooltip) = if let Some(snapshot) = &self.snapshot {
             let mut color = if self.alerts.iter().any(WeatherAlert::is_urgent) {
                 ColorSpec::Warning
             } else {
@@ -503,8 +503,7 @@ impl RuntimeExtension for WeatherExtension {
                     gap: 5.0,
                     ..Default::default()
                 },
-            )
-            .color(color),
+            ),
             visibility: Default::default(),
             min_width: COMPACT_WIDTH,
             preferred_width: COMPACT_WIDTH,

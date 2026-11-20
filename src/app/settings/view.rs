@@ -6,6 +6,7 @@ use super::{
     CompactPreferences,
 };
 use crate::extension::{ContributionKind, ExtensionId};
+use crate::sdk::secrets::{SecretBackend, SecretStore};
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
 use std::{collections::HashMap, time::Instant};
 
@@ -42,6 +43,13 @@ pub struct SettingsView {
     capsule_section: CapsuleSection,
     quiet_dialog: Option<QuietDialog>,
     searches: HashMap<(ExtensionId, String), forms::SearchFieldState>,
+    secret_store: Option<SecretStore>,
+    secret_keys: Vec<String>,
+    secret_key: String,
+    secret_value: String,
+    secret_status: String,
+    secret_index_path: Option<std::path::PathBuf>,
+    secret_revealed: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -86,6 +94,17 @@ impl Panels {
 }
 
 impl SettingsView {
+    pub fn with_secret_store(
+        mut self,
+        store: SecretStore,
+        index_path: std::path::PathBuf,
+        index: &[String],
+    ) -> Self {
+        self.secret_store = Some(store);
+        self.secret_index_path = Some(index_path);
+        self.secret_keys = index.to_vec();
+        self
+    }
     // A fixed canvas is used only by existing interaction fixtures.
     #[cfg(test)]
     pub const WIDTH: f32 = 680.0;
@@ -165,6 +184,7 @@ impl SettingsView {
             capsule_section: self.capsule_section,
             quiet_dialog: None,
             searches: self.searches.clone(),
+            ..Default::default()
         };
         let content_height = if self.section == Section::QuietHours {
             106.0 + 28.0 * prefs.quiet_hours.periods().len().max(1) as f32
@@ -186,6 +206,7 @@ impl SettingsView {
             Section::General => general(ui, prefs),
             Section::Capsule => capsule_options(ui, prefs, self.capsule_section),
             Section::Extensions => self.extension_form(ui, prefs),
+            Section::Secrets => self.secrets(ui),
             Section::About => {
                 about(ui);
                 false
@@ -259,6 +280,97 @@ impl SettingsView {
                 None,
             ) {
                 self.section = section;
+            }
+        }
+    }
+
+    fn secrets(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.heading("秘密");
+        ui.label("秘密优先保存在系统 Keyring 中。键名保存在本机配置里，内容不会写入偏好设置。");
+        ui.horizontal(|ui| {
+            ui.label("键名");
+            ui.text_edit_singleline(&mut self.secret_key);
+        });
+        ui.horizontal(|ui| {
+            ui.label("内容");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.secret_value).password(!self.secret_revealed),
+            );
+            ui.checkbox(&mut self.secret_revealed, "显示");
+        });
+        let mut changed = false;
+        if ui.button("保存秘密").clicked() {
+            let key = self.secret_key.trim().to_owned();
+            if key.is_empty() || self.secret_value.is_empty() {
+                self.secret_status = "键名和内容不能为空".into();
+            } else if let Some(store) = &self.secret_store {
+                match store.set(&key, &self.secret_value) {
+                    Ok(backend) => {
+                        if !self.secret_keys.contains(&key) {
+                            self.secret_keys.push(key.clone());
+                        }
+                        self.secret_keys.sort();
+                        self.secret_status = match backend {
+                            SecretBackend::Keyring => "已保存到系统 Keyring".into(),
+                            SecretBackend::PlaintextFallback => {
+                                "Keyring 不可用，已保存到受限回退文件".into()
+                            }
+                            SecretBackend::Unavailable => "秘密存储不可用".into(),
+                        };
+                        self.persist_secret_index();
+                        self.secret_value.clear();
+                        changed = true;
+                    }
+                    Err(error) => self.secret_status = error.to_string(),
+                }
+            }
+        }
+        if !self.secret_status.is_empty() {
+            ui.label(&self.secret_status);
+        }
+        ui.separator();
+        let mut remove = None;
+        for key in &self.secret_keys {
+            ui.horizontal(|ui| {
+                ui.label(key);
+                if ui.small_button("载入").clicked() {
+                    if let Some(store) = &self.secret_store {
+                        match store.get(key) {
+                            Ok(Some(value)) => {
+                                self.secret_key = key.clone();
+                                self.secret_value = value;
+                            }
+                            Ok(None) => self.secret_status = "未找到此秘密".into(),
+                            Err(error) => self.secret_status = error.to_string(),
+                        }
+                    }
+                }
+                if ui.small_button("删除").clicked() {
+                    remove = Some(key.clone());
+                }
+            });
+        }
+        if let (Some(key), Some(store)) = (remove, &self.secret_store) {
+            match store.delete(&key) {
+                Ok(()) => {
+                    self.secret_keys.retain(|entry| entry != &key);
+                    self.persist_secret_index();
+                    self.secret_status = "已删除".into();
+                    changed = true;
+                }
+                Err(error) => self.secret_status = error.to_string(),
+            }
+        }
+        changed
+    }
+
+    fn persist_secret_index(&self) {
+        if let Some(path) = &self.secret_index_path {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(value) = serde_json::to_vec(&self.secret_keys) {
+                let _ = std::fs::write(path, value);
             }
         }
     }

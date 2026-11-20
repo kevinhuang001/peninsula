@@ -246,10 +246,10 @@ impl RuntimeExtension for PerformanceExtension {
             for (visible, arrow, speed) in rates {
                 if visible {
                     transmitting = transmitting.max(speed);
-                    lines.push(
-                        super::super::compact_detail(format!("{arrow} {}", format_speed(speed)))
-                            .color(ColorSpec::Cyan),
-                    );
+                    lines.push(super::super::compact_detail(format!(
+                        "{arrow} {}",
+                        format_speed(speed)
+                    )));
                 }
             }
             let mut pulse = MotionTrack::new(
@@ -340,8 +340,7 @@ fn processor_compact(icon: &str, percent: Option<f32>, color: ColorSpec) -> View
         super::super::compact_value(
             percent.map_or_else(|| "—".into(), |value| format!("{value:.0}%")),
             true,
-        )
-        .color(color),
+        ),
         CompactLayout {
             leading_size: [18.0, 22.0],
             gap: 3.0,

@@ -278,7 +278,7 @@ fn battery_view(metrics: &PowerSnapshot, label: String) -> ViewNode {
                 ..Default::default()
             },
         )
-        .color(battery_color(metrics)),
+        .color(ColorSpec::PrimaryText),
         CompactLayout {
             leading_size: [28.0, 18.0],
             gap: 5.0,

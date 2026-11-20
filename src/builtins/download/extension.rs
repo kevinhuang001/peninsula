@@ -213,7 +213,7 @@ impl RuntimeExtension for DownloadExtension {
             leading,
             ViewNode::column(
                 vec![
-                    super::super::compact_value(title, false).color(color),
+                    super::super::compact_value(title, false).color(ColorSpec::PrimaryText),
                     super::super::compact_detail(detail),
                 ],
                 Flow {

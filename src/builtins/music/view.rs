@@ -18,7 +18,7 @@ pub(super) fn compact(
     let indicator = equalizer(playing);
     ViewNode::compact(
         indicator,
-        super::super::compact_value(text, false).color(ColorSpec::Violet),
+        super::super::compact_value(text, false),
         CompactLayout {
             leading_size: [32.0, 24.0],
             width: Size::Fill(1.0),
