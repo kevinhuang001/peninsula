@@ -715,11 +715,6 @@ fn weather_root(
         ColorSpec::SurfaceVariant,
         [11.0, 9.0, 11.0, 3.0],
     ));
-    sections.push(text(
-        "Open-Meteo 预报 · 风险提示由模型数据推算",
-        9.0,
-        ColorSpec::MutedText,
-    ));
     column(sections, 7.0).sized(Size::Fill(1.0), Size::Auto)
 }
 

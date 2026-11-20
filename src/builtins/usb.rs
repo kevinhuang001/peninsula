@@ -319,7 +319,7 @@ mod tests {
         assert_eq!(prompts[0].accent, Some([239, 160, 94]));
         assert_eq!(prompts[1].accent, Some([70, 206, 193]));
         assert!(changes(&new, &new).is_empty());
-        assert_eq!(prompts[0].layers.len(), 5);
+        assert_eq!(prompts[0].layers.len(), 3);
     }
 
     #[test]

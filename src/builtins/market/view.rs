@@ -2,8 +2,8 @@ use super::{Asset, MarketExtension, MarketQuote};
 use crate::{
     extension::Action,
     ui::declarative::{
-        Align, ColorSpec, Flow, FontSize, FontWeight, ImageFit, Justify, Node, Paint, Size, Style,
-        Table, TableColumn, TableRowMenu, TextStyle, ViewNode,
+        Align, ColorSpec, Flow, FontSize, FontWeight, ImageFit, Node, Paint, Size, Style, Table,
+        TableColumn, TableRowMenu, TextStyle, ViewNode,
     },
 };
 
@@ -133,7 +133,7 @@ fn table(market: &MarketExtension) -> ViewNode {
             cell(
                 "＋ 添加股票或加密代码",
                 ColorSpec::SecondaryText,
-                Align::Center,
+                Align::Start,
                 false,
             ),
             cell("—", ColorSpec::MutedText, Align::Center, true),
@@ -165,7 +165,7 @@ fn table(market: &MarketExtension) -> ViewNode {
         .collect();
     ViewNode::new(Node::Table(Table {
         columns: vec![
-            TableColumn::new("资产", 2.3).with_header_align(Align::Center),
+            TableColumn::new("资产", 2.3).with_header_align(Align::Start),
             TableColumn::new("最新价", 1.3).with_header_align(Align::Center),
             TableColumn::new("24 小时", 0.9).with_header_align(Align::Center),
         ],
@@ -222,7 +222,7 @@ fn quote_row(asset: &Asset, quote: Option<&MarketQuote>) -> Vec<ViewNode> {
                 TextStyle {
                     font_size: FontSize::Custom(11.0),
                     font_weight: FontWeight::Bold,
-                    align: Align::Center,
+                    align: Align::Start,
                     wrap: false,
                     ..Default::default()
                 },
@@ -231,7 +231,7 @@ fn quote_row(asset: &Asset, quote: Option<&MarketQuote>) -> Vec<ViewNode> {
                 detail,
                 TextStyle {
                     font_size: FontSize::Custom(9.0),
-                    align: Align::Center,
+                    align: Align::Start,
                     wrap: false,
                     ..Default::default()
                 },
@@ -244,17 +244,16 @@ fn quote_row(asset: &Asset, quote: Option<&MarketQuote>) -> Vec<ViewNode> {
         ],
         Flow {
             gap: Some(2.0),
-            align: Align::Center,
+            align: Align::Start,
             ..Default::default()
         },
     )
-    .sized(Size::Auto, Size::Auto);
+    .sized(Size::Fill(1.0), Size::Auto);
     let identity = ViewNode::row(
         vec![logo, identity],
         Flow {
             gap: Some(8.0),
             align: Align::Center,
-            justify: Justify::Center,
             ..Default::default()
         },
     )
@@ -378,6 +377,9 @@ mod tests {
                     .unwrap_or_else(|| panic!("missing {value}"))
             };
             assert!(text_bounds("更新于 09:14:48").right() < text_bounds("刷新").left());
+            assert!((text_bounds("AAPL").left() - text_bounds("Apple Inc.").left()).abs() < 1.0);
+            assert!(text_bounds("AAPL").left() < text_bounds("资产").left() + 40.0);
+
             assert!(
                 (text_bounds("最新价").center().x - text_bounds("$349.21").center().x).abs() < 1.0
             );
