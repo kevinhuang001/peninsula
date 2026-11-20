@@ -36,8 +36,8 @@ impl CapsuleSection {
         match self {
             Self::Motion => "动态效果",
             Self::Mascot => "Mascot",
-            Self::Compact => "Compact 顺序",
-            Self::Widgets => "Widget 顺序",
+            Self::Compact => "Compact",
+            Self::Widgets => "Widget",
         }
     }
 }
@@ -63,6 +63,7 @@ pub struct SettingsView {
     encryption_task: Option<Receiver<Result<(), String>>>,
     encryption_in_progress: bool,
     encryption_error_at: Option<Instant>,
+    encryption_failed: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -135,7 +136,7 @@ impl SettingsView {
             };
         let limit = context.screen_rect().width() * 0.75;
         let available = (limit - chrome).max(1.0);
-        let content_width = if self.section == Section::Extensions {
+        let content_width = if matches!(self.section, Section::Extensions | Section::Capsule) {
             EXTENSION_FORM_WIDTH
         } else if self.section == Section::Secrets {
             360.0
@@ -289,7 +290,7 @@ impl SettingsView {
                 self.capsule_section,
             ))
             .auto_shrink([false; 2])
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .show(&mut content, |ui| {
                 ui.set_width(ui.available_width());
                 changed |= self.content(ui, prefs);
@@ -421,6 +422,7 @@ impl SettingsView {
             self.encryption_password.clear();
             self.encryption_confirmation.clear();
             self.encryption_error_at = None;
+            self.encryption_failed = false;
         } else {
             changed |= general_accent(ui, prefs);
         }
@@ -439,7 +441,7 @@ impl SettingsView {
             egui::vec2(panel.width().min(360.0), panel.height().min(190.0)),
         );
         let error_progress = self.encryption_error_at.map(|start| {
-            (Instant::now().duration_since(start).as_secs_f32() / 0.45).clamp(0.0, 1.0)
+            (Instant::now().duration_since(start).as_secs_f32() / 0.6).clamp(0.0, 1.0)
         });
         if let Some(progress) = error_progress {
             if progress >= 1.0 {
@@ -449,13 +451,13 @@ impl SettingsView {
                     .duration_since(self.encryption_error_at.unwrap())
                     .as_secs_f32();
                 card = card.translate(egui::vec2(
-                    (1.0 - progress) * 7.0 * (elapsed * 48.0).sin(),
+                    (1.0 - progress) * 9.0 * (elapsed * 42.0).sin(),
                     0.0,
                 ));
                 ui.ctx().request_repaint_after(Duration::from_millis(16));
             }
         }
-        let error_active = error_progress.is_some_and(|progress| progress < 1.0);
+        let error_active = self.encryption_failed;
         let _ = ui.interact(
             panel,
             egui::Id::new("encryption-overlay-blocker"),
@@ -483,7 +485,7 @@ impl SettingsView {
         );
         editor.add_space(8.0);
         let input_stroke = if error_active {
-            Stroke::new(1.5, Color32::from_rgb(235, 88, 96))
+            Stroke::new(3.0, Color32::from_rgb(255, 55, 72))
         } else {
             Stroke::NONE
         };
@@ -493,10 +495,14 @@ impl SettingsView {
                 .password(true)
                 .hint_text(if enable { "密码" } else { "当前密码" }),
         );
+        if password_response.changed() {
+            self.encryption_failed = false;
+            self.encryption_error_at = None;
+        }
         if error_active {
             editor.painter().rect_stroke(
-                password_response.rect,
-                5.0,
+                password_response.rect.expand(1.5),
+                7.0,
                 input_stroke,
                 egui::StrokeKind::Inside,
             );
@@ -509,10 +515,14 @@ impl SettingsView {
                     .password(true)
                     .hint_text("确认密码"),
             );
+            if confirmation_response.changed() {
+                self.encryption_failed = false;
+                self.encryption_error_at = None;
+            }
             if error_active {
                 editor.painter().rect_stroke(
-                    confirmation_response.rect,
-                    5.0,
+                    confirmation_response.rect.expand(1.5),
+                    7.0,
                     input_stroke,
                     egui::StrokeKind::Inside,
                 );
@@ -544,8 +554,11 @@ impl SettingsView {
             }
             if confirm.clicked() {
                 if enable && self.encryption_password != self.encryption_confirmation {
+                    self.encryption_failed = true;
                     self.encryption_error_at = Some(Instant::now());
                 } else {
+                    self.encryption_failed = false;
+                    self.encryption_error_at = None;
                     let password = self.encryption_password.clone();
                     let store = store.clone();
                     let (sender, receiver) = mpsc::channel();
@@ -570,6 +583,7 @@ impl SettingsView {
                 self.encryption_password.clear();
                 self.encryption_confirmation.clear();
                 self.encryption_error_at = None;
+                self.encryption_failed = false;
             }
         });
     }
@@ -587,11 +601,13 @@ impl SettingsView {
                 self.encryption_password.clear();
                 self.encryption_confirmation.clear();
                 self.encryption_error_at = None;
+                self.encryption_failed = false;
             }
             Ok(Err(_)) | Err(TryRecvError::Disconnected) => {
                 self.encryption_task = None;
                 self.encryption_in_progress = false;
                 self.encryption_error_at = Some(Instant::now());
+                self.encryption_failed = true;
             }
             Err(TryRecvError::Empty) => {}
         }
@@ -721,7 +737,7 @@ impl SettingsView {
         egui::ScrollArea::vertical()
             .id_salt("capsule-sections")
             .auto_shrink([false; 2])
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .show(&mut list, |ui| {
                 for section in CapsuleSection::ALL {
                     if menu_row(
@@ -752,7 +768,7 @@ impl SettingsView {
         egui::ScrollArea::vertical()
             .id_salt("plugin-names")
             .auto_shrink([false; 2])
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .show(&mut list, |ui| {
                 for page in &prefs.pages {
                     if menu_row(
@@ -911,7 +927,7 @@ impl SettingsView {
         egui::ScrollArea::vertical()
             .id_salt("quiet-schedules")
             .auto_shrink([false; 2])
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .show(&mut list, |ui| {
                 let height = 28.0 * prefs.quiet_hours.periods().len().max(1) as f32 + 32.0;
                 let (body, _) = ui

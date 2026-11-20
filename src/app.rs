@@ -14,7 +14,10 @@ use crate::{
 };
 use eframe::egui::{self, Vec2};
 use std::{
-    sync::Arc,
+    sync::{
+        mpsc::{self, Receiver, TryRecvError},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -76,6 +79,9 @@ struct IslandApp {
     secret_store: crate::sdk::secrets::SecretStore,
     unlock_password: String,
     unlock_error: bool,
+    unlock_error_at: Option<Instant>,
+    unlock_task: Option<Receiver<Result<(), String>>>,
+    unlock_in_progress: bool,
     scheduler: Scheduler,
     action_dispatcher: ActionDispatcher,
     extensions: ExtensionManager,
@@ -160,6 +166,9 @@ impl IslandApp {
             secret_store,
             unlock_password: String::new(),
             unlock_error: false,
+            unlock_error_at: None,
+            unlock_task: None,
+            unlock_in_progress: false,
             scheduler: Scheduler::default(),
             action_dispatcher: ActionDispatcher::default(),
             extensions,
@@ -432,6 +441,7 @@ impl eframe::App for IslandApp {
     }
 
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
+        self.poll_unlock_task(context);
         if self.secret_store.is_locked() {
             self.update_viewport_size(context, 270.0);
             self.show_unlock_capsule(context);
@@ -1098,6 +1108,31 @@ impl eframe::App for IslandApp {
 }
 
 impl IslandApp {
+    fn poll_unlock_task(&mut self, context: &egui::Context) {
+        let Some(receiver) = self.unlock_task.as_ref() else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(Ok(())) => {
+                self.unlock_task = None;
+                self.unlock_in_progress = false;
+                self.unlock_password.clear();
+                self.unlock_error = false;
+                self.unlock_error_at = None;
+                self.state.begin_unlock_transition(270.0);
+                context.request_repaint();
+            }
+            Ok(Err(_)) | Err(TryRecvError::Disconnected) => {
+                self.unlock_task = None;
+                self.unlock_in_progress = false;
+                self.unlock_error = true;
+                self.unlock_error_at = Some(Instant::now());
+                context.request_repaint();
+            }
+            Err(TryRecvError::Empty) => {}
+        }
+    }
+
     fn show_unlock_capsule(&mut self, context: &egui::Context) {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
@@ -1106,8 +1141,22 @@ impl IslandApp {
                     ui.add_space(8.0);
                     let width = 270.0;
                     let height = compact_layout::CAPSULE_HEIGHT;
-                    let (rect, _) =
+                    let (base_rect, _) =
                         ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+                    let mut rect = base_rect;
+                    if let Some(start) = self.unlock_error_at {
+                        let elapsed = Instant::now().duration_since(start).as_secs_f32();
+                        let progress = (elapsed / 0.6).clamp(0.0, 1.0);
+                        if progress < 1.0 {
+                            rect = base_rect.translate(egui::vec2(
+                                (1.0 - progress) * 9.0 * (elapsed * 42.0).sin(),
+                                0.0,
+                            ));
+                            context.request_repaint_after(Duration::from_millis(16));
+                        } else {
+                            self.unlock_error_at = None;
+                        }
+                    }
                     let fill = ui.visuals().panel_fill;
                     ui.painter().rect_filled(rect, height * 0.5, fill);
                     ui.painter().rect_stroke(
@@ -1135,17 +1184,28 @@ impl IslandApp {
                         egui::pos2(rect.left() + 54.0, rect.top() + 11.0),
                         egui::vec2(130.0, 22.0),
                     );
+                    ui.painter()
+                        .rect_filled(input_rect, 5.0, ui.visuals().extreme_bg_color);
                     let response = ui.put(
                         input_rect,
                         egui::TextEdit::singleline(&mut self.unlock_password)
                             .password(true)
                             .font(egui::FontId::proportional(12.0))
-                            .hint_text(if self.unlock_error {
-                                "密码错误，请重试"
-                            } else {
-                                "输入密码解锁"
-                            }),
+                            .frame(false)
+                            .hint_text("输入密码解锁"),
                     );
+                    if response.changed() {
+                        self.unlock_error = false;
+                        self.unlock_error_at = None;
+                    }
+                    if self.unlock_error {
+                        ui.painter().rect_stroke(
+                            input_rect.expand(1.5),
+                            6.0,
+                            egui::Stroke::new(2.5, egui::Color32::from_rgb(255, 55, 72)),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
                     if self.unlock_password.is_empty() {
                         response.request_focus();
                     }
@@ -1153,28 +1213,41 @@ impl IslandApp {
                         egui::pos2(rect.left() + 192.0, rect.top() + 11.0),
                         egui::vec2(44.0, 22.0),
                     );
-                    if ui
-                        .put(
-                            confirm,
-                            egui::Button::new(egui::RichText::new("确认").size(12.0)),
-                        )
-                        .clicked()
+                    let confirm_response = ui.put(
+                        confirm,
+                        egui::Button::new(if self.unlock_in_progress {
+                            egui::RichText::new("")
+                        } else {
+                            egui::RichText::new("确认").size(12.0)
+                        }),
+                    );
+                    if self.unlock_in_progress {
+                        let mut spinner = ui.new_child(
+                            egui::UiBuilder::new()
+                                .id_salt("vault-unlock-spinner")
+                                .max_rect(confirm),
+                        );
+                        spinner.centered_and_justified(|ui| {
+                            ui.add(egui::Spinner::new().size(13.0));
+                        });
+                        context.request_repaint_after(Duration::from_millis(16));
+                    }
+                    if (confirm_response.clicked()
                         || (response.lost_focus()
-                            && context.input(|input| input.key_pressed(egui::Key::Enter)))
+                            && context.input(|input| input.key_pressed(egui::Key::Enter))))
+                        && !self.unlock_in_progress
                     {
-                        match self.secret_store.unlock(&self.unlock_password) {
-                            Ok(()) => {
-                                self.unlock_password.clear();
-                                self.unlock_error = false;
-                                self.state.begin_unlock_transition(270.0);
-                                context.request_repaint();
-                            }
-                            Err(_) => {
-                                self.unlock_password.clear();
-                                self.unlock_error = true;
-                                context.request_repaint();
-                            }
-                        }
+                        let password = self.unlock_password.clone();
+                        let store = self.secret_store.clone();
+                        let (sender, receiver) = mpsc::channel();
+                        self.unlock_task = Some(receiver);
+                        self.unlock_in_progress = true;
+                        self.unlock_error = false;
+                        self.unlock_error_at = None;
+                        std::thread::spawn(move || {
+                            let result = store.unlock(&password).map_err(|error| error.to_string());
+                            let _ = sender.send(result);
+                        });
                     }
                 });
             });
