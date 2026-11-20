@@ -42,11 +42,6 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, pose: MascotPose, dark: bool)
         painter.add(Shape::convex_polygon(vertices, color, Stroke::NONE));
     };
 
-    painter.line_segment(
-        [point(0.59, -0.57), point(0.68, -0.94)],
-        Stroke::new(unit * 0.1, shell),
-    );
-    painter.circle_filled(point(0.69, -0.96), unit * 0.13, gold);
     rounded(0.96, 0.72, 0.39, shell);
     rounded(0.77, 0.50, 0.28, visor);
     for (index, side) in [-1.0, 1.0].into_iter().enumerate() {
