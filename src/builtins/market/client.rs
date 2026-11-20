@@ -27,10 +27,10 @@ pub(super) fn fetch_quotes(
     thread::scope(|scope| {
         let jobs = assets
             .iter()
-            .cloned()
             .map(|asset| {
                 let client = client.clone();
                 let logo = cached_logos.get(&asset.cache_key()).cloned();
+                let asset = asset.clone();
                 scope.spawn(move || match asset.kind {
                     MarketKind::Stock => fetch_stock(&client, asset, logo),
                     MarketKind::Crypto => fetch_crypto(&client, asset, logo),

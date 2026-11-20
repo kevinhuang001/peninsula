@@ -688,6 +688,9 @@ fn semantic_text_uses_the_shared_palette_in_both_themes() {
                     (ColorSpec::Success, palette.success),
                     (ColorSpec::Warning, palette.warning),
                     (ColorSpec::Danger, palette.danger),
+                    (ColorSpec::Info, palette.info),
+                    (ColorSpec::Cyan, palette.cyan),
+                    (ColorSpec::Violet, palette.violet),
                 ] {
                     assert_eq!(theme.color(ui, role), expected);
                 }

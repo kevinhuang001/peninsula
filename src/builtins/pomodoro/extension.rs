@@ -84,7 +84,7 @@ impl Default for PomodoroExtension {
 impl PomodoroExtension {
     fn phase_color(&self) -> ColorSpec {
         if self.timer.phase == Phase::Focus {
-            ColorSpec::Info
+            ColorSpec::Violet
         } else {
             ColorSpec::Success
         }
@@ -315,7 +315,8 @@ impl RuntimeExtension for PomodoroExtension {
                         super::super::compact_value(
                             format_time(self.timer.remaining_at(now)),
                             true,
-                        ),
+                        )
+                        .color(self.phase_color()),
                         super::super::compact_detail(if self.timer.running {
                             "剩余时间"
                         } else {
@@ -328,7 +329,7 @@ impl RuntimeExtension for PomodoroExtension {
                         ..Default::default()
                     },
                 )
-                .color(ColorSpec::PrimaryText),
+                .color(self.phase_color()),
                 CompactLayout {
                     leading_size: [26.0, 26.0],
                     gap: 6.0,

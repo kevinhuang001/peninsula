@@ -123,7 +123,7 @@ fn load(path: &Path) -> Option<RasterImage> {
     use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSWorkspace};
     use objc2_foundation::{NSDictionary, NSString};
 
-    if !path.extension().is_some_and(|extension| extension == "app") || !path.is_dir() {
+    if path.extension().is_none_or(|extension| extension != "app") || !path.is_dir() {
         return None;
     }
     autoreleasepool(|_| {

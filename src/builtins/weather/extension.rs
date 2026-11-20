@@ -452,10 +452,10 @@ impl RuntimeExtension for WeatherExtension {
             let mut color = if self.alerts.iter().any(WeatherAlert::is_urgent) {
                 ColorSpec::Warning
             } else {
-                ColorSpec::PrimaryText
+                ColorSpec::Cyan
             };
             if self.error.is_some() {
-                color = ColorSpec::MutedText;
+                color = ColorSpec::Danger;
             }
             let today = snapshot.today();
             let tooltip = today.map_or_else(
@@ -481,14 +481,14 @@ impl RuntimeExtension for WeatherExtension {
             (
                 "meteo/not-available",
                 "--°".to_owned(),
-                ColorSpec::MutedText,
+                ColorSpec::Danger,
                 error.clone(),
             )
         } else {
             (
                 "meteo/partly-cloudy-day",
                 "--°".to_owned(),
-                ColorSpec::MutedText,
+                ColorSpec::Cyan,
                 "正在获取天气…".to_owned(),
             )
         };

@@ -18,7 +18,7 @@ pub(super) fn compact(
     let indicator = equalizer(playing);
     ViewNode::compact(
         indicator,
-        super::super::compact_value(text, false),
+        super::super::compact_value(text, false).color(ColorSpec::Violet),
         CompactLayout {
             leading_size: [32.0, 24.0],
             width: Size::Fill(1.0),
@@ -40,7 +40,7 @@ fn equalizer(playing: bool) -> ViewNode {
         32.0,
     )
     .sized(Size::Fixed(32.0), Size::Fixed(24.0))
-    .color(ColorSpec::Accent)
+    .color(ColorSpec::Violet)
 }
 
 pub(super) fn widget(
@@ -329,7 +329,7 @@ mod tests {
                 if name == if playing { "equalizer-playing" } else { "equalizer" }));
             assert_eq!(
                 compact.leading.style.normal.foreground,
-                Some(ColorSpec::Accent)
+                Some(ColorSpec::Violet)
             );
             assert!(matches!(&compact.content.kind, Node::Text { text, .. }
                 if text == &format!("♪{lyric}♪")));

@@ -228,7 +228,7 @@ impl RuntimeExtension for PerformanceExtension {
             ),
             compact_view(
                 "builtin.system-monitor/gpu",
-                processor_compact("gpu", metrics.gpu_percent, ColorSpec::Info),
+                processor_compact("gpu", metrics.gpu_percent, ColorSpec::Violet),
                 56.0,
             ),
         ];
@@ -248,7 +248,7 @@ impl RuntimeExtension for PerformanceExtension {
                     transmitting = transmitting.max(speed);
                     lines.push(
                         super::super::compact_detail(format!("{arrow} {}", format_speed(speed)))
-                            .color(ColorSpec::PrimaryText),
+                            .color(ColorSpec::Cyan),
                     );
                 }
             }
@@ -262,7 +262,7 @@ impl RuntimeExtension for PerformanceExtension {
                 output: [0.25, 1.0],
             });
             let icon = ViewNode::svg("compact/network", 16.0)
-                .color(ColorSpec::Info)
+                .color(ColorSpec::Cyan)
                 .motion(Motion {
                     trigger: Trigger::While(transmitting > 0.0),
                     duration_ms: 600,
@@ -340,7 +340,8 @@ fn processor_compact(icon: &str, percent: Option<f32>, color: ColorSpec) -> View
         super::super::compact_value(
             percent.map_or_else(|| "—".into(), |value| format!("{value:.0}%")),
             true,
-        ),
+        )
+        .color(color),
         CompactLayout {
             leading_size: [18.0, 22.0],
             gap: 3.0,

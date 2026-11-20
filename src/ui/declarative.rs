@@ -245,6 +245,8 @@ pub enum ColorSpec {
     Warning,
     Danger,
     Info,
+    Cyan,
+    Violet,
     Transparent,
     Rgba {
         r: u8,

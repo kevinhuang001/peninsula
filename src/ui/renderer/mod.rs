@@ -300,7 +300,9 @@ impl Theme {
             Success => text.success,
             Warning => text.warning,
             Danger => text.danger,
-            Info => ui.visuals().hyperlink_color,
+            Info => text.info,
+            Cyan => text.cyan,
+            Violet => text.violet,
             Transparent => Color32::TRANSPARENT,
             Rgba { r, g, b, a } => Color32::from_rgba_unmultiplied(r, g, b, a),
         }

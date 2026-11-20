@@ -155,7 +155,7 @@ impl RuntimeExtension for DownloadExtension {
         let color = if complete {
             ColorSpec::Success
         } else {
-            ColorSpec::Info
+            ColorSpec::Cyan
         };
         let size = download.total.filter(|total| *total > 0).map_or_else(
             || compact_size(download.received),
@@ -213,7 +213,7 @@ impl RuntimeExtension for DownloadExtension {
             leading,
             ViewNode::column(
                 vec![
-                    super::super::compact_value(title, false).color(ColorSpec::PrimaryText),
+                    super::super::compact_value(title, false).color(color),
                     super::super::compact_detail(detail),
                 ],
                 Flow {

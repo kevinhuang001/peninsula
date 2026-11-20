@@ -480,8 +480,7 @@ impl Renderer<'_> {
             if weight > 0.0 {
                 force[main] = Some(axes[main].min);
             }
-            if !(cross == 0 && self.intrinsic_width)
-                && !flow.wrap
+            if !(flow.wrap || cross == 0 && self.intrinsic_width)
                 && stretch_cross(&axes[cross], flow.align)
             {
                 force[cross] = Some(available[cross]);
@@ -528,8 +527,7 @@ impl Renderer<'_> {
                 if weights[index] > 0.0 {
                     force[main] = Some(lengths[index]);
                 }
-                if !(cross == 0 && self.intrinsic_width)
-                    && !flow.wrap
+                if !(flow.wrap || cross == 0 && self.intrinsic_width)
                     && stretch_cross(&axes(node_size(child))[cross], flow.align)
                 {
                     force[cross] = Some(available[cross]);

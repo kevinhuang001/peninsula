@@ -278,7 +278,7 @@ fn battery_view(metrics: &PowerSnapshot, label: String) -> ViewNode {
                 ..Default::default()
             },
         )
-        .color(ColorSpec::PrimaryText),
+        .color(battery_color(metrics)),
         CompactLayout {
             leading_size: [28.0, 18.0],
             gap: 5.0,
@@ -313,7 +313,7 @@ pub(super) fn battery_color(metrics: &PowerSnapshot) -> ColorSpec {
     } else if metrics.charging || metrics.external == Some(true) {
         ColorSpec::Success
     } else {
-        ColorSpec::PrimaryText
+        ColorSpec::Info
     }
 }
 
@@ -361,7 +361,7 @@ mod appearance_tests {
                             egui::Shape::Rect(rect) if rect.brush.is_some() => Some(rect.rect),
                             _ => None,
                         })
-                        .last()
+                        .next_back()
                         .expect("charging bolt must render");
                     let center = bounds.min + vec2(12.5 * scale, 9.0 * scale);
                     assert!(
