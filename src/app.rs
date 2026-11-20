@@ -74,6 +74,9 @@ struct IslandApp {
     datasources: DataSourceManager,
     datasource_window: datasource::DataSourceWindow,
     secret_store: crate::sdk::secrets::SecretStore,
+    unlock_password: String,
+    unlock_error: bool,
+    lock_window_sized: bool,
     scheduler: Scheduler,
     action_dispatcher: ActionDispatcher,
     extensions: ExtensionManager,
@@ -143,8 +146,8 @@ impl IslandApp {
             .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
             .unwrap_or_default();
         let secret_store = crate::sdk::secrets::SecretStore::new(
-            "Peninsula::core.host",
             extensions.data_dir().join("secrets.json"),
+            extensions.data_dir().to_owned(),
         );
         let settings_view = SettingsView::default().with_secret_store(
             secret_store.clone(),
@@ -156,6 +159,9 @@ impl IslandApp {
             datasources,
             datasource_window: datasource::DataSourceWindow::default(),
             secret_store,
+            unlock_password: String::new(),
+            unlock_error: false,
+            lock_window_sized: false,
             scheduler: Scheduler::default(),
             action_dispatcher: ActionDispatcher::default(),
             extensions,
@@ -428,6 +434,10 @@ impl eframe::App for IslandApp {
     }
 
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
+        if self.secret_store.is_locked() {
+            self.show_unlock_capsule(context);
+            return;
+        }
         let now = Instant::now();
         self.datasources.register_icons(context);
         for source in self.datasources.snapshots() {
@@ -1085,6 +1095,95 @@ impl eframe::App for IslandApp {
         if let Some(wake) = wake {
             context.request_repaint_after(wake.saturating_duration_since(Instant::now()));
         }
+    }
+}
+
+impl IslandApp {
+    fn show_unlock_capsule(&mut self, context: &egui::Context) {
+        let size = egui::vec2(360.0, 86.0);
+        if !self.lock_window_sized {
+            context.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+            self.window_size = size;
+            self.lock_window_sized = true;
+        }
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(context, |ui| {
+                ui.set_min_size(size);
+                ui.vertical_centered(|ui| {
+                    ui.add_space(8.0);
+                    let width = 344.0;
+                    let height = compact_layout::CAPSULE_HEIGHT;
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+                    let fill = ui.visuals().panel_fill;
+                    ui.painter().rect_filled(rect, height * 0.5, fill);
+                    ui.painter().rect_stroke(
+                        rect,
+                        height * 0.5,
+                        egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 76)),
+                        egui::StrokeKind::Inside,
+                    );
+                    let mascot_rect = egui::Rect::from_min_size(
+                        egui::pos2(rect.left() + 10.0, rect.top() + 5.0),
+                        egui::vec2(38.0, 38.0),
+                    );
+                    let mascot = self
+                        .mascot
+                        .compact_slot(36.0, crate::core::mascot::MotionPolicy::Off);
+                    let _ = crate::ui::renderer::show_compact(
+                        ui,
+                        mascot_rect,
+                        &mascot.id,
+                        &mascot.content,
+                        &self.icons,
+                        1.0,
+                    );
+                    let input_rect = egui::Rect::from_min_size(
+                        egui::pos2(rect.left() + 57.0, rect.top() + 9.0),
+                        egui::vec2(202.0, 30.0),
+                    );
+                    let response = ui.put(
+                        input_rect,
+                        egui::TextEdit::singleline(&mut self.unlock_password)
+                            .password(true)
+                            .hint_text(if self.unlock_error {
+                                "密码错误，请重试"
+                            } else {
+                                "输入密码解锁"
+                            }),
+                    );
+                    if self.unlock_password.is_empty() {
+                        response.request_focus();
+                    }
+                    let confirm = egui::Rect::from_min_size(
+                        egui::pos2(rect.right() - 75.0, rect.top() + 9.0),
+                        egui::vec2(64.0, 30.0),
+                    );
+                    if ui.put(confirm, egui::Button::new("确认")).clicked()
+                        || (response.lost_focus()
+                            && context.input(|input| input.key_pressed(egui::Key::Enter)))
+                    {
+                        match self.secret_store.unlock(&self.unlock_password) {
+                            Ok(()) => {
+                                self.unlock_password.clear();
+                                self.unlock_error = false;
+                                self.lock_window_sized = false;
+                                context.send_viewport_cmd(egui::ViewportCommand::InnerSize(
+                                    INITIAL_WINDOW_SIZE.into(),
+                                ));
+                                self.window_size = Vec2::from(INITIAL_WINDOW_SIZE);
+                                context.request_repaint();
+                            }
+                            Err(_) => {
+                                self.unlock_password.clear();
+                                self.unlock_error = true;
+                                context.request_repaint();
+                            }
+                        }
+                    }
+                });
+            });
     }
 }
 

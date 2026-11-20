@@ -51,6 +51,10 @@ pub struct SettingsView {
     secret_index_path: Option<std::path::PathBuf>,
     secret_revealed: bool,
     secret_dialog_open: bool,
+    encryption_dialog: Option<bool>,
+    encryption_password: String,
+    encryption_confirmation: String,
+    encryption_status: String,
 }
 
 #[derive(Clone, Copy)]
@@ -153,6 +157,8 @@ impl SettingsView {
                 capsule_section: self.capsule_section,
                 searches: self.searches.clone(),
                 secret_keys: self.secret_keys.clone(),
+                secret_store: self.secret_store.clone(),
+                encryption_dialog: self.encryption_dialog,
                 ..Default::default()
             };
             preview.content(&mut measure, &mut prefs.clone());
@@ -194,6 +200,8 @@ impl SettingsView {
             quiet_dialog: None,
             searches: self.searches.clone(),
             secret_keys: self.secret_keys.clone(),
+            secret_store: self.secret_store.clone(),
+            encryption_dialog: self.encryption_dialog,
             ..Default::default()
         };
         let content_height = if self.section == Section::QuietHours {
@@ -219,7 +227,7 @@ impl SettingsView {
 
     fn content(&mut self, ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
         match self.section {
-            Section::General => general(ui, prefs),
+            Section::General => self.general(ui, prefs),
             Section::Capsule => capsule_options(ui, prefs, self.capsule_section),
             Section::Extensions => self.extension_form(ui, prefs),
             Section::Secrets => self.secrets(ui),
@@ -401,6 +409,115 @@ impl SettingsView {
         changed
     }
 
+    fn general(&mut self, ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
+        let Some(store) = self.secret_store.clone() else {
+            general(ui, prefs);
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("Secret 默认以明文保存在本地").color(SECONDARY_TEXT));
+            return false;
+        };
+        let encrypted = store.is_encrypted();
+        let mut enabled = encrypted;
+        let mut changed = forms::boolean(ui, "加密保存 Secret", &mut enabled);
+        if changed {
+            self.encryption_dialog = Some(enabled);
+            self.encryption_password.clear();
+            self.encryption_confirmation.clear();
+            self.encryption_status.clear();
+            changed = false;
+        }
+        ui.add_space(5.0);
+        ui.label(
+            egui::RichText::new(if encrypted {
+                "Secret 文件已加密；每次启动都需要输入密码解锁。"
+            } else {
+                "Secret 默认以明文保存在本地；开启后会加密已有 Secret。"
+            })
+            .color(SECONDARY_TEXT),
+        );
+        if !self.encryption_status.is_empty() {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(&self.encryption_status).color(SECONDARY_TEXT));
+        }
+
+        if let Some(enable) = self.encryption_dialog {
+            let title = if enable {
+                "设置加密密码"
+            } else {
+                "关闭 Secret 加密"
+            };
+            egui::Window::new(title)
+                .id(egui::Id::new("secret-encryption-dialog"))
+                .collapsible(false)
+                .resizable(false)
+                .anchor(Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ui.ctx(), |ui| {
+                    ui.set_min_width(250.0);
+                    if enable {
+                        ui.label("设置密码后，已有 Secret 会立即加密。");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.encryption_password)
+                                .password(true)
+                                .hint_text("密码"),
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.encryption_confirmation)
+                                .password(true)
+                                .hint_text("再次输入密码"),
+                        );
+                    } else {
+                        ui.label("输入当前密码以解密 Secret 并恢复明文存储。");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.encryption_password)
+                                .password(true)
+                                .hint_text("当前密码"),
+                        );
+                    }
+                    if !self.encryption_status.is_empty() {
+                        ui.colored_label(ui.visuals().error_fg_color, &self.encryption_status);
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button(if enable { "加密" } else { "解密" }).clicked() {
+                            let result = if enable {
+                                if self.encryption_password != self.encryption_confirmation {
+                                    Err("两次输入的密码不一致".to_owned())
+                                } else {
+                                    store
+                                        .enable_encryption(&self.encryption_password)
+                                        .map_err(|e| e.to_string())
+                                }
+                            } else {
+                                store
+                                    .disable_encryption(&self.encryption_password)
+                                    .map_err(|e| e.to_string())
+                            };
+                            match result {
+                                Ok(()) => {
+                                    self.encryption_dialog = None;
+                                    self.encryption_status = if enable {
+                                        "Secret 已加密"
+                                    } else {
+                                        "已恢复明文存储"
+                                    }
+                                    .into();
+                                    self.encryption_password.clear();
+                                    self.encryption_confirmation.clear();
+                                }
+                                Err(error) => self.encryption_status = error,
+                            }
+                        }
+                        if ui.button("取消").clicked() {
+                            self.encryption_dialog = None;
+                            self.encryption_password.clear();
+                            self.encryption_confirmation.clear();
+                            self.encryption_status.clear();
+                        }
+                    });
+                });
+        }
+        changed | general(ui, prefs)
+    }
+
     fn secret_editor(&mut self, ui: &mut egui::Ui, panel: Rect) -> bool {
         let mut changed = false;
         let dialog = Rect::from_center_size(
@@ -506,8 +623,8 @@ impl SettingsView {
         self.persist_secret_index();
         self.secret_value.clear();
         self.secret_status = match backend {
-            SecretBackend::Keyring => "已安全保存到系统 Keyring".into(),
-            SecretBackend::PlaintextFallback => "Keyring 不可用，已保存到权限受限的回退存储".into(),
+            SecretBackend::Encrypted => "已加密保存到本地".into(),
+            SecretBackend::Plaintext => "已明文保存到本地".into(),
             SecretBackend::Unavailable => "秘密存储不可用".into(),
         };
         Ok(())

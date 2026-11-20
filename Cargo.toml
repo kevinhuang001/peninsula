@@ -33,11 +33,12 @@ arboard = "3.7.0"
 imap = "2.4.1"
 mailparse = "0.15"
 native-tls = "0.2"
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
 zbus = { version = "5", default-features = true }
-keyring = { version = "3.6.3", default-features = false, features = ["linux-native-sync-persistent", "crypto-rust", "vendored"] }
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -55,14 +56,12 @@ windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Storage_FileSystem",
 ] }
-keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
-security-framework = "3"
 objc2 = "0.5"
 block2 = "0.5"
 objc2-app-kit = { version = "0.2.2", default-features = false, features = ["NSBitmapImageRep", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSView", "NSWindow", "NSWorkspace", "block2"] }

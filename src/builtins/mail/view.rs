@@ -225,7 +225,7 @@ fn account_form(mail: &MailExtension) -> ViewNode {
             text("应用专用密码", 10.5, ColorSpec::SecondaryText),
             password_input(&mail.password_draft),
             text(
-                "使用 IMAP SSL。多数服务商需要先开启 IMAP，并填写应用专用密码；密码保存在系统钥匙串。",
+                "使用 IMAP SSL。多数服务商需要先开启 IMAP，并填写应用专用密码；密码保存在 Peninsula 本地 Secret 文件。",
                 10.0,
                 ColorSpec::SecondaryText,
             ),

@@ -332,8 +332,8 @@ impl MailExtension {
 
         self.passwords.insert(id.clone(), password);
         let mailbox = self.mailboxes.entry(id.clone()).or_default();
-        mailbox.credential_warning = (backend == SecretBackend::PlaintextFallback)
-            .then(|| "系统钥匙串不可用，邮箱密码保存在当前用户的受限权限文件中".to_owned());
+        mailbox.credential_warning = (backend == SecretBackend::Plaintext)
+            .then(|| "邮箱密码以明文保存在当前用户的本地文件中".to_owned());
         self.selected = Some(id.clone());
         self.email_draft.clear();
         self.password_draft.clear();
@@ -665,15 +665,14 @@ impl MailExtension {
             match secrets.get(&account.id) {
                 Ok(Some(password)) => {
                     self.passwords.insert(account.id.clone(), password);
-                    if secrets.backend(&account.id).ok().flatten()
-                        == Some(SecretBackend::PlaintextFallback)
+                    if secrets.backend(&account.id).ok().flatten() == Some(SecretBackend::Plaintext)
                     {
                         mailbox.credential_warning =
-                            Some("系统钥匙串不可用，邮箱密码保存在当前用户的受限权限文件中".into());
+                            Some("邮箱密码以明文保存在当前用户的本地文件中".into());
                     }
                 }
                 Ok(None) => {
-                    mailbox.error = Some("系统钥匙串中没有该账号密码，请重新添加账号".into())
+                    mailbox.error = Some("本地 Secret 文件中没有该账号密码，请重新添加账号".into())
                 }
                 Err(error) => mailbox.error = Some(format!("读取邮箱密码失败：{error}")),
             }
