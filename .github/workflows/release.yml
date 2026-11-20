@@ -162,7 +162,8 @@ jobs:
           if (-not (Test-Path $makensis)) { throw "makensis.exe not found" }
 
           $version = $env:VERSION
-          $quadParts = @($version.Split(".") | Select-Object -First 3)
+          $baseVersion = ($version -split '-')[0]
+          $quadParts = @($baseVersion.Split(".") | Select-Object -First 3)
           while ($quadParts.Count -lt 4) { $quadParts += "0" }
           $quad = $quadParts -join "."
 
@@ -259,7 +260,7 @@ jobs:
 
   release:
     needs: [macos, windows, linux]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, 'test')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
