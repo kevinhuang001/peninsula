@@ -5,9 +5,16 @@ NAME="${PENINSULA_SIGNING_IDENTITY:-Peninsula Local Signing}"
 DIR="$HOME/Library/Application Support/PeninsulaSigning"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$NAME\""; then
+    exit 0
+fi
+
 mkdir -p "$DIR"
 chmod 700 "$DIR"
 
+# The identity exists but is not trusted yet. Add the code-signing trust once, then exit;
+# never re-run add-trusted-cert for an already trusted identity, since macOS prompts for
+# the keychain password on every trust modification.
 if security find-identity -p codesigning 2>/dev/null | grep -q "\"$NAME\""; then
     if [ -f "$DIR/cert.pem" ]; then
         security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$DIR/cert.pem" >/dev/null 2>&1 || true
