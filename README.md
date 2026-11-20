@@ -67,6 +67,14 @@ cargo run
 ./scripts/install-macos.sh
 ```
 
+### macOS 本地自签名
+
+`cargo run` 和安装脚本会用本机的自签名身份签名二进制，避免每次更新后重新授权 Keychain：
+
+- `scripts/setup-macos-signing.sh` 首次运行时在 `~/Library/Application Support/PeninsulaSigning/` 生成证书和私钥（权限 `0600`），并导入登录钥匙串；这些文件不进入仓库。
+- 首次读取 Keychain 时点一次「始终允许」，之后用同一身份签名的更新会沿用该授权。
+- 这是自签名证书，不受系统信任；`.app` 首次打开可能需要在 Finder 中右键「打开」。正式分发给其他人仍建议使用 Developer ID 签名和公证。
+
 在 Windows 上构建安装包（需要 NSIS，`choco install nsis`）：
 
 ```powershell
