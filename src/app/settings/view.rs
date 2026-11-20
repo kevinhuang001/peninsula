@@ -17,6 +17,8 @@ use std::{
 const NAV_BACKGROUND: Color32 = Color32::from_rgb(23, 25, 30);
 const SIDEBAR_WIDTH: f32 = 104.0;
 const PLUGIN_WIDTH: f32 = 134.0;
+const EXTENSION_FORM_WIDTH: f32 = 360.0;
+const EXTENSION_FORM_HEIGHT: f32 = 380.0;
 const COLUMN_GAP: f32 = 9.0;
 const PANEL_INSET: f32 = 10.0;
 
@@ -133,7 +135,9 @@ impl SettingsView {
             };
         let limit = context.screen_rect().width() * 0.75;
         let available = (limit - chrome).max(1.0);
-        let content_width = if self.section == Section::Secrets {
+        let content_width = if self.section == Section::Extensions {
+            EXTENSION_FORM_WIDTH
+        } else if self.section == Section::Secrets {
             360.0
         } else if self.section == Section::QuietHours {
             quiet_view::preferred_width(context, &prefs.quiet_hours).max(
@@ -177,6 +181,9 @@ impl SettingsView {
     }
 
     pub fn extra_height(&self, context: &egui::Context, prefs: &CompactPreferences) -> f32 {
+        if self.section == Section::Extensions {
+            return EXTENSION_FORM_HEIGHT + 21.0;
+        }
         let width = self.width(context, prefs);
         let panels = Panels::new(
             Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 10_000.0)),
@@ -218,12 +225,7 @@ impl SettingsView {
             )
         };
         let navigation_height = Section::ALL.len() as f32 * 40.0 + 10.0;
-        let plugin_height = if self.section == Section::Extensions {
-            prefs.pages.len() as f32 * 40.0 + 40.0
-        } else {
-            0.0
-        };
-        content_height.max(navigation_height).max(plugin_height) + 21.0
+        content_height.max(navigation_height) + 21.0
     }
 
     fn content(&mut self, ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {

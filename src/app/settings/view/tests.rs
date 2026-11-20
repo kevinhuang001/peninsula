@@ -313,7 +313,7 @@ fn settings_width_follows_the_selected_content_and_screen_limit() {
                 .unwrap();
             page.descriptor.settings[0].description =
                 "A much longer setting description that requires more room for the control".into();
-            assert!(view.width(ctx, &longer) > normal);
+            assert_eq!(view.width(ctx, &longer), normal);
             assert!(view.width(ctx, &longer) <= ctx.screen_rect().width() * 0.75);
         },
     );

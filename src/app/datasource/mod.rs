@@ -337,38 +337,6 @@ impl DataSourceWindow {
         {
             self.selected = sources.first().map(|source| source.id.clone());
         }
-        ui.horizontal(|ui| {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let can_refresh = self.selected.as_ref().is_some_and(|id| {
-                    sources
-                        .iter()
-                        .any(|source| &source.id == id && source.enabled)
-                });
-                let refreshing = self.selected.as_ref().is_some_and(|id| {
-                    sources
-                        .iter()
-                        .any(|source| &source.id == id && source.in_flight)
-                });
-                if ui
-                    .add_enabled(
-                        can_refresh,
-                        egui::Button::new(if refreshing {
-                            "刷新中…"
-                        } else {
-                            "↻  刷新"
-                        })
-                        .min_size(Vec2::new(96.0, 32.0)),
-                    )
-                    .on_hover_text("立即刷新当前数据源")
-                    .clicked()
-                {
-                    if let Some(id) = self.selected.clone() {
-                        self.set_source_status(&id, manager.refresh_now(&id));
-                    }
-                }
-            });
-        });
-        ui.add_space(12.0);
         if let Some(error) = manager.storage_error() {
             ui.colored_label(ui.visuals().error_fg_color, format!("存储诊断：{error}"));
             ui.add_space(6.0);
@@ -529,6 +497,23 @@ impl DataSourceWindow {
                 ui.image((icon.id(), Vec2::splat(24.0)));
             }
             ui.label(RichText::new(&source.name).size(20.0).strong());
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui
+                    .add_enabled(
+                        source.enabled,
+                        egui::Button::new(if source.in_flight {
+                            "刷新中…"
+                        } else {
+                            "↻  刷新"
+                        })
+                        .min_size(Vec2::new(96.0, 32.0)),
+                    )
+                    .on_hover_text("立即刷新当前数据源")
+                    .clicked()
+                {
+                    self.set_source_status(&source.id, manager.refresh_now(&source.id));
+                }
+            });
         });
         if !source.description.is_empty() {
             ui.add_space(4.0);
@@ -1154,14 +1139,26 @@ impl DataSourceWindow {
             .collapsible(false)
             .resizable(false)
             .open(&mut open)
+            .min_width(380.0)
+            .max_width(380.0)
             .show(context, |ui| {
-                ui.label(format!("确定删除“{name}”吗？"));
-                switch(ui, &mut self.delete_history, "同时清除此数据源的通知历史");
-                ui.horizontal(|ui| {
-                    if ui.button("取消").clicked() {
-                        self.delete_candidate = None;
-                    }
-                    if ui.button("删除").clicked() {
+                ui.add_space(2.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("确定删除");
+                    ui.label(RichText::new(&name).strong());
+                    ui.label("吗？");
+                });
+                ui.add_space(10.0);
+                panel(ui).show(ui, |ui| {
+                    switch_row(ui, &mut self.delete_history, "同时清除此数据源的通知历史");
+                });
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(4.0);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let delete = egui::Button::new(RichText::new("删除").color(Color32::WHITE))
+                        .fill(Color32::from_rgb(176, 56, 62));
+                    if ui.add(delete).clicked() {
                         match manager.delete(&id) {
                             Ok(()) => {
                                 if self.delete_history {
@@ -1182,6 +1179,10 @@ impl DataSourceWindow {
                             }
                             Err(error) => self.set_error(format!("删除失败：{error}")),
                         }
+                    }
+                    ui.add_space(6.0);
+                    if ui.button("取消").clicked() {
+                        self.delete_candidate = None;
                     }
                 });
             });
