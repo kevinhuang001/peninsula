@@ -50,6 +50,7 @@ pub struct SettingsView {
     secret_status: String,
     secret_index_path: Option<std::path::PathBuf>,
     secret_revealed: bool,
+    secret_dialog_open: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -285,69 +286,42 @@ impl SettingsView {
     }
 
     fn secrets(&mut self, ui: &mut egui::Ui) -> bool {
-        ui.heading("秘密");
-        ui.label("秘密优先保存在系统 Keyring 中。键名保存在本机配置里，内容不会写入偏好设置。");
         ui.horizontal(|ui| {
-            ui.label("键名");
-            ui.text_edit_singleline(&mut self.secret_key);
+            ui.heading("秘密");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("＋ 新增秘密").clicked() {
+                    self.secret_key.clear();
+                    self.secret_value.clear();
+                    self.secret_revealed = false;
+                    self.secret_dialog_open = true;
+                }
+            });
         });
-        ui.horizontal(|ui| {
-            ui.label("内容");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.secret_value).password(!self.secret_revealed),
-            );
-            ui.checkbox(&mut self.secret_revealed, "显示");
-        });
+        ui.label("私密内容优先保存在系统 Keyring 中。");
         let mut changed = false;
-        if ui.button("保存秘密").clicked() {
-            let key = self.secret_key.trim().to_owned();
-            if key.is_empty() || self.secret_value.is_empty() {
-                self.secret_status = "键名和内容不能为空".into();
-            } else if let Some(store) = &self.secret_store {
-                match store.set(&key, &self.secret_value) {
-                    Ok(backend) => {
-                        if !self.secret_keys.contains(&key) {
-                            self.secret_keys.push(key.clone());
-                        }
-                        self.secret_keys.sort();
-                        self.secret_status = match backend {
-                            SecretBackend::Keyring => "已保存到系统 Keyring".into(),
-                            SecretBackend::PlaintextFallback => {
-                                "Keyring 不可用，已保存到受限回退文件".into()
-                            }
-                            SecretBackend::Unavailable => "秘密存储不可用".into(),
-                        };
-                        self.persist_secret_index();
-                        self.secret_value.clear();
-                        changed = true;
-                    }
-                    Err(error) => self.secret_status = error.to_string(),
-                }
-            }
+        if self.secret_keys.is_empty() {
+            ui.add_space(24.0);
+            ui.vertical_centered(|ui| {
+                ui.label(egui::RichText::new("还没有保存的秘密").size(14.0).strong());
+                ui.label("点击“新增秘密”保存 API 密钥、令牌或其他私密内容。");
+            });
         }
-        if !self.secret_status.is_empty() {
-            ui.label(&self.secret_status);
-        }
-        ui.separator();
         let mut remove = None;
-        for key in &self.secret_keys {
-            ui.horizontal(|ui| {
-                ui.label(key);
-                if ui.small_button("载入").clicked() {
-                    if let Some(store) = &self.secret_store {
-                        match store.get(key) {
-                            Ok(Some(value)) => {
-                                self.secret_key = key.clone();
-                                self.secret_value = value;
-                            }
-                            Ok(None) => self.secret_status = "未找到此秘密".into(),
-                            Err(error) => self.secret_status = error.to_string(),
-                        }
+        for key in self.secret_keys.clone() {
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&key).strong());
+                    ui.label(egui::RichText::new("Keyring").small().color(SECONDARY_TEXT));
+                    if ui.small_button("编辑").clicked() {
+                        self.secret_key = key.clone();
+                        self.secret_value.clear();
+                        self.secret_revealed = false;
+                        self.secret_dialog_open = true;
                     }
-                }
-                if ui.small_button("删除").clicked() {
-                    remove = Some(key.clone());
-                }
+                    if ui.small_button("删除").clicked() {
+                        remove = Some(key.clone());
+                    }
+                });
             });
         }
         if let (Some(key), Some(store)) = (remove, &self.secret_store) {
@@ -361,7 +335,75 @@ impl SettingsView {
                 Err(error) => self.secret_status = error.to_string(),
             }
         }
+        if self.secret_dialog_open {
+            let mut open = true;
+            egui::Window::new(if self.secret_keys.contains(&self.secret_key) {
+                "编辑秘密"
+            } else {
+                "新增秘密"
+            })
+            .id(egui::Id::new("secret-editor"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                ui.set_min_width(300.0);
+                ui.label("名称");
+                ui.text_edit_singleline(&mut self.secret_key);
+                ui.add_space(8.0);
+                ui.label("内容");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.secret_value)
+                        .password(!self.secret_revealed),
+                );
+                ui.checkbox(&mut self.secret_revealed, "显示内容");
+                if !self.secret_status.is_empty() {
+                    ui.label(&self.secret_status);
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("取消").clicked() {
+                        self.secret_dialog_open = false;
+                    }
+                    if ui.button("保存").clicked() {
+                        match self.save_secret() {
+                            Ok(()) => {
+                                changed = true;
+                                self.secret_dialog_open = false;
+                            }
+                            Err(error) => self.secret_status = error,
+                        }
+                    }
+                });
+            });
+            if !open {
+                self.secret_dialog_open = false;
+            }
+        }
         changed
+    }
+
+    fn save_secret(&mut self) -> Result<(), String> {
+        let key = self.secret_key.trim().to_owned();
+        if key.is_empty() || self.secret_value.is_empty() {
+            return Err("名称和内容都要填写".into());
+        }
+        let store = self.secret_store.as_ref().ok_or("秘密存储不可用")?;
+        let backend = store
+            .set(&key, &self.secret_value)
+            .map_err(|error| error.to_string())?;
+        if !self.secret_keys.contains(&key) {
+            self.secret_keys.push(key.clone());
+        }
+        self.secret_keys.sort();
+        self.persist_secret_index();
+        self.secret_value.clear();
+        self.secret_status = match backend {
+            SecretBackend::Keyring => "已安全保存到系统 Keyring".into(),
+            SecretBackend::PlaintextFallback => "Keyring 不可用，已保存到权限受限的回退存储".into(),
+            SecretBackend::Unavailable => "秘密存储不可用".into(),
+        };
+        Ok(())
     }
 
     fn persist_secret_index(&self) {

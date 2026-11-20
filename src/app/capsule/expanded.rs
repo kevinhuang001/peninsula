@@ -29,6 +29,10 @@ pub(super) fn paint_header(
     } else {
         ui.visuals().text_color()
     };
+    let (widget_icon, title) = title
+        .strip_prefix("[widget:")
+        .and_then(|value| value.split_once("] "))
+        .map_or((None, title), |(icon, title)| (Some(icon), title));
     let button_size = Vec2::splat(24.0);
     let dashboard_rect = header_button(rect, 105.0, button_size);
     let title_bounds = Rect::from_min_max(
@@ -38,13 +42,27 @@ pub(super) fn paint_header(
     if title_bounds.is_positive() {
         let painter = ui.painter().with_clip_rect(title_bounds);
         let galley = painter.layout_no_wrap(title.to_owned(), FontId::proportional(15.0), text);
+        let icon_size = if widget_icon.is_some() { 16.0 } else { 0.0 };
+        let gap = if widget_icon.is_some() { 6.0 } else { 0.0 };
+        let total_width = galley.size().x + icon_size + gap;
         let center = rect
             .center()
             .x
-            .min(title_bounds.right() - galley.size().x * 0.5);
+            .min(title_bounds.right() - total_width * 0.5);
+        if let Some(icon) = widget_icon {
+            icons.paint_widget_icon(
+                &painter,
+                icon.strip_prefix("builtin.").unwrap_or(icon),
+                Rect::from_min_size(
+                    Pos2::new(center - total_width * 0.5, rect.top() + 19.0),
+                    Vec2::splat(icon_size),
+                ),
+                text.linear_multiply(opacity),
+            );
+        }
         painter.galley(
             Pos2::new(
-                center - galley.size().x * 0.5,
+                center - galley.size().x * 0.5 + (icon_size + gap) * 0.5,
                 rect.top() + 27.0 - galley.size().y * 0.5,
             ),
             galley,

@@ -394,24 +394,6 @@ impl IslandApp {
     }
 }
 
-fn widget_icon(id: &str) -> &'static str {
-    match id.split('/').next().unwrap_or(id) {
-        "builtin.notifications" => "🔔",
-        "builtin.system-monitor" => "◉",
-        "builtin.pomodoro" => "◷",
-        "builtin.kuaidi" => "▣",
-        "builtin.weather" => "☁",
-        "builtin.health" => "♥",
-        "builtin.market" => "↗",
-        "builtin.rss" => "◔",
-        "builtin.mail" => "✉",
-        "builtin.music" => "♫",
-        "builtin.download" => "↓",
-        "builtin.bilibili" => "▣",
-        _ => "◆",
-    }
-}
-
 impl eframe::App for IslandApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0; 4]
@@ -642,8 +624,8 @@ impl eframe::App for IslandApp {
             self.last_expanded_width = Some(width);
         }
         let widget_title = format!(
-            "{} {}",
-            widget_icon(self.active_widget.as_str()),
+            "[widget:{}] {}",
+            self.active_widget.as_str().split('/').next().unwrap_or(""),
             self.extensions.widget_title(&self.active_widget)
         );
         crate::ui::renderer::set_reduced_motion(

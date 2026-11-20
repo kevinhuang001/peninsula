@@ -503,7 +503,8 @@ impl RuntimeExtension for WeatherExtension {
                     gap: 5.0,
                     ..Default::default()
                 },
-            ),
+            )
+            .color(_color),
             visibility: Default::default(),
             min_width: COMPACT_WIDTH,
             preferred_width: COMPACT_WIDTH,
