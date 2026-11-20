@@ -1,12 +1,12 @@
 use super::{
-    Asset, MarketExtension, MarketQuote, ALERT_CONDITION_PREFIX, ALERT_INTERVAL_KEY,
-    ALERT_PRICE_PREFIX, WIDGET_ID,
+    Asset, MarketExtension, MarketQuote, ALERT_INTERVAL_KEY, ALERT_PRICE_PREFIX, COMPACT_ID,
+    WIDGET_ID,
 };
 use crate::{
     extension::{Action, CompactView, ExtensionId},
     ui::declarative::{
-        Align, ColorSpec, ControlKind, Flow, FontSize, FontWeight, ImageFit, Node, Paint, Size,
-        Style, Table, TableColumn, TableRowMenu, TextStyle, ViewNode,
+        Align, ColorSpec, Flow, FontSize, FontWeight, ImageFit, Node, Paint, Size, Style, Table,
+        TableColumn, TableRowMenu, TextStyle, ViewNode,
     },
 };
 
@@ -208,7 +208,7 @@ fn table(market: &MarketExtension) -> ViewNode {
             TableColumn::new("资产", 2.3).with_header_align(Align::Start),
             TableColumn::new("最新价", 1.3).with_header_align(Align::Center),
             TableColumn::new("24 小时", 0.9).with_header_align(Align::Center),
-            TableColumn::new("提醒条件", 1.2).with_header_align(Align::Center),
+            TableColumn::new("穿越提醒价", 1.2).with_header_align(Align::Center),
         ],
         rows,
         row_menus,
@@ -228,35 +228,22 @@ fn table(market: &MarketExtension) -> ViewNode {
 }
 
 fn alert_price_input(asset: &Asset, market: &MarketExtension) -> ViewNode {
+    if asset.kind != super::MarketKind::Stock {
+        return cell("—", ColorSpec::MutedText, Align::Center, true);
+    }
     let key = asset.cache_key();
     let value = market
         .alert_price_drafts
         .get(&key)
         .cloned()
-        .unwrap_or_else(|| {
+        .or_else(|| {
             market
                 .watchlist
-                .alert_rules
+                .alert_prices
                 .get(&key)
-                .and_then(|rule| rule.price.map(|price| price.to_string()))
-                .unwrap_or_default()
-        });
-    let condition = market
-        .watchlist
-        .alert_rules
-        .get(&key)
-        .map_or(super::AlertCondition::Greater, |rule| rule.condition);
-    let selector = ViewNode::new(Node::Control {
-        kind: ControlKind::Button,
-        label: match condition {
-            super::AlertCondition::Greater => ">".into(),
-            super::AlertCondition::Less => "<".into(),
-        },
-        action: Action::Custom(format!("{ALERT_CONDITION_PREFIX}{key}")),
-        enabled: true,
-        icon: None,
-    })
-    .sized(Size::Fixed(30.0), Size::Fixed(26.0));
+                .map(ToString::to_string)
+        })
+        .unwrap_or_default();
     let mut input = ViewNode::new(Node::TextInput {
         key: format!("{ALERT_PRICE_PREFIX}{key}"),
         value,
@@ -268,22 +255,21 @@ fn alert_price_input(asset: &Asset, market: &MarketExtension) -> ViewNode {
     input.style.normal.border_width = Some(1.0);
     input.style.normal.corner_radius = Some(6.0);
     input.style.padding = [3.0; 4];
-    ViewNode::row(
-        vec![selector, input],
-        Flow {
-            gap: Some(4.0),
-            align: Align::Center,
-            ..Default::default()
-        },
-    )
-    .sized(Size::Fill(1.0), Size::Fixed(26.0))
+    input
 }
 
-pub(super) fn compact(market: &MarketExtension) -> Vec<CompactView> {
-    market
+pub(super) fn compact(market: &MarketExtension) -> Option<CompactView> {
+    let stocks: Vec<_> = market
         .watchlist
         .assets
         .iter()
+        .filter(|asset| asset.kind == super::MarketKind::Stock)
+        .collect();
+    if stocks.is_empty() {
+        return None;
+    }
+    let children = stocks
+        .into_iter()
         .map(|asset| {
             let quote = market.quotes.get(&asset.cache_key());
             let logo = quote.and_then(|quote| quote.logo.as_ref()).map_or_else(
@@ -327,27 +313,36 @@ pub(super) fn compact(market: &MarketExtension) -> Vec<CompactView> {
                     ..Default::default()
                 },
             );
-            CompactView {
-                id: super::compact_item_id(asset),
-                source_extension_id: ExtensionId::builtin(WIDGET_ID),
-                content: ViewNode::row(
-                    vec![logo, price],
-                    Flow {
-                        gap: Some(3.0),
-                        align: Align::Center,
-                        ..Default::default()
-                    },
-                )
-                .sized(Size::Auto, Size::Fixed(24.0)),
-                visibility: Default::default(),
-                min_width: 58.0,
-                preferred_width: 82.0,
-                fit_width: true,
-                priority: 0,
-                tooltip: Some(format!("{} 最新价格", asset.symbol)),
-            }
+            ViewNode::row(
+                vec![logo, price],
+                Flow {
+                    gap: Some(3.0),
+                    align: Align::Center,
+                    ..Default::default()
+                },
+            )
+            .sized(Size::Auto, Size::Fixed(22.0))
         })
-        .collect()
+        .collect();
+    Some(CompactView {
+        id: ExtensionId::builtin(COMPACT_ID),
+        source_extension_id: ExtensionId::builtin(WIDGET_ID),
+        content: ViewNode::row(
+            children,
+            Flow {
+                gap: Some(8.0),
+                align: Align::Center,
+                ..Default::default()
+            },
+        )
+        .sized(Size::Auto, Size::Fixed(28.0)),
+        visibility: Default::default(),
+        min_width: 64.0,
+        preferred_width: 128.0,
+        fit_width: true,
+        priority: 0,
+        tooltip: Some("自选股票最新价格".into()),
+    })
 }
 
 fn quote_row(asset: &Asset, quote: Option<&MarketQuote>) -> Vec<ViewNode> {

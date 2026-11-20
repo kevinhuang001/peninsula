@@ -1130,7 +1130,7 @@ fn new_config(
     allow_private_network: bool,
 ) -> SourceConfig {
     SourceConfig {
-        enabled: false,
+        enabled: true,
         alerts: false,
         refresh_interval_ms: DEFAULT_REFRESH_INTERVAL_MS,
         min_alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,

@@ -270,10 +270,6 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
     fn compact_views(&self) -> Vec<CompactView> {
         Vec::new()
     }
-    /// Optional dynamic Compact entries for user-controlled collections such as watchlists.
-    fn dynamic_compact_items(&self) -> Option<Vec<(ExtensionId, String)>> {
-        None
-    }
     fn on_action(&mut self, _action: Action, _now: std::time::Instant) -> ExtensionOutput {
         ExtensionOutput::default()
     }
