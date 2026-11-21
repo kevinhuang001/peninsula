@@ -12,6 +12,7 @@ use std::time::{Instant, SystemTime};
 pub const WIDGET_ID: &str = "builtin.pomodoro/timer";
 pub const COMPACT_ID: &str = "builtin.pomodoro/status";
 pub const NOTIFICATION_ID: &str = "builtin.pomodoro/notifications";
+const SERVICE_ID: &str = "builtin.pomodoro/service.timer";
 const TIMER_TASK: &str = "builtin.pomodoro/timer";
 
 pub fn descriptors() -> Vec<ContributionDescriptor> {
@@ -24,6 +25,7 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             true,
             7,
         )
+        .with_dependency(ExtensionId::builtin(SERVICE_ID))
         .with_size_hint(88.0, 28.0),
         ContributionDescriptor::builtin(
             WIDGET_ID,
@@ -33,16 +35,8 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             true,
             2,
         )
+        .with_dependency(ExtensionId::builtin(SERVICE_ID))
         .with_size_hint(300.0, 126.0)
-        .with_settings(
-            1,
-            vec![
-                SettingSchema::new("focus_minutes", SettingValue::Integer(25), "专注分钟数")
-                    .range(1.0, 180.0),
-                SettingSchema::new("break_minutes", SettingValue::Integer(5), "休息分钟数")
-                    .range(1.0, 180.0),
-            ],
-        )
         .with_capabilities(vec![
             crate::extension::Capability::View,
             crate::extension::Capability::Action,
@@ -60,7 +54,16 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
         .with_capabilities(vec![
             crate::extension::Capability::Event,
             crate::extension::Capability::Action,
-        ]),
+        ])
+        .with_dependency(ExtensionId::builtin(SERVICE_ID)),
+        ContributionDescriptor::builtin(
+            SERVICE_ID,
+            ContributionKind::BackgroundService,
+            "计时服务",
+            "timer",
+            true,
+            0,
+        ),
     ]
 }
 
@@ -69,6 +72,8 @@ pub struct PomodoroExtension {
     completion_sequence: u64,
     restored: bool,
     auto_start: bool,
+    alerts_enabled: bool,
+    timer_context: Option<crate::extension::ExtensionContext>,
 }
 
 impl Default for PomodoroExtension {
@@ -78,6 +83,8 @@ impl Default for PomodoroExtension {
             completion_sequence: 0,
             restored: false,
             auto_start: true,
+            alerts_enabled: true,
+            timer_context: None,
         }
     }
 }
@@ -97,13 +104,21 @@ impl PomodoroExtension {
             ..ExtensionOutput::default()
         };
         if old_deadline.is_some() && old_deadline != deadline {
-            output.cancel_tasks.push(TIMER_TASK.into());
+            if let Some(context) = &self.timer_context {
+                context.cancel_task(TIMER_TASK);
+            } else {
+                output.cancel_tasks.push(TIMER_TASK.into());
+            }
         }
         if let Some(deadline) = deadline.filter(|deadline| Some(*deadline) != old_deadline) {
-            output.schedule.push(ScheduledTask {
-                task_id: TIMER_TASK.into(),
-                deadline,
-            });
+            if let Some(context) = &self.timer_context {
+                context.schedule_at(TIMER_TASK, deadline);
+            } else {
+                output.schedule.push(ScheduledTask {
+                    task_id: TIMER_TASK.into(),
+                    deadline,
+                });
+            }
         }
         output
     }
@@ -142,6 +157,15 @@ impl RuntimeExtension for PomodoroExtension {
             "专注与休息计时",
             descriptors(),
         );
+        d = d.with_settings(
+            1,
+            vec![
+                SettingSchema::new("focus_minutes", SettingValue::Integer(25), "专注分钟数")
+                    .range(1.0, 180.0),
+                SettingSchema::new("break_minutes", SettingValue::Integer(5), "休息分钟数")
+                    .range(1.0, 180.0),
+            ],
+        );
         d.settings.push(SettingSchema::new(
             "auto_start",
             SettingValue::Boolean(true),
@@ -176,6 +200,54 @@ impl RuntimeExtension for PomodoroExtension {
             .map_err(|e| e.to_string())?;
         Ok(())
     }
+    fn on_contribution_start(
+        &mut self,
+        context: &crate::extension::ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == SERVICE_ID {
+            self.timer_context = Some(context.clone());
+            if let Some(deadline) = self.timer.deadline() {
+                context.schedule_at(TIMER_TASK, deadline);
+            }
+        }
+        Ok(())
+    }
+
+    fn on_contribution_stop(
+        &mut self,
+        context: &crate::extension::ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == SERVICE_ID {
+            self.timer_context = None;
+            self.on_stop(context)?;
+        }
+        Ok(())
+    }
+
+    fn on_contribution_state(
+        &mut self,
+        _: &crate::extension::ExtensionContext,
+        active: &std::collections::BTreeMap<ExtensionId, Settings>,
+    ) {
+        self.alerts_enabled = active.contains_key(&ExtensionId::builtin(NOTIFICATION_ID));
+    }
+
+    fn on_contribution_event(
+        &mut self,
+        _: &crate::extension::ExtensionContext,
+        id: &ExtensionId,
+        event: &Event,
+        now: Instant,
+    ) -> ExtensionOutput {
+        if id.as_str() == SERVICE_ID {
+            self.on_event(event, now)
+        } else {
+            ExtensionOutput::default()
+        }
+    }
+
     fn mascot_state(&self) -> std::collections::BTreeMap<String, String> {
         [(
             "phase".into(),
@@ -417,9 +489,11 @@ impl RuntimeExtension for PomodoroExtension {
         }
         let mut output = self.action_output(old_deadline);
         output.mascot_events.push("timer.completed".into());
-        output
-            .notifications
-            .push(self.completion_notification(completed_phase));
+        if self.alerts_enabled {
+            output
+                .notifications
+                .push(self.completion_notification(completed_phase));
+        }
         output
     }
 }

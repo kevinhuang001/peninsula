@@ -149,10 +149,14 @@ impl MascotHost {
             self.pause(now);
             return None;
         }
-        if self.unlock.take().is_some() {
-            self.unlock_clock = BreathClock::default();
-        }
+        let returning_from_unlock = self.unlock.take().is_some();
         self.resume(now);
+        if returning_from_unlock {
+            self.unlock_clock = BreathClock::default();
+            self.playback = None;
+            self.settling = Some((now, self.pose));
+            self.idle_at = Some(now + scheduler::first_pause());
+        }
         let (time, blink) = self.idle_clock.sample(now);
         let idle = animation::sample(MascotMotion::Idle, 0.0, time, blink, policy);
         let complete = self
@@ -166,11 +170,12 @@ impl MascotHost {
         let idle_at = *self
             .idle_at
             .get_or_insert_with(|| now + scheduler::first_pause());
-        let event = if self.playback.as_ref().is_none_or(|p| !p.action.event) {
-            self.scheduler.pop_event()
-        } else {
-            None
-        };
+        let event =
+            if !returning_from_unlock && self.playback.as_ref().is_none_or(|p| !p.action.event) {
+                self.scheduler.pop_event()
+            } else {
+                None
+            };
         let next = event.or_else(|| {
             (self.playback.is_none() && now >= idle_at && policy != MotionPolicy::Off)
                 .then(|| self.scheduler.choose(sources, &mut rand::rng()))

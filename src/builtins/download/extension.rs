@@ -11,6 +11,7 @@ use std::{
 };
 
 pub const NOTIFICATION_ID: &str = "builtin.downloads/notifications";
+const SERVICE_ID: &str = "builtin.downloads/service.monitor";
 pub const COMPACT_ID: &str = "builtin.downloads/status";
 const COMPACT_WIDTH: f32 = 124.0;
 const COMPLETION_HOLD: Duration = Duration::from_secs(3);
@@ -25,7 +26,8 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             false,
             5,
         )
-        .with_size_hint(COMPACT_WIDTH, 28.0),
+        .with_size_hint(COMPACT_WIDTH, 28.0)
+        .with_dependency(ExtensionId::builtin(SERVICE_ID)),
         ContributionDescriptor::builtin(
             NOTIFICATION_ID,
             ContributionKind::Notification,
@@ -37,7 +39,19 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
         .with_capabilities(vec![
             crate::extension::Capability::Event,
             crate::extension::Capability::Action,
-        ]),
+        ])
+        .with_dependency(ExtensionId::builtin(SERVICE_ID)),
+        ContributionDescriptor::builtin(
+            SERVICE_ID,
+            ContributionKind::BackgroundService,
+            "下载检测",
+            "download",
+            true,
+            0,
+        )
+        .with_execution_policy(crate::extension::ExecutionPolicy::Interval(
+            Duration::from_millis(250),
+        )),
     ]
 }
 
@@ -45,6 +59,8 @@ pub struct DownloadExtension {
     updates: Option<crate::core::worker::Worker<Snapshot>>,
     snapshot: Snapshot,
     notification_sequence: u64,
+    notification_enabled: bool,
+    compact_enabled: bool,
     recent_completion: Option<(Download, Instant)>,
 }
 
@@ -54,6 +70,8 @@ impl DownloadExtension {
             updates: None,
             snapshot: Snapshot::default(),
             notification_sequence: 0,
+            notification_enabled: false,
+            compact_enabled: false,
             recent_completion: None,
         }
     }
@@ -67,12 +85,14 @@ impl Default for DownloadExtension {
 
 impl RuntimeExtension for DownloadExtension {
     fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
-        crate::extension::ExtensionDescriptor::builtin(
+        let mut descriptor = crate::extension::ExtensionDescriptor::builtin(
             "builtin.downloads",
             "下载",
             "Chromium、Firefox、Safari 下载检测",
             descriptors(),
-        )
+        );
+        descriptor.execution_policy = crate::extension::ExecutionPolicy::EventDriven;
+        descriptor
     }
 
     fn mascot_expressions(&self) -> Vec<crate::core::mascot::MascotExpression> {
@@ -82,17 +102,47 @@ impl RuntimeExtension for DownloadExtension {
             crate::core::mascot::MascotMotion::Celebrate,
         )]
     }
-    fn on_start(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {
-        self.updates = Some(monitor::start());
+    fn on_contribution_start(
+        &mut self,
+        ctx: &crate::extension::ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == SERVICE_ID {
+            self.updates = Some(monitor::start(&ctx.tasks()).map_err(|error| error.to_string())?);
+        }
         Ok(())
     }
-    fn on_stop(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {
-        self.updates = None;
-        self.snapshot = Snapshot::default();
-        self.recent_completion = None;
+    fn on_contribution_stop(
+        &mut self,
+        _: &crate::extension::ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == SERVICE_ID {
+            self.updates = None;
+            self.snapshot = Snapshot::default();
+        }
+        if matches!(id.as_str(), COMPACT_ID | SERVICE_ID) {
+            self.recent_completion = None;
+        }
         Ok(())
     }
-    fn update(&mut self, now: Instant) -> ExtensionOutput {
+    fn on_contribution_state(
+        &mut self,
+        _: &crate::extension::ExtensionContext,
+        active: &std::collections::BTreeMap<ExtensionId, crate::extension::Settings>,
+    ) {
+        self.notification_enabled = active.contains_key(&ExtensionId::builtin(NOTIFICATION_ID));
+        self.compact_enabled = active.contains_key(&ExtensionId::builtin(COMPACT_ID));
+    }
+    fn on_contribution_update(
+        &mut self,
+        _: &crate::extension::ExtensionContext,
+        id: &ExtensionId,
+        now: Instant,
+    ) -> ExtensionOutput {
+        if id.as_str() != SERVICE_ID {
+            return ExtensionOutput::default();
+        }
         let mut output = ExtensionOutput::default();
         if self
             .recent_completion
@@ -109,11 +159,15 @@ impl RuntimeExtension for DownloadExtension {
                 .filter(|download| download.state == DownloadState::Complete)
             {
                 output.mascot_events.push("download.completed".into());
-                self.notification_sequence += 1;
-                self.recent_completion = Some((download.clone(), now + COMPLETION_HOLD));
-                output
-                    .notifications
-                    .push(download_notification(download, self.notification_sequence));
+                if self.compact_enabled {
+                    self.recent_completion = Some((download.clone(), now + COMPLETION_HOLD));
+                }
+                if self.notification_enabled {
+                    self.notification_sequence += 1;
+                    output
+                        .notifications
+                        .push(download_notification(download, self.notification_sequence));
+                }
             }
             self.snapshot = snapshot;
             output.invalidated.push(ExtensionId::builtin(COMPACT_ID));
@@ -342,8 +396,13 @@ mod compact_tests {
             updates: Some(crate::core::worker::Worker::from_receiver(updates)),
             snapshot: Snapshot::default(),
             notification_sequence: 0,
+            notification_enabled: true,
+            compact_enabled: true,
             recent_completion: None,
         };
+        let context =
+            crate::extension::ExtensionContext::new(Default::default(), Default::default());
+        let service = ExtensionId::builtin(SERVICE_ID);
         let now = Instant::now();
         let download = Download {
             id: "job".into(),
@@ -359,7 +418,7 @@ mod compact_tests {
                 completed: vec![],
             })
             .unwrap();
-        extension.update(now);
+        extension.on_contribution_update(&context, &service, now);
         let active = serde_json::to_string(&extension.compact_views()[0].content).unwrap();
         assert!(active.contains("lucide/arrow-down"));
         assert!(active.contains("下载中"));
@@ -374,12 +433,18 @@ mod compact_tests {
                 }],
             })
             .unwrap();
-        assert_eq!(extension.update(now).notifications.len(), 1);
+        assert_eq!(
+            extension
+                .on_contribution_update(&context, &service, now)
+                .notifications
+                .len(),
+            1
+        );
         let complete = serde_json::to_string(&extension.compact_views()[0].content).unwrap();
         assert!(complete.contains("compact/check"));
         assert!(complete.contains("下载完成"));
 
-        extension.update(now + COMPLETION_HOLD);
+        extension.on_contribution_update(&context, &service, now + COMPLETION_HOLD);
         assert!(extension.compact_views().is_empty());
     }
 }

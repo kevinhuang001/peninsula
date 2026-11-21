@@ -30,7 +30,6 @@ impl WeatherLocation {
 #[derive(Clone, Debug, PartialEq)]
 pub struct WeatherPreferences {
     pub auto_locate: bool,
-    pub alerts_enabled: bool,
     pub refresh_minutes: u16,
     pub location: Option<WeatherLocation>,
 }
@@ -39,7 +38,6 @@ impl Default for WeatherPreferences {
     fn default() -> Self {
         Self {
             auto_locate: true,
-            alerts_enabled: true,
             refresh_minutes: DEFAULT_REFRESH_MINUTES,
             location: None,
         }
@@ -61,7 +59,6 @@ impl WeatherPreferences {
         use crate::extension::{SettingSchema as S, SettingValue as V};
         vec![
             S::new("auto_locate", V::Boolean(true), "自动定位"),
-            S::new("alerts", V::Boolean(true), "天气预警"),
             S::new("refresh_minutes", V::Integer(10), "刷新间隔（分钟）").range(1.0, 180.0),
             S::search(
                 "location",
@@ -76,9 +73,6 @@ impl WeatherPreferences {
         let mut prefs = Self::default();
         if let Some(V::Boolean(v)) = settings.get("auto_locate") {
             prefs.auto_locate = *v;
-        }
-        if let Some(V::Boolean(v)) = settings.get("alerts") {
-            prefs.alerts_enabled = *v;
         }
         if let Some(V::Integer(v)) = settings.get("refresh_minutes") {
             prefs.refresh_minutes = *v as u16;

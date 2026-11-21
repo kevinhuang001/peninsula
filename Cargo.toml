@@ -28,6 +28,8 @@ webbrowser = "1"
 tempfile = "3"
 time = { version = "0.3", features = ["local-offset"] }
 reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots", "socks", "system-proxy"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1", features = ["net", "rt", "time"] }
 jsonpath_lib = "0.3"
 rfd = { version = "0.15", default-features = false, features = ["async-std", "xdg-portal"] }
 feed-rs = { version = "3", features = ["sanitize"] }

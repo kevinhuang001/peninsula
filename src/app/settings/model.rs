@@ -3,15 +3,17 @@ pub(super) enum Section {
     #[default]
     General,
     Capsule,
+    Notifications,
     QuietHours,
     Extensions,
     Secrets,
     About,
 }
 impl Section {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::General,
         Self::Capsule,
+        Self::Notifications,
         Self::QuietHours,
         Self::Extensions,
         Self::Secrets,
@@ -21,6 +23,7 @@ impl Section {
         match self {
             Self::General => "通用",
             Self::Capsule => "胶囊",
+            Self::Notifications => "通知",
             Self::QuietHours => "免打扰",
             Self::Extensions => "扩展",
             Self::Secrets => "秘密",
@@ -32,10 +35,10 @@ impl Section {
 mod tests {
     use super::*;
     #[test]
-    fn navigation_has_exactly_five_fixed_sections() {
+    fn navigation_includes_the_notification_manager() {
         assert_eq!(
             Section::ALL.map(Section::label),
-            ["通用", "胶囊", "免打扰", "扩展", "秘密", "关于"]
+            ["通用", "胶囊", "通知", "免打扰", "扩展", "秘密", "关于"]
         );
     }
 }

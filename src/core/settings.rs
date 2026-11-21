@@ -1,5 +1,7 @@
 //! Versioned, atomic host storage for ordinary extension settings.
-use crate::extension::{ExtensionDescriptor, ExtensionId, ReloadPolicy, Settings};
+use crate::extension::{
+    ContributionDescriptor, ExtensionDescriptor, ExtensionId, ReloadPolicy, SettingSchema, Settings,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -12,6 +14,32 @@ use std::{
 struct Record {
     version: u32,
     values: Settings,
+}
+
+pub(crate) struct SettingsSpec<'a> {
+    id: &'a ExtensionId,
+    version: u32,
+    schema: &'a [SettingSchema],
+}
+
+impl<'a> From<&'a ExtensionDescriptor> for SettingsSpec<'a> {
+    fn from(descriptor: &'a ExtensionDescriptor) -> Self {
+        Self {
+            id: &descriptor.id,
+            version: descriptor.settings_version,
+            schema: &descriptor.settings,
+        }
+    }
+}
+
+impl<'a> From<&'a ContributionDescriptor> for SettingsSpec<'a> {
+    fn from(descriptor: &'a ContributionDescriptor) -> Self {
+        Self {
+            id: &descriptor.id,
+            version: descriptor.settings_version,
+            schema: &descriptor.settings,
+        }
+    }
 }
 
 pub struct SettingsStore {
@@ -41,9 +69,13 @@ impl SettingsStore {
         }
     }
 
-    pub fn defaults(descriptor: &ExtensionDescriptor) -> Settings {
+    pub(crate) fn defaults<'a>(descriptor: impl Into<SettingsSpec<'a>>) -> Settings {
+        Self::default_values(&descriptor.into())
+    }
+
+    fn default_values(descriptor: &SettingsSpec<'_>) -> Settings {
         descriptor
-            .settings
+            .schema
             .iter()
             .filter_map(|field| {
                 field
@@ -54,55 +86,94 @@ impl SettingsStore {
             .collect()
     }
 
-    pub fn load(&mut self, descriptor: &ExtensionDescriptor) -> Result<Settings, String> {
+    #[cfg(test)]
+    pub(crate) fn load<'a>(
+        &mut self,
+        descriptor: impl Into<SettingsSpec<'a>>,
+    ) -> Result<Settings, String> {
+        self.load_with_migration(descriptor, |old_version, _| {
+            Err(format!("no migration for settings version {old_version}"))
+        })
+    }
+
+    pub(crate) fn load_with_migration<'a>(
+        &mut self,
+        descriptor: impl Into<SettingsSpec<'a>>,
+        migrate: impl FnOnce(u32, Settings) -> Result<Settings, String>,
+    ) -> Result<Settings, String> {
+        let descriptor = descriptor.into();
         let stored = self.records.get(descriptor.id.as_str());
         let seed = match stored {
-            None if !self.writable => return Err("extension settings file is unreadable".into()),
-            None => Self::defaults(descriptor),
-            Some(record) if record.version != descriptor.settings_version => {
-                Self::defaults(descriptor)
+            None if !self.writable => return Err("settings file is unreadable".into()),
+            None => Self::default_values(&descriptor),
+            Some(record) if record.version != descriptor.version => {
+                migrate(record.version, record.values.clone())?
             }
             Some(record) => record.values.clone(),
         };
-        let values = Self::normalized(descriptor, seed)?;
-        self.commit(descriptor, values.clone())?;
+        let values = Self::normalized(&descriptor, seed)?;
+        self.commit(&descriptor, values.clone())?;
         Ok(values)
     }
 
-    pub fn update(
+    pub(crate) fn update<'a>(
         &mut self,
-        descriptor: &ExtensionDescriptor,
+        descriptor: impl Into<SettingsSpec<'a>>,
         updates: Settings,
     ) -> Result<Vec<(String, ReloadPolicy)>, String> {
+        let descriptor = descriptor.into();
         let record = self
             .records
             .get(descriptor.id.as_str())
             .ok_or_else(|| "settings have not been initialized".to_owned())?;
-        if record.version != descriptor.settings_version {
+        if record.version != descriptor.version {
             return Err("settings version does not match".into());
         }
         let mut candidate = record.values.clone();
         candidate.extend(updates);
-        let candidate = Self::normalized(descriptor, candidate)?;
+        let candidate = Self::normalized(&descriptor, candidate)?;
         let changed = descriptor
-            .settings
+            .schema
             .iter()
             .filter(|field| record.values.get(&field.key) != candidate.get(&field.key))
             .map(|field| (field.key.clone(), field.reload_policy))
             .collect();
-        self.commit(descriptor, candidate)?;
+        self.commit(&descriptor, candidate)?;
         Ok(changed)
+    }
+
+    pub(crate) fn retain_contributions(
+        &mut self,
+        registry: &crate::extension::ExtensionRegistry,
+    ) -> Result<(), String> {
+        let mut next = self.records.clone();
+        next.retain(|id, _| {
+            ExtensionId::new(id)
+                .ok()
+                .is_some_and(|id| registry.get(&id).is_some())
+        });
+        if next != self.records {
+            self.write(&next).map_err(|error| error.to_string())?;
+            self.records = next;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn snapshot(&self, id: &ExtensionId) -> Option<(u32, Settings)> {
+        self.records
+            .get(id.as_str())
+            .map(|record| (record.version, record.values.clone()))
     }
 
     pub fn values(&self, id: &ExtensionId) -> Option<&Settings> {
         self.records.get(id.as_str()).map(|record| &record.values)
     }
 
-    fn normalized(descriptor: &ExtensionDescriptor, values: Settings) -> Result<Settings, String> {
-        let mut complete = Self::defaults(descriptor);
+    fn normalized(descriptor: &SettingsSpec, values: Settings) -> Result<Settings, String> {
+        let mut complete = Self::default_values(descriptor);
         for (key, value) in values {
             let field = descriptor
-                .settings
+                .schema
                 .iter()
                 .find(|field| field.key == key)
                 .ok_or_else(|| format!("unknown setting {key} in {}", descriptor.id))?;
@@ -112,10 +183,10 @@ impl SettingsStore {
         Ok(complete)
     }
 
-    fn commit(&mut self, descriptor: &ExtensionDescriptor, values: Settings) -> Result<(), String> {
+    fn commit(&mut self, descriptor: &SettingsSpec, values: Settings) -> Result<(), String> {
         let id = descriptor.id.as_str();
         let record = Record {
-            version: descriptor.settings_version,
+            version: descriptor.version,
             values,
         };
         if self.records.get(id) == Some(&record) {
@@ -159,8 +230,8 @@ mod tests {
             "",
             true,
             0,
-        )
-        .with_settings(
+        );
+        ExtensionDescriptor::builtin("test.settings", "Test", "", vec![contribution]).with_settings(
             version,
             vec![
                 SettingSchema::new(key, V::Integer(1000), "Interval").range(250.0, 10_000.0),
@@ -174,11 +245,7 @@ mod tests {
                     ..SettingSchema::new("mode", V::Enum("compact".into()), "Appearance")
                 },
             ],
-        );
-        let mut descriptor =
-            ExtensionDescriptor::builtin("test.settings", "Test", "", vec![contribution]);
-        descriptor.settings_version = version;
-        descriptor
+        )
     }
 
     #[test]
@@ -227,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_version_change_resets_values_to_current_defaults() {
+    fn settings_version_change_requires_migration_and_preserves_original_on_failure() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         let mut host = SettingsStore::open(path.clone());
@@ -237,8 +304,17 @@ mod tests {
         host.update(&old, [("interval".into(), V::Integer(2500))].into())
             .unwrap();
         let initial = fs::read(&path).unwrap();
-        let values = host.load(&new).unwrap();
-        assert_eq!(values["refresh_interval"], V::Integer(1000));
+        assert!(host.load(&new).is_err());
+        assert_eq!(fs::read(&path).unwrap(), initial);
+        let values = host
+            .load_with_migration(&new, |version, mut values| {
+                assert_eq!(version, 1);
+                let interval = values.remove("interval").unwrap();
+                values.insert("refresh_interval".into(), interval);
+                Ok(values)
+            })
+            .unwrap();
+        assert_eq!(values["refresh_interval"], V::Integer(2500));
         let upgraded = fs::read(&path).unwrap();
         assert_ne!(upgraded, initial);
         assert!(host.update(&old, Settings::new()).is_err());

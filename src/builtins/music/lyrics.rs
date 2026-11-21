@@ -50,7 +50,7 @@ impl Lyrics {
     }
 }
 
-pub(super) fn lookup(track: &Track) -> Result<Option<Lyrics>, ()> {
+pub(super) async fn lookup(track: &Track) -> Result<Option<Lyrics>, ()> {
     if let Some(local) = track.file.as_ref().and_then(|file| {
         let filename = file.with_extension("lrc");
         if !std::fs::metadata(&filename).ok()?.is_file() {
@@ -68,24 +68,29 @@ pub(super) fn lookup(track: &Track) -> Result<Option<Lyrics>, ()> {
     }
 
     let timeout = Duration::from_secs(3);
-    let client = crate::sdk::http::client(
-        timeout,
-        timeout,
-        concat!("Peninsula/", env!("CARGO_PKG_VERSION"), " (lyrics)"),
-    )
-    .map_err(|_| ())?;
+    let client = reqwest::Client::builder()
+        .connect_timeout(timeout)
+        .timeout(timeout)
+        .user_agent(concat!(
+            "Peninsula/",
+            env!("CARGO_PKG_VERSION"),
+            " (lyrics)"
+        ))
+        .build()
+        .map_err(|_| ())?;
     let has_cjk = track.title.chars().chain(track.artist.chars()).any(|c| {
         matches!(c, '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}' | '\u{ac00}'..='\u{d7af}')
     });
-    let providers = if has_cjk {
-        [netease as Provider, qq as Provider, lrclib as Provider]
-    } else {
-        [lrclib as Provider, netease as Provider, qq as Provider]
-    };
+    let providers = if has_cjk { [0, 1, 2] } else { [2, 0, 1] };
     let mut plain = None;
     let mut had_error = false;
     for provider in providers {
-        match provider(track, &client) {
+        let result = match provider {
+            0 => netease(track, &client).await,
+            1 => qq(track, &client).await,
+            _ => lrclib(track, &client).await,
+        };
+        match result {
             Ok(Some(synced @ Lyrics::Synced(_))) => return Ok(Some(synced)),
             Ok(Some(lyrics)) => {
                 plain.get_or_insert(lyrics);
@@ -101,33 +106,30 @@ pub(super) fn lookup(track: &Track) -> Result<Option<Lyrics>, ()> {
     }
 }
 
-type Provider = fn(&Track, &reqwest::blocking::Client) -> Result<Option<Lyrics>, ()>;
-
-fn request(
-    request: reqwest::blocking::RequestBuilder,
-    params: &[(&str, &str)],
-) -> Result<Value, ()> {
-    let mut bytes = Vec::new();
-    request
+async fn request(request: reqwest::RequestBuilder, params: &[(&str, &str)]) -> Result<Value, ()> {
+    let mut response = request
         .header("Accept", "application/json")
         .query(params)
         .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .map_err(|_| ())?
-        .take(MAX_RESPONSE + 1)
-        .read_to_end(&mut bytes)
+        .await
+        .and_then(reqwest::Response::error_for_status)
         .map_err(|_| ())?;
-    if bytes.len() as u64 > MAX_RESPONSE {
-        return Err(());
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| ())? {
+        if bytes.len().saturating_add(chunk.len()) as u64 > MAX_RESPONSE {
+            return Err(());
+        }
+        bytes.extend_from_slice(&chunk);
     }
     serde_json::from_slice(&bytes).map_err(|_| ())
 }
 
-fn lrclib(track: &Track, client: &reqwest::blocking::Client) -> Result<Option<Lyrics>, ()> {
+async fn lrclib(track: &Track, client: &reqwest::Client) -> Result<Option<Lyrics>, ()> {
     let response = request(
         client.get(format!("{LRCLIB}/api/search")),
         &[("track_name", &track.title), ("artist_name", &track.artist)],
-    )?;
+    )
+    .await?;
     let items = response.as_array().ok_or(())?;
     let best = items
         .iter()
@@ -152,12 +154,13 @@ fn lrclib(track: &Track, client: &reqwest::blocking::Client) -> Result<Option<Ly
     Ok(best.map(|(_, lyrics)| lyrics))
 }
 
-fn netease(track: &Track, client: &reqwest::blocking::Client) -> Result<Option<Lyrics>, ()> {
+async fn netease(track: &Track, client: &reqwest::Client) -> Result<Option<Lyrics>, ()> {
     let query = format!("{} {}", track.title, track.artist);
     let response = request(
         client.get(format!("{NETEASE}/api/search/get/web")),
         &[("s", &query), ("type", "1"), ("limit", "16")],
-    )?;
+    )
+    .await?;
     if response["code"].as_i64() != Some(200) {
         return Err(());
     }
@@ -179,7 +182,8 @@ fn netease(track: &Track, client: &reqwest::blocking::Client) -> Result<Option<L
     let response = request(
         client.get(format!("{NETEASE}/api/song/lyric")),
         &[("id", &song_id.to_string()), ("lv", "-1")],
-    )?;
+    )
+    .await?;
     if response["code"].as_i64() != Some(200) {
         return Err(());
     }
@@ -189,7 +193,7 @@ fn netease(track: &Track, client: &reqwest::blocking::Client) -> Result<Option<L
         .and_then(parse))
 }
 
-fn qq(track: &Track, client: &reqwest::blocking::Client) -> Result<Option<Lyrics>, ()> {
+async fn qq(track: &Track, client: &reqwest::Client) -> Result<Option<Lyrics>, ()> {
     let query = format!("{} {}", track.title, track.artist);
     let get = |path| {
         client
@@ -199,7 +203,8 @@ fn qq(track: &Track, client: &reqwest::blocking::Client) -> Result<Option<Lyrics
     let response = request(
         get("/soso/fcgi-bin/client_search_cp"),
         &[("w", &query), ("format", "json"), ("p", "1"), ("n", "12")],
-    )?;
+    )
+    .await?;
     if response["code"].as_i64() != Some(0) {
         return Err(());
     }
@@ -228,7 +233,8 @@ fn qq(track: &Track, client: &reqwest::blocking::Client) -> Result<Option<Lyrics
     let response = request(
         get("/lyric/fcgi-bin/fcg_query_lyric_new.fcg"),
         &[("songmid", song_id), ("format", "json"), ("nobase64", "1")],
-    )?;
+    )
+    .await?;
     if response["code"].as_i64() != Some(0) {
         return Err(());
     }

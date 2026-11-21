@@ -19,7 +19,14 @@ pub(in crate::builtins::music) struct Backend {
 }
 
 impl Backend {
-    pub fn observe(&mut self, previous: Option<&str>) -> Result<Option<Playback>, String> {
+    pub fn observe(
+        &mut self,
+        previous: Option<&str>,
+        artwork_scope: Option<&crate::sdk::tasks::TaskScope>,
+    ) -> Result<Option<Playback>, String> {
+        if artwork_scope.is_none() {
+            self.artwork = artwork::Cache::default();
+        }
         if self.connection.is_none() {
             self.connection = Some(
                 zbus::blocking::connection::Builder::session()
@@ -55,12 +62,16 @@ impl Backend {
             }
             if let Some(snapshot) = snapshot(&player, name, playing) {
                 if playing {
-                    return Ok(Some(apply_artwork(&mut self.artwork, snapshot)));
+                    return Ok(Some(apply_artwork(
+                        &mut self.artwork,
+                        snapshot,
+                        artwork_scope,
+                    )));
                 }
                 paused = Some(snapshot);
             }
         }
-        Ok(paused.map(|snapshot| apply_artwork(&mut self.artwork, snapshot)))
+        Ok(paused.map(|snapshot| apply_artwork(&mut self.artwork, snapshot, artwork_scope)))
     }
 
     pub fn control(&mut self, session: &str, command: Command) -> Result<(), String> {
@@ -176,10 +187,13 @@ fn snapshot(
 fn apply_artwork(
     cache: &mut artwork::Cache,
     (mut playback, url): (Playback, Option<String>),
+    tasks: Option<&crate::sdk::tasks::TaskScope>,
 ) -> Playback {
     playback.artwork = url.as_deref().and_then(|url| {
         let source = url.to_owned();
-        cache.get(url, move || artwork::read_url(&source))
+        cache.get(tasks?, url, move |cancel| {
+            artwork::read_url(&source, cancel)
+        })
     });
     playback
 }

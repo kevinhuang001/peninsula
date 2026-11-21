@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct CancellationToken(Arc<AtomicBool>);
 
 impl CancellationToken {
@@ -65,6 +65,11 @@ impl TaskScope {
         name: impl Into<String>,
         task: impl FnOnce(CancellationToken) + Send + 'static,
     ) -> io::Result<()> {
+        let mut threads = self
+            .0
+            .threads
+            .lock()
+            .map_err(|_| io::Error::other("task scope lock poisoned"))?;
         if self.0.token.is_cancelled() {
             return Err(io::Error::new(
                 io::ErrorKind::Interrupted,
@@ -75,38 +80,9 @@ impl TaskScope {
         let handle = thread::Builder::new()
             .name(name.into())
             .spawn(move || task(token))?;
-        let thread = handle.thread().clone();
-        let mut threads = self
-            .0
-            .threads
-            .lock()
-            .map_err(|_| io::Error::other("task scope lock poisoned"))?;
-        let mut finished = Vec::new();
-        let previous = std::mem::take(&mut *threads);
-        for completed in previous {
-            if completed.1.is_finished() {
-                finished.push(completed);
-            } else {
-                threads.push(completed);
-            }
-        }
-        if self.0.token.is_cancelled() {
-            thread.unpark();
-            drop(threads);
-            let _ = handle.join();
-            for (_, completed) in finished {
-                let _ = completed.join();
-            }
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "task scope stopped",
-            ));
-        }
-        threads.push((thread, handle));
+        threads.push((handle.thread().clone(), handle));
         drop(threads);
-        for (_, completed) in finished {
-            let _ = completed.join();
-        }
+        self.reap();
         Ok(())
     }
 
@@ -119,40 +95,83 @@ impl TaskScope {
         }
     }
 
-    pub fn shutdown(&self) {
+    fn reap(&self) -> bool {
+        let Ok(mut threads) = self.0.threads.lock() else {
+            return false;
+        };
+        let mut index = 0;
+        while index < threads.len() {
+            if threads[index].1.is_finished() {
+                let (_, finished) = threads.swap_remove(index);
+                let _ = finished.join();
+            } else {
+                index += 1;
+            }
+        }
+        threads.is_empty()
+    }
+
+    pub fn shutdown(&self) -> bool {
         self.cancel();
-        let handles = self
-            .0
-            .threads
-            .lock()
-            .map(|mut threads| std::mem::take(&mut *threads))
-            .unwrap_or_default();
-        for (_, handle) in handles {
-            let _ = handle.join();
+        let deadline = std::time::Instant::now() + Duration::from_millis(500);
+        loop {
+            if self.reap() {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(Duration::from_millis(5));
         }
     }
 }
 
+type Scopes = HashMap<(ExtensionId, u64), TaskScope>;
+
 #[derive(Clone, Debug, Default)]
-pub(crate) struct TaskRegistry(Arc<Mutex<HashMap<(ExtensionId, u64), TaskScope>>>);
+pub(crate) struct TaskRegistry {
+    active: Arc<Mutex<Scopes>>,
+    stopping: Arc<Mutex<Scopes>>,
+}
 
 impl TaskRegistry {
     pub(crate) fn scope(&self, id: &ExtensionId, generation: u64) -> TaskScope {
-        self.0
+        self.active
             .lock()
             .map(|mut scopes| scopes.entry((id.clone(), generation)).or_default().clone())
             .unwrap_or_default()
     }
 
-    pub(crate) fn cancel(&self, id: &ExtensionId, generation: u64) {
+    pub(crate) fn cancel(&self, id: &ExtensionId, generation: u64) -> bool {
+        let key = (id.clone(), generation);
         let scope = self
-            .0
+            .active
             .lock()
             .ok()
-            .and_then(|mut scopes| scopes.remove(&(id.clone(), generation)));
+            .and_then(|mut scopes| scopes.remove(&key));
         if let Some(scope) = scope {
-            scope.shutdown();
+            if !scope.shutdown() {
+                if let Ok(mut stopping) = self.stopping.lock() {
+                    stopping.insert(key, scope);
+                }
+                return false;
+            }
         }
+        self.stopping
+            .lock()
+            .is_ok_and(|stopping| !stopping.contains_key(&key))
+    }
+
+    pub(crate) fn reap(&self) {
+        if let Ok(mut stopping) = self.stopping.lock() {
+            stopping.retain(|_, scope| !scope.reap());
+        }
+    }
+
+    pub(crate) fn can_start(&self, id: &ExtensionId) -> bool {
+        self.stopping
+            .lock()
+            .is_ok_and(|scopes| scopes.keys().all(|(owner, _)| owner != id))
     }
 }
 
@@ -178,7 +197,7 @@ mod tests {
                 task_finished.store(true, Ordering::Release);
             })
             .unwrap();
-        scope.shutdown();
+        assert!(scope.shutdown());
         assert!(finished.load(Ordering::Acquire));
         assert!(scope.token().is_cancelled());
     }

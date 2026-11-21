@@ -79,12 +79,12 @@ impl BilibiliExtension {
                     }
                 };
                 let mut backoff = Duration::from_secs(DEFAULT_POLL_SECS);
-                if let Err(error) = ensure_opencli_plugin(&program, storage.data()) {
+                if let Err(error) = ensure_opencli_plugin(&program, storage.data(), &cancel) {
                     let _ = sender.send(PollMessage::Error(error));
                     return;
                 }
                 while !cancel.is_cancelled() {
-                    match poller::collect(&program) {
+                    match poller::collect(&program, &cancel) {
                         Ok(counts) => {
                             let increases = state.observe(counts);
                             let save_error = state.save_storage(&state_storage).err();
@@ -183,8 +183,16 @@ impl BilibiliExtension {
             20,
         )
         .with_version(env!("CARGO_PKG_VERSION"))
-        .with_setup(true)
-        .with_settings(
+        .with_execution_policy(crate::extension::ExecutionPolicy::Interval(
+            Duration::from_millis(250),
+        ))]
+    }
+}
+
+impl RuntimeExtension for BilibiliExtension {
+    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+        let mut descriptor = BilibiliExtension::descriptor(self);
+        descriptor = descriptor.with_settings(
             1,
             vec![
                 SettingSchema {
@@ -205,23 +213,38 @@ impl BilibiliExtension {
                     .range(15_000.0, 3_600_000.0)
                 },
             ],
-        )]
+        );
+        descriptor.execution_policy = crate::extension::ExecutionPolicy::EventDriven;
+        descriptor
     }
-}
-
-impl RuntimeExtension for BilibiliExtension {
-    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
-        BilibiliExtension::descriptor(self)
+    fn on_contribution_start(
+        &mut self,
+        ctx: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == NOTIFICATION_ID {
+            self.enabled = true;
+            self.begin_polling(ctx)?;
+        }
+        Ok(())
     }
-    fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
-        self.enabled = true;
-        self.begin_polling(ctx)
+    fn on_contribution_stop(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == NOTIFICATION_ID {
+            self.enabled = false;
+            self.receiver = None;
+            self.polling = false;
+        }
+        Ok(())
     }
 
     fn on_settings_changed(
         &mut self,
-        ctx: &ExtensionContext,
-        id: &ExtensionId,
+        _ctx: &ExtensionContext,
+        _id: &ExtensionId,
         settings: &Settings,
         _policy: ReloadPolicy,
     ) -> ExtensionOutput {
@@ -231,23 +254,8 @@ impl RuntimeExtension for BilibiliExtension {
             return ExtensionOutput::default();
         };
         let interval = Duration::from_millis(*ms);
-        let changed = self.opencli_path != path.trim() || self.poll_interval != interval;
         self.opencli_path = path.trim().to_owned();
         self.poll_interval = interval;
-        if changed && self.enabled && self.polling {
-            ctx.shutdown_tasks();
-            self.receiver = None;
-            self.polling = false;
-            let owner = ctx
-                .extension_id()
-                .cloned()
-                .unwrap_or_else(|| ExtensionId::builtin("builtin.bilibili"));
-            let restarted = ctx.scoped_at(&owner, ctx.generation());
-            if let Err(error) = self.begin_polling(&restarted) {
-                ctx.log(id, &error);
-                self.last_error = Some(error);
-            }
-        }
         ExtensionOutput::default()
     }
 
@@ -266,7 +274,7 @@ impl RuntimeExtension for BilibiliExtension {
             let configured = (!self.opencli_path.trim().is_empty())
                 .then(|| PathBuf::from(self.opencli_path.trim()));
             let program = configured.unwrap_or_else(|| PathBuf::from("opencli"));
-            if poller::is_installed(&program)? {
+            if poller::is_installed(&program, &ctx.tasks().token())? {
                 let output = ProcessExecutor
                     .run(
                         ProcessSpec::new(&program)
@@ -289,7 +297,15 @@ impl RuntimeExtension for BilibiliExtension {
         Ok(())
     }
 
-    fn update(&mut self, _now: std::time::Instant) -> ExtensionOutput {
+    fn on_contribution_update(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+        _now: std::time::Instant,
+    ) -> ExtensionOutput {
+        if id.as_str() != NOTIFICATION_ID {
+            return ExtensionOutput::default();
+        }
         let Some(receiver) = self.receiver.as_ref() else {
             return ExtensionOutput::default();
         };
@@ -477,12 +493,15 @@ fn opencli_version_supported(version: &str) -> bool {
 fn ensure_opencli_plugin(
     program: &Path,
     storage: &crate::sdk::storage::StorageArea,
+    cancellation: &crate::sdk::tasks::CancellationToken,
 ) -> Result<(), String> {
     let version_output = ProcessExecutor
-        .run(
+        .run_with(
             ProcessSpec::new(program)
                 .arg("--version")
                 .timeout(Duration::from_secs(20)),
+            cancellation,
+            |_, _| {},
         )
         .map_err(|error| format!("OpenCLI process failed: {error}"))?;
     if !version_output.success() {
@@ -498,12 +517,14 @@ fn ensure_opencli_plugin(
         return Err(format!("OpenCLI >=2.0.0 is required, found {version}"));
     }
 
-    if poller::is_installed(program)? {
+    if poller::is_installed(program, cancellation)? {
         let update = ProcessExecutor
-            .run(
+            .run_with(
                 ProcessSpec::new(program)
                     .args(["plugin", "update", PLUGIN_NAME])
                     .timeout(Duration::from_secs(120)),
+                cancellation,
+                |_, _| {},
             )
             .map_err(|error| format!("OpenCLI process failed: {error}"))?;
         if !update.success() {
@@ -515,10 +536,12 @@ fn ensure_opencli_plugin(
         }
     } else {
         let install = ProcessExecutor
-            .run(
+            .run_with(
                 ProcessSpec::new(program)
                     .args(["plugin", "install", PLUGIN_SPEC])
                     .timeout(Duration::from_secs(120)),
+                cancellation,
+                |_, _| {},
             )
             .map_err(|error| format!("OpenCLI process failed: {error}"))?;
         if !install.success() {
@@ -532,7 +555,7 @@ fn ensure_opencli_plugin(
             .write_bytes("managed-unread-plugin", b"Peninsula-managed\n")
             .map_err(|error| error.to_string())?;
     }
-    if !poller::is_installed(program)? {
+    if !poller::is_installed(program, cancellation)? {
         return Err(format!("OpenCLI did not register {PLUGIN_NAME}"));
     }
     Ok(())

@@ -1,10 +1,4 @@
-use crate::{
-    app::settings::CompactPreferences,
-    core::{
-        datasource::{self, DataSourceManager, Definition, InputType, SourceSnapshot},
-        notifications::NotificationManager,
-    },
-};
+use crate::core::datasource::{self, DataSourceManager, Definition, InputType, SourceSnapshot};
 use eframe::egui::{self, Align, Color32, Layout, RichText, Stroke, Vec2};
 use serde_json::Value;
 use std::{collections::HashMap, fs, time::Duration};
@@ -221,7 +215,6 @@ pub struct DataSourceWindow {
     /// one source are only rendered inside that source's detail panel.
     status_source: Option<String>,
     delete_candidate: Option<String>,
-    delete_history: bool,
     text_drafts: HashMap<String, String>,
     runtime_drafts: HashMap<String, String>,
 }
@@ -256,13 +249,7 @@ impl DurationUnit {
 }
 
 impl DataSourceWindow {
-    pub fn show(
-        &mut self,
-        context: &egui::Context,
-        manager: &mut DataSourceManager,
-        preferences: &mut CompactPreferences,
-        notifications: &mut NotificationManager,
-    ) {
+    pub fn show(&mut self, context: &egui::Context, manager: &mut DataSourceManager) {
         let requested = context
             .data_mut(|data| data.remove_temp::<bool>(egui::Id::new(OPEN_REQUEST_ID)))
             .unwrap_or(false);
@@ -295,14 +282,14 @@ impl DataSourceWindow {
                         .collapsible(false)
                         .default_size(Vec2::new(900.0, 640.0))
                         .show(context, |ui| {
-                            self.content(ui, manager, preferences, notifications);
+                            self.content(ui, manager);
                         });
                     !open
                 } else {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::central_panel(&context.style()).inner_margin(16.0))
                         .show(context, |ui| {
-                            self.content(ui, manager, preferences, notifications);
+                            self.content(ui, manager);
                         });
                     false
                 }
@@ -313,13 +300,7 @@ impl DataSourceWindow {
         }
     }
 
-    fn content(
-        &mut self,
-        ui: &mut egui::Ui,
-        manager: &mut DataSourceManager,
-        preferences: &mut CompactPreferences,
-        notifications: &mut NotificationManager,
-    ) {
+    fn content(&mut self, ui: &mut egui::Ui, manager: &mut DataSourceManager) {
         if ui.visuals().dark_mode {
             let visuals = ui.visuals_mut();
             visuals.extreme_bg_color = Color32::from_rgb(31, 37, 46);
@@ -397,7 +378,7 @@ impl DataSourceWindow {
                             .auto_shrink([false; 2])
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                self.source_detail(ui, &selected, manager, preferences);
+                                self.source_detail(ui, &selected, manager);
                             });
                     } else {
                         ui.vertical_centered(|ui| {
@@ -411,8 +392,8 @@ impl DataSourceWindow {
                 },
             );
         });
-        self.import_dialog(ui.ctx(), manager, preferences);
-        self.delete_dialog(ui.ctx(), manager, preferences, notifications);
+        self.import_dialog(ui.ctx(), manager);
+        self.delete_dialog(ui.ctx(), manager);
     }
 
     fn source_list(
@@ -476,7 +457,6 @@ impl DataSourceWindow {
                         ui.separator();
                         if ui.button("删除数据源…").clicked() {
                             self.delete_candidate = Some(source.id.clone());
-                            self.delete_history = false;
                             ui.close_menu();
                         }
                     });
@@ -490,7 +470,6 @@ impl DataSourceWindow {
         ui: &mut egui::Ui,
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
-        preferences: &mut CompactPreferences,
     ) {
         ui.horizontal(|ui| {
             if let Some(icon) = manager.icon_texture(&source.id) {
@@ -537,25 +516,10 @@ impl DataSourceWindow {
         form_surface(ui).show(ui, |ui| {
             if switch_row(ui, &mut enabled, "启用") {
                 let result = manager.set_enabled(&source.id, enabled);
-                if result.is_ok() {
-                    let id = compact_item_id(&source.id);
-                    preferences.set_compact_item_enabled(&id, enabled);
-                    let _ = manager.set_compact(&source.id, enabled);
-                    self.save_preferences(preferences);
-                }
                 self.set_source_status(&source.id, result);
             }
         });
         ui.add_space(8.0);
-        if source.alert_enabled {
-            ui.add_space(8.0);
-            let mut alerts = source.alerts;
-            form_surface(ui).show(ui, |ui| {
-                if switch_row(ui, &mut alerts, "启用提醒") {
-                    self.set_source_status(&source.id, manager.set_alerts(&source.id, alerts));
-                }
-            });
-        }
         ui.add_space(12.0);
         self.inputs_form(ui, source, manager);
         ui.add_space(12.0);
@@ -761,23 +725,8 @@ impl DataSourceWindow {
                     source.refresh_interval_ms,
                     Duration::from_secs(30),
                     Duration::from_secs(24 * 60 * 60),
-                    true,
                 );
                 ui.end_row();
-                if source.alert_enabled {
-                    self.duration_setting(
-                        ui,
-                        source,
-                        manager,
-                        "cooldown",
-                        "最短提醒间隔",
-                        source.min_alert_interval_ms,
-                        Duration::from_secs(60),
-                        Duration::from_secs(30 * 24 * 60 * 60),
-                        false,
-                    );
-                    ui.end_row();
-                }
             });
     }
 
@@ -792,7 +741,6 @@ impl DataSourceWindow {
         current_ms: u64,
         min: Duration,
         max: Duration,
-        refresh: bool,
     ) {
         let draft_key = format!("{}::{key}", source.id);
         let draft = self
@@ -821,11 +769,7 @@ impl DataSourceWindow {
                 if let Some(seconds) = minutes.checked_mul(60) {
                     let interval = Duration::from_secs(seconds);
                     if interval >= min && interval <= max {
-                        let result = if refresh {
-                            manager.set_refresh_interval(&source.id, interval)
-                        } else {
-                            manager.set_min_alert_interval(&source.id, interval)
-                        };
+                        let result = manager.set_refresh_interval(&source.id, interval);
                         self.set_source_status(&source.id, result);
                     }
                 }
@@ -974,12 +918,7 @@ impl DataSourceWindow {
         }
     }
 
-    fn import_dialog(
-        &mut self,
-        context: &egui::Context,
-        manager: &mut DataSourceManager,
-        preferences: &mut CompactPreferences,
-    ) {
+    fn import_dialog(&mut self, context: &egui::Context, manager: &mut DataSourceManager) {
         let Some(candidate) = self.candidate.clone() else {
             return;
         };
@@ -1085,15 +1024,6 @@ impl DataSourceWindow {
                         if ui.add(primary).clicked() {
                             match manager.import(candidate.clone(), self.allow_private_network) {
                                 Ok(_) => {
-                                    let ids = manager.compact_ids();
-                                    if preferences.sync_data_source_items(&ids) {
-                                        self.save_preferences(preferences);
-                                    }
-                                    let compact_id = compact_item_id(&candidate.id);
-                                    let _ = manager.set_compact(
-                                        &candidate.id,
-                                        preferences.is_enabled(&compact_id),
-                                    );
                                     self.selected = Some(candidate.id.clone());
                                     self.status.clear();
                                     self.status_source = None;
@@ -1119,13 +1049,7 @@ impl DataSourceWindow {
         }
     }
 
-    fn delete_dialog(
-        &mut self,
-        context: &egui::Context,
-        manager: &mut DataSourceManager,
-        preferences: &mut CompactPreferences,
-        notifications: &mut NotificationManager,
-    ) {
+    fn delete_dialog(&mut self, context: &egui::Context, manager: &mut DataSourceManager) {
         let Some(id) = self.delete_candidate.clone() else {
             return;
         };
@@ -1151,10 +1075,6 @@ impl DataSourceWindow {
                     ui.label("吗？");
                 });
                 ui.add_space(10.0);
-                panel(ui).show(ui, |ui| {
-                    switch_row(ui, &mut self.delete_history, "同时清除此数据源的通知历史");
-                });
-                ui.add_space(10.0);
                 ui.separator();
                 ui.add_space(4.0);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1163,17 +1083,6 @@ impl DataSourceWindow {
                     if ui.add(delete).clicked() {
                         match manager.delete(&id) {
                             Ok(()) => {
-                                if self.delete_history {
-                                    if let Ok(source) = crate::extension::ExtensionId::new(format!(
-                                        "datasource.{id}"
-                                    )) {
-                                        notifications.remove_source(&source);
-                                    }
-                                }
-                                if let Ok(item_id) = compact_item_id_result(&id) {
-                                    preferences.remove_compact_item(&item_id);
-                                    self.save_preferences(preferences);
-                                }
                                 self.selected = None;
                                 self.delete_candidate = None;
                                 self.status.clear();
@@ -1207,21 +1116,6 @@ impl DataSourceWindow {
         self.status = error.into();
         self.status_source = (!self.status.is_empty()).then(|| source.to_owned());
     }
-
-    fn save_preferences(&mut self, preferences: &CompactPreferences) {
-        if let Err(error) = preferences.save() {
-            self.set_error(format!("无法保存 Compact 设置：{error}"));
-        }
-    }
-}
-
-fn compact_item_id(id: &str) -> crate::extension::ExtensionId {
-    compact_item_id_result(id).expect("validated data-source IDs create valid Compact IDs")
-}
-
-fn compact_item_id_result(id: &str) -> Result<crate::extension::ExtensionId, String> {
-    crate::extension::ExtensionId::new(format!("datasource/{id}/value"))
-        .map_err(|_| "数据源 ID 无效".to_owned())
 }
 
 fn required_inputs_ready(source: &SourceSnapshot) -> bool {

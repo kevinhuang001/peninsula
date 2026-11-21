@@ -12,13 +12,18 @@ const CATEGORIES: &[&str] = &[
     "疑似不良消息",
 ];
 
-pub fn collect(program: &Path) -> Result<BTreeMap<String, u64>, String> {
+pub fn collect(
+    program: &Path,
+    cancellation: &crate::sdk::tasks::CancellationToken,
+) -> Result<BTreeMap<String, u64>, String> {
     // Run the configured executable through the common process SDK.
     let output = ProcessExecutor
-        .run(
+        .run_with(
             ProcessSpec::new(program)
                 .args(["bilibili", "unread", "-f", "json", "--window", "background"])
                 .timeout(Duration::from_secs(45)),
+            cancellation,
+            |_, _| {},
         )
         .map_err(|error| format!("OpenCLI process failed: {error}"))?;
     if !output.success() {
@@ -33,12 +38,17 @@ pub fn collect(program: &Path) -> Result<BTreeMap<String, u64>, String> {
     parse_counts(&value)
 }
 
-pub fn is_installed(program: &Path) -> Result<bool, String> {
+pub fn is_installed(
+    program: &Path,
+    cancellation: &crate::sdk::tasks::CancellationToken,
+) -> Result<bool, String> {
     let output = ProcessExecutor
-        .run(
+        .run_with(
             ProcessSpec::new(program)
                 .args(["plugin", "list"])
                 .timeout(Duration::from_secs(20)),
+            cancellation,
+            |_, _| {},
         )
         .map_err(|error| format!("OpenCLI process failed: {error}"))?;
     if !output.success() {
