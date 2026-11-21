@@ -67,7 +67,6 @@ pub fn scan(directories: &HashSet<PathBuf>) -> Vec<Download> {
                 browser: "Chromium",
                 path: target,
                 received: metadata.len(),
-                total: None,
                 bytes_per_second: 0.0,
                 state: DownloadState::Active,
             });
@@ -182,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn detects_live_chromium_partial_files_without_assuming_total_size() {
+    fn detects_live_chromium_partial_file_amount() {
         let folder = tempfile::tempdir().unwrap();
         fs::write(folder.path().join("report.zip.crdownload"), vec![0; 42]).unwrap();
         fs::write(folder.path().join("unrelated.txt"), b"hello").unwrap();
@@ -190,6 +189,5 @@ mod tests {
         assert_eq!(downloads.len(), 1);
         assert_eq!(downloads[0].path, folder.path().join("report.zip"));
         assert_eq!(downloads[0].received, 42);
-        assert_eq!(downloads[0].progress(), None);
     }
 }

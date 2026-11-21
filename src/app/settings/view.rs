@@ -1033,6 +1033,27 @@ fn capsule_options(
         return changed;
     }
     if section == CapsuleSection::Compact {
+        forms::section(ui, "Compact 文字样式");
+        changed |= forms::row(ui, "字号", |ui| {
+            ui.add(
+                egui::DragValue::new(&mut prefs.compact_text_size)
+                    .speed(0.25)
+                    .range(8.0..=18.0)
+                    .suffix(" pt"),
+            )
+            .changed()
+        });
+        changed |= forms::row(ui, "文字颜色", |ui| {
+            let mut follow_theme = prefs.compact_text_color.is_none();
+            let mut changed = forms::toggle(ui, &mut follow_theme, "跟随主题");
+            if changed {
+                prefs.compact_text_color = (!follow_theme).then_some([245, 248, 255]);
+            }
+            if let Some(color) = &mut prefs.compact_text_color {
+                changed |= ui.color_edit_button_srgb(color).changed();
+            }
+            changed
+        });
         let order: Vec<_> = prefs
             .ordered_compact_items()
             .into_iter()

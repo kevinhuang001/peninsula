@@ -59,7 +59,6 @@ mod tests {
             browser: "测试",
             path,
             received: 1,
-            total: Some(2),
             bytes_per_second: 0.0,
             state,
         }

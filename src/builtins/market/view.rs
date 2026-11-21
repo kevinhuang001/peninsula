@@ -5,26 +5,18 @@ use super::{
 use crate::{
     extension::{Action, CompactView, ExtensionId},
     ui::declarative::{
-        Align, ColorSpec, ControlKind, Flow, FontSize, FontWeight, ImageFit, Node, Paint, Size,
-        Style, Table, TableColumn, TableRowMenu, TextStyle, ViewNode,
+        Align, ColorSpec, ControlKind, Flow, FontSize, FontWeight, ImageFit, Justify, Node, Paint,
+        Size, Style, Table, TableColumn, TableRowMenu, TextStyle, ViewNode,
     },
 };
 
-const ADD_KEY: &str = "market-symbol";
 const ADD_ACTION: &str = "market:add";
+const ADD_OPEN_ACTION: &str = "market:add-open";
+const ADD_CANCEL_ACTION: &str = "market:add-cancel";
+const SETTINGS_ACTION: &str = "market:settings";
 const REMOVE_ACTION: &str = "market:remove:";
 
 pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
-    let title = ViewNode::text(
-        "市场行情",
-        TextStyle {
-            font_size: FontSize::Custom(15.0),
-            font_weight: FontWeight::Bold,
-            align: Align::Start,
-            ..Default::default()
-        },
-    )
-    .sized(Size::Fill(1.0), Size::Auto);
     let updated = ViewNode::text(
         market
             .last_updated
@@ -47,78 +39,28 @@ pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
         Action::Advance,
     )
     .sized(Size::Auto, Size::Fixed(26.0));
+    let settings = ViewNode::subtle_button(
+        if market.settings_open {
+            "行情"
+        } else {
+            "设置"
+        },
+        Action::Custom(SETTINGS_ACTION.into()),
+    )
+    .sized(Size::Auto, Size::Fixed(26.0));
+    let add = ViewNode::subtle_button("添加", Action::Custom(ADD_OPEN_ACTION.into()))
+        .sized(Size::Auto, Size::Fixed(26.0));
     let heading = ViewNode::row(
-        vec![
-            ViewNode::icon("chart", 17.0).color(ColorSpec::Info),
-            title,
-            updated,
-            refresh,
-        ],
+        vec![updated, settings, add, refresh],
         Flow {
             gap: Some(8.0),
             align: Align::Center,
+            justify: Justify::End,
             ..Default::default()
         },
     )
     .sized(Size::Fill(1.0), Size::Fixed(30.0));
-
-    let mut input = ViewNode::new(Node::TextInput {
-        key: ADD_KEY.into(),
-        value: market.draft.clone(),
-        hint: "代码，如 AAPL、BTC-USD 或 0700.HK".into(),
-    })
-    .sized(Size::Fill(1.0), Size::Fixed(32.0));
-    input.key = Some("market-add-input".into());
-    input.style.normal.background = Some(ColorSpec::SurfaceVariant);
-    input.style.normal.border_color = Some(ColorSpec::Border);
-    input.style.normal.border_width = Some(1.0);
-    input.style.normal.corner_radius = Some(9.0);
-    input.style.padding = [4.0; 4];
-    let add = ViewNode::subtle_button("添加", Action::Custom(ADD_ACTION.into()))
-        .sized(Size::Fixed(62.0), Size::Fixed(32.0));
-    let input_row = ViewNode::row(
-        vec![input, add],
-        Flow {
-            gap: Some(8.0),
-            align: Align::Center,
-            ..Default::default()
-        },
-    )
-    .sized(Size::Fill(1.0), Size::Fixed(32.0));
-
-    let interval_value = market
-        .alert_interval_draft
-        .clone()
-        .unwrap_or_else(|| market.watchlist.alert_interval_minutes.to_string());
-    let interval_input = ViewNode::new(Node::TextInput {
-        key: ALERT_INTERVAL_KEY.into(),
-        value: interval_value,
-        hint: "分钟".into(),
-    })
-    .sized(Size::Fixed(88.0), Size::Fixed(28.0));
-    let interval_row = ViewNode::row(
-        vec![
-            ViewNode::text(
-                "提醒间隔（分钟）",
-                TextStyle {
-                    font_size: FontSize::Small,
-                    align: Align::Start,
-                    ..Default::default()
-                },
-            )
-            .color(ColorSpec::SecondaryText)
-            .sized(Size::Fill(1.0), Size::Auto),
-            interval_input,
-        ],
-        Flow {
-            gap: Some(8.0),
-            align: Align::Center,
-            ..Default::default()
-        },
-    )
-    .sized(Size::Fill(1.0), Size::Fixed(28.0));
-
-    let mut children = vec![heading, input_row, interval_row];
+    let mut children = vec![heading];
     if let Some(error) = &market.error {
         children.push(
             ViewNode::text(
@@ -133,9 +75,13 @@ pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
             .color(ColorSpec::Warning),
         );
     }
-    children.push(table(market));
+    if market.settings_open {
+        children.push(alert_settings(market));
+    } else {
+        children.push(table(market));
+    }
 
-    let root = ViewNode::column(
+    let mut root = ViewNode::column(
         children,
         Flow {
             gap: Some(8.0),
@@ -148,6 +94,9 @@ pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
         padding: [8.0, 10.0, 8.0, 10.0],
         ..Default::default()
     });
+    if market.add_open {
+        root = add_modal(root, market);
+    }
     let mut view = crate::extension::WidgetView::new(root, [560.0, 430.0]);
     view.bounds = crate::ui::declarative::WidgetBounds {
         min: [430.0, 290.0],
@@ -163,30 +112,12 @@ pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
 }
 
 fn table(market: &MarketExtension) -> ViewNode {
-    let rows = if market.watchlist.assets.is_empty() {
-        vec![vec![
-            cell(
-                "＋ 添加股票或加密代码",
-                ColorSpec::SecondaryText,
-                Align::Start,
-                false,
-            ),
-            cell("—", ColorSpec::MutedText, Align::Center, true),
-            cell("—", ColorSpec::MutedText, Align::Center, true),
-            cell("—", ColorSpec::MutedText, Align::Center, true),
-        ]]
-    } else {
-        market
-            .watchlist
-            .assets
-            .iter()
-            .map(|asset| {
-                let mut row = quote_row(asset, market.quotes.get(&asset.cache_key()));
-                row.push(alert_price_input(asset, market));
-                row
-            })
-            .collect()
-    };
+    let rows = market
+        .watchlist
+        .assets
+        .iter()
+        .map(|asset| quote_row(asset, market.quotes.get(&asset.cache_key())))
+        .collect();
     let row_menus = market
         .watchlist
         .assets
@@ -208,7 +139,6 @@ fn table(market: &MarketExtension) -> ViewNode {
             TableColumn::new("资产", 2.3).with_header_align(Align::Start),
             TableColumn::new("最新价", 1.3).with_header_align(Align::Center),
             TableColumn::new("24 小时", 0.9).with_header_align(Align::Center),
-            TableColumn::new("提醒条件", 1.2).with_header_align(Align::Center),
         ],
         rows,
         row_menus,
@@ -277,6 +207,182 @@ fn alert_price_input(asset: &Asset, market: &MarketExtension) -> ViewNode {
         },
     )
     .sized(Size::Fill(1.0), Size::Fixed(26.0))
+}
+
+fn alert_settings(market: &MarketExtension) -> ViewNode {
+    let interval_value = market
+        .alert_interval_draft
+        .clone()
+        .unwrap_or_else(|| market.watchlist.alert_interval_minutes.to_string());
+    let interval_input = ViewNode::new(Node::TextInput {
+        key: ALERT_INTERVAL_KEY.into(),
+        value: interval_value,
+        hint: "分钟".into(),
+    })
+    .sized(Size::Fixed(88.0), Size::Fixed(28.0));
+    let interval = ViewNode::row(
+        vec![
+            ViewNode::text("提醒间隔（分钟）", TextStyle::default())
+                .color(ColorSpec::SecondaryText)
+                .sized(Size::Fill(1.0), Size::Auto),
+            interval_input,
+        ],
+        Flow {
+            gap: Some(8.0),
+            align: Align::Center,
+            ..Default::default()
+        },
+    )
+    .sized(Size::Fill(1.0), Size::Fixed(34.0));
+    let mut rows = vec![
+        ViewNode::text(
+            "价格提醒",
+            TextStyle {
+                font_size: FontSize::Custom(15.0),
+                font_weight: FontWeight::Bold,
+                align: Align::Start,
+                ..Default::default()
+            },
+        ),
+        interval,
+    ];
+    for asset in &market.watchlist.assets {
+        let label = format!(
+            "{} · {}",
+            asset.symbol,
+            match asset.kind {
+                super::MarketKind::Stock => "股票",
+                super::MarketKind::Crypto => "加密资产",
+            }
+        );
+        let mut row = ViewNode::column(
+            vec![
+                ViewNode::text(
+                    label,
+                    TextStyle {
+                        font_weight: FontWeight::Bold,
+                        align: Align::Start,
+                        ..Default::default()
+                    },
+                ),
+                alert_price_input(asset, market),
+            ],
+            Flow {
+                gap: Some(5.0),
+                align: Align::Stretch,
+                ..Default::default()
+            },
+        )
+        .sized(Size::Fill(1.0), Size::Auto);
+        row.style.padding = [8.0; 4];
+        row.style.normal.background = Some(ColorSpec::SurfaceVariant);
+        row.style.normal.border_color = Some(ColorSpec::Border);
+        row.style.normal.border_width = Some(1.0);
+        row.style.normal.corner_radius = Some(9.0);
+        rows.push(row);
+    }
+    ViewNode::column(
+        rows,
+        Flow {
+            gap: Some(8.0),
+            align: Align::Stretch,
+            ..Default::default()
+        },
+    )
+    .sized(Size::Fill(1.0), Size::Auto)
+}
+
+fn add_modal(base: ViewNode, market: &MarketExtension) -> ViewNode {
+    let mut input = ViewNode::new(Node::TextInput {
+        key: "market-symbol".into(),
+        value: market.draft.clone(),
+        hint: "代码，如 AAPL、BTC-USD 或 0700.HK".into(),
+    })
+    .sized(Size::Fill(1.0), Size::Fixed(34.0));
+    input.style.normal.background = Some(ColorSpec::Surface);
+    input.style.normal.border_color = Some(ColorSpec::Border);
+    input.style.normal.border_width = Some(1.0);
+    input.style.normal.corner_radius = Some(8.0);
+    input.style.padding = [7.0; 4];
+    let mut children = vec![
+        ViewNode::row(
+            vec![
+                ViewNode::text(
+                    "添加自选",
+                    TextStyle {
+                        font_size: FontSize::Custom(15.0),
+                        font_weight: FontWeight::Bold,
+                        align: Align::Start,
+                        ..Default::default()
+                    },
+                )
+                .sized(Size::Fill(1.0), Size::Auto),
+                ViewNode::subtle_button("×", Action::Custom(ADD_CANCEL_ACTION.into())),
+            ],
+            Flow {
+                align: Align::Center,
+                ..Default::default()
+            },
+        ),
+        input,
+    ];
+    if let Some(error) = &market.error {
+        children.push(
+            ViewNode::text(
+                error,
+                TextStyle {
+                    font_size: FontSize::Small,
+                    align: Align::Start,
+                    wrap: true,
+                    ..Default::default()
+                },
+            )
+            .color(ColorSpec::Warning),
+        );
+    }
+    children.push(ViewNode::row(
+        vec![
+            ViewNode::subtle_button("取消", Action::Custom(ADD_CANCEL_ACTION.into())),
+            ViewNode::subtle_button("添加", Action::Custom(ADD_ACTION.into())),
+        ],
+        Flow {
+            gap: Some(7.0),
+            justify: Justify::End,
+            ..Default::default()
+        },
+    ));
+    let mut dialog = ViewNode::column(
+        children,
+        Flow {
+            gap: Some(9.0),
+            align: Align::Stretch,
+            ..Default::default()
+        },
+    )
+    .sized(Size::Fixed(390.0), Size::Auto);
+    dialog.style.padding = [18.0; 4];
+    dialog.style.normal.background = Some(ColorSpec::SurfaceVariant);
+    dialog.style.normal.border_color = Some(ColorSpec::Border);
+    dialog.style.normal.border_width = Some(1.0);
+    dialog.style.normal.corner_radius = Some(12.0);
+    let mut backdrop = ViewNode::new(Node::ActionArea {
+        action: Action::Custom(ADD_CANCEL_ACTION.into()),
+        label: "关闭添加自选弹窗".into(),
+        content: Box::new(ViewNode::new(Node::Spacer)),
+        context_menu: None,
+    })
+    .sized(Size::Fill(1.0), Size::Fill(1.0));
+    backdrop.style.normal.background = Some(ColorSpec::Rgba {
+        r: 10,
+        g: 13,
+        b: 20,
+        a: 190,
+    });
+    ViewNode::new(Node::Stack(
+        [Align::Center; 2],
+        vec![base, backdrop, dialog],
+    ))
+    .sized(Size::Fill(1.0), Size::Fill(1.0))
 }
 
 pub(super) fn compact(market: &MarketExtension) -> Vec<CompactView> {

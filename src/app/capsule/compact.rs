@@ -91,9 +91,21 @@ pub(super) fn show(
                 Vec2::new(content_rect.width(), (rect.height() - 6.0).max(0.0)),
             );
         }
-        if let Some(clicked) =
-            renderer::show_compact(ui, content_rect, &view.id, &view.content, icons, opacity)
-        {
+        let appearance = renderer::CompactTextAppearance {
+            size: prefs.compact_text_size,
+            color: prefs
+                .compact_text_color
+                .map(|color| egui::Color32::from_rgb(color[0], color[1], color[2])),
+        };
+        if let Some(clicked) = renderer::show_compact_with_appearance(
+            ui,
+            content_rect,
+            &view.id,
+            &view.content,
+            icons,
+            opacity,
+            appearance,
+        ) {
             action = Some(ActionInvocation {
                 source_extension_id: view.source_extension_id.clone(),
                 action: clicked,

@@ -205,7 +205,25 @@ pub fn show_compact(
     icons: &Icons,
     opacity: f32,
 ) -> Option<crate::extension::Action> {
-    show_compact_in_clip(ui, rect, rect, id, node, icons, opacity)
+    show_compact_in_clip(ui, rect, rect, id, node, icons, opacity, None)
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct CompactTextAppearance {
+    pub size: f32,
+    pub color: Option<Color32>,
+}
+
+pub fn show_compact_with_appearance(
+    ui: &mut Ui,
+    rect: Rect,
+    id: &ExtensionId,
+    node: &ViewNode,
+    icons: &Icons,
+    opacity: f32,
+    appearance: CompactTextAppearance,
+) -> Option<crate::extension::Action> {
+    show_compact_in_clip(ui, rect, rect, id, node, icons, opacity, Some(appearance))
 }
 
 /// Paint a positioned Prompt layer while allowing motion across the capsule.
@@ -218,7 +236,7 @@ pub fn show_prompt_layer(
     icons: &Icons,
     opacity: f32,
 ) -> Option<crate::extension::Action> {
-    show_compact_in_clip(ui, rect, capsule, id, node, icons, opacity)
+    show_compact_in_clip(ui, rect, capsule, id, node, icons, opacity, None)
 }
 
 fn show_compact_in_clip(
@@ -229,11 +247,13 @@ fn show_compact_in_clip(
     node: &ViewNode,
     icons: &Icons,
     opacity: f32,
+    appearance: Option<CompactTextAppearance>,
 ) -> Option<crate::extension::Action> {
     if !rect.is_positive() || opacity <= 0.0 || !ui.is_rect_visible(rect) {
         return None;
     }
     let mut renderer = Renderer::new(ui, icons);
+    renderer.compact_text_appearance = appearance;
     let mut surface = ui.new_child(UiBuilder::new().id_salt(("compact", id)).max_rect(rect));
     surface.set_clip_rect(ui.clip_rect().intersect(clip));
     // The chip keeps its allocation while shorter content sits in its center.
@@ -262,6 +282,7 @@ struct Renderer<'a> {
     remaining: usize,
     measure_remaining: usize,
     animations_remaining: usize,
+    compact_text_appearance: Option<CompactTextAppearance>,
 }
 
 struct Theme {
@@ -320,6 +341,7 @@ impl<'a> Renderer<'a> {
             remaining: 4096,
             measure_remaining: 16_384,
             animations_remaining: 24,
+            compact_text_appearance: None,
         }
     }
 
@@ -424,6 +446,13 @@ impl<'a> Renderer<'a> {
                     depth,
                 );
             });
+    }
+
+    fn compact_text_style(&self, mut style: TextStyle) -> TextStyle {
+        if let Some(appearance) = self.compact_text_appearance {
+            style.font_size = FontSize::Custom(appearance.size);
+        }
+        style
     }
 }
 

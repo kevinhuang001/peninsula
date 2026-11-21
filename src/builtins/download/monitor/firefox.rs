@@ -44,12 +44,10 @@ fn read_database(snapshot: &Path, path: &Path) -> rusqlite::Result<Vec<Download>
             None if part_size(&target).is_some() => DownloadState::Active,
             None => DownloadState::Failed,
         };
-        let total = meta
-            .get("fileSize")
-            .and_then(Value::as_u64)
-            .filter(|n| *n > 0);
         let received = if state == DownloadState::Complete {
-            total.unwrap_or(0)
+            fs::metadata(&target)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0)
         } else {
             part_size(&target).unwrap_or(0)
         };
@@ -58,7 +56,6 @@ fn read_database(snapshot: &Path, path: &Path) -> rusqlite::Result<Vec<Download>
             browser: "Firefox",
             path: target,
             received,
-            total,
             bytes_per_second: 0.0,
             state,
         });
@@ -105,10 +102,6 @@ fn read_store(path: &Path) -> Vec<Download> {
             let received = part
                 .or_else(|| item.get("currentBytes").and_then(Value::as_u64))
                 .unwrap_or(0);
-            let total = item
-                .get("totalBytes")
-                .and_then(Value::as_u64)
-                .filter(|n| *n > 0);
             let started = item
                 .get("startTime")
                 .map(Value::to_string)
@@ -118,7 +111,6 @@ fn read_store(path: &Path) -> Vec<Download> {
                 browser: "Firefox",
                 path: target,
                 received,
-                total,
                 bytes_per_second: 0.0,
                 state,
             })
@@ -136,13 +128,13 @@ fn part_size(target: &Path) -> Option<u64> {
 mod tests {
     use super::*;
     #[test]
-    fn parses_firefox_in_progress_store_without_guessing_unknown_total() {
+    fn parses_firefox_in_progress_store_current_download_amount() {
         let path =
             std::env::temp_dir().join(format!("peninsula-firefox-{}.json", std::process::id()));
-        fs::write(&path, r#"{"list":[{"target":{"path":"/tmp/report.pdf"},"currentBytes":50,"totalBytes":100,"startTime":"2026-11-16T00:00:00Z"}]}"#).unwrap();
+        fs::write(&path, r#"{"list":[{"target":{"path":"/tmp/report.pdf"},"currentBytes":50,"startTime":"2026-11-16T00:00:00Z"}]}"#).unwrap();
         let list = read_store(&path);
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].progress(), Some(0.5));
+        assert_eq!(list[0].received, 50);
         assert_eq!(list[0].state, DownloadState::Active);
         fs::remove_file(path).unwrap();
     }
@@ -159,13 +151,13 @@ mod tests {
             .unwrap();
         db.execute(
             "INSERT INTO moz_annos VALUES(10,2,?1,42)",
-            [r#"{"state":1,"fileSize":100}"#],
+            [r#"{"state":1}"#],
         )
         .unwrap();
         let items = read(&database).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].path, target);
         assert_eq!(items[0].state, DownloadState::Complete);
-        assert_eq!(items[0].total, Some(100));
+        assert_eq!(items[0].received, 0);
     }
 }

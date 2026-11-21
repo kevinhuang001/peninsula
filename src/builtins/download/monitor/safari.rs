@@ -22,11 +22,6 @@ pub fn read(path: &Path) -> Result<Vec<Download>, Box<dyn std::error::Error>> {
                 .and_then(plist::Value::as_string)
                 .map(str::to_owned)
                 .unwrap_or_else(|| target.to_string_lossy().into_owned());
-            let total = dict
-                .get("DownloadEntryProgressTotalToLoad")
-                .and_then(plist::Value::as_signed_integer)
-                .filter(|n| *n > 0)
-                .map(|n| n as u64);
             let saved = dict
                 .get("DownloadEntryProgressBytesSoFar")
                 .and_then(plist::Value::as_unsigned_integer)
@@ -44,7 +39,6 @@ pub fn read(path: &Path) -> Result<Vec<Download>, Box<dyn std::error::Error>> {
                 browser: "Safari",
                 path: target,
                 received,
-                total,
                 bytes_per_second: 0.0,
                 state,
             })
@@ -91,10 +85,6 @@ mod tests {
             "DownloadEntryIdentifier".into(),
             plist::Value::String("abc".into()),
         );
-        item.insert(
-            "DownloadEntryProgressTotalToLoad".into(),
-            plist::Value::Integer(100.into()),
-        );
         let mut root = plist::Dictionary::new();
         root.insert(
             "DownloadHistory".into(),
@@ -104,6 +94,6 @@ mod tests {
         plist::Value::Dictionary(root).to_file_xml(&path).unwrap();
         let items = read(&path).unwrap();
         assert_eq!(items[0].state, DownloadState::Active);
-        assert_eq!(items[0].progress(), Some(0.4));
+        assert_eq!(items[0].received, 40);
     }
 }

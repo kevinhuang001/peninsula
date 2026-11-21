@@ -121,31 +121,43 @@ fn named_icon(name: &str) -> Option<Icon> {
 }
 
 impl Renderer<'_> {
+    fn paint_text(&self, ui: &Ui, rect: Rect, value: &str, style: TextStyle, color: Color32) {
+        let color = self.compact_text_appearance.map_or(color, |appearance| {
+            appearance
+                .color
+                .unwrap_or_else(|| self.theme.color(ui, ColorSpec::PrimaryText))
+        });
+        text(ui, rect, value, self.compact_text_style(style), color);
+    }
+
     pub(super) fn leaf_size(&self, ui: &Ui, node: &ViewNode, available: Vec2) -> Vec2 {
         let measure_text = |value, style| galley(ui, value, style, available.x, false).size();
         match &node.kind {
             Node::Text { text, text_style } => {
-                measure_text(text.as_str(), *text_style).min(vec2(available.x, f32::INFINITY))
+                measure_text(text.as_str(), self.compact_text_style(*text_style))
+                    .min(vec2(available.x, f32::INFINITY))
             }
             Node::Icon { icon_style, .. } => Vec2::splat(point(icon_style.size)),
             Node::Metric { label, value, unit } => {
                 let caption = measure_text(
                     label,
-                    TextStyle {
+                    self.compact_text_style(TextStyle {
                         font_size: FontSize::Small,
                         ..Default::default()
-                    },
+                    }),
                 );
                 let data = measure_text(
                     &format!("{value}{unit}"),
-                    TextStyle {
+                    self.compact_text_style(TextStyle {
                         font_size: FontSize::Title,
                         ..Default::default()
-                    },
+                    }),
                 );
                 vec2(caption.x.max(data.x), caption.y + data.y)
             }
-            Node::Badge(label) => measure_text(label, TextStyle::default()) + vec2(12.0, 4.0),
+            Node::Badge(label) => {
+                measure_text(label, self.compact_text_style(TextStyle::default())) + vec2(12.0, 4.0)
+            }
             Node::Divider { vertical } => {
                 if *vertical {
                     vec2(1.0, 16.0)
@@ -171,7 +183,7 @@ impl Renderer<'_> {
                 .first()
                 .map_or(Vec2::ZERO, |asset| image_size(ui, asset)),
             Node::Control { label, kind, .. } => {
-                measure_text(label, TextStyle::default())
+                measure_text(label, self.compact_text_style(TextStyle::default()))
                     + vec2(
                         if matches!(kind, ControlKind::Toggle { .. }) {
                             30.0
@@ -515,7 +527,7 @@ impl Renderer<'_> {
         painter.hline(header.x_range(), header.bottom(), divider);
         let mut x = rect.left() + TABLE_X_PADDING;
         for (column, &width) in table.columns.iter().zip(&layout.columns) {
-            text(
+            self.paint_text(
                 ui,
                 Rect::from_min_size(pos2(x, rect.top()), vec2(width, TABLE_HEADER_HEIGHT)),
                 &column.title,
@@ -639,7 +651,7 @@ impl Renderer<'_> {
             Node::Text {
                 text: value,
                 text_style,
-            } => text(ui, rect, value, *text_style, fg),
+            } => self.paint_text(ui, rect, value, *text_style, fg),
             Node::Icon { name, icon_style } => {
                 let size = Vec2::splat(point(icon_style.size)).min(rect.size());
                 let icon_rect = Rect::from_min_size(anchor(rect, size, icon_style.alignment), size);
@@ -755,7 +767,7 @@ impl Renderer<'_> {
             }
             Node::Metric { label, value, unit } => {
                 let mid = rect.top() + rect.height() * 0.42;
-                text(
+                self.paint_text(
                     ui,
                     Rect::from_min_max(rect.min, pos2(rect.right(), mid)),
                     label,
@@ -766,7 +778,7 @@ impl Renderer<'_> {
                     color(ColorSpec::SecondaryText),
                 );
                 let value = format!("{value}{unit}");
-                text(
+                self.paint_text(
                     ui,
                     Rect::from_min_max(pos2(rect.left(), mid), rect.max),
                     &value,
@@ -777,7 +789,7 @@ impl Renderer<'_> {
                     fg,
                 );
             }
-            Node::Badge(label) => text(
+            Node::Badge(label) => self.paint_text(
                 ui,
                 rect.shrink2(vec2(5.0, 1.0)),
                 label,
@@ -946,7 +958,7 @@ impl Renderer<'_> {
                         Stroke::new(point(*stroke), fg),
                     );
                 }
-                text(ui, rect, label, *text_style, color(ColorSpec::PrimaryText));
+                self.paint_text(ui, rect, label, *text_style, color(ColorSpec::PrimaryText));
             }
             Node::Gauge { fraction, label } => {
                 let radius = (rect.width() * 0.5).min(rect.height()) - 3.0;
@@ -970,7 +982,7 @@ impl Renderer<'_> {
                         Stroke::new(3.0_f32, fg),
                     );
                 }
-                text(ui, rect, label, TextStyle::default(), fg);
+                self.paint_text(ui, rect, label, TextStyle::default(), fg);
             }
             Node::Sparkline(values) => chart(&painter, rect, ChartKind::Line, values, fg),
             Node::Chart { kind, values } => chart(&painter, rect, *kind, values, fg),
@@ -1029,7 +1041,7 @@ impl Renderer<'_> {
                         4.0,
                         fg,
                     );
-                    text(
+                    self.paint_text(
                         ui,
                         Rect::from_min_max(rect.min + vec2(28.0, 0.0), rect.max),
                         label,
@@ -1044,7 +1056,7 @@ impl Renderer<'_> {
                     let target = Rect::from_center_size(rect.center(), Vec2::splat(extent));
                     self.icons.paint(&painter, icon, target, fg, 1.0);
                 } else {
-                    text(
+                    self.paint_text(
                         ui,
                         rect.shrink2(vec2(4.0, 0.0)),
                         label,

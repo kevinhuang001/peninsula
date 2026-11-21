@@ -43,7 +43,6 @@ mod tests {
             browser: "Chrome",
             path: PathBuf::from("/tmp/file.zip"),
             received,
-            total: Some(1000),
             bytes_per_second: 0.0,
             state: DownloadState::Active,
         }

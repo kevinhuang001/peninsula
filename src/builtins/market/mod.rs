@@ -30,6 +30,9 @@ const ALERT_INTERVAL_KEY: &str = "market-alert-interval";
 const ALERT_PRICE_PREFIX: &str = "market-alert-price:";
 const ALERT_CONDITION_PREFIX: &str = "market-alert-condition:";
 const ADD_ACTION: &str = "market:add";
+const ADD_OPEN_ACTION: &str = "market:add-open";
+const ADD_CANCEL_ACTION: &str = "market:add-cancel";
+const SETTINGS_ACTION: &str = "market:settings";
 const REMOVE_PREFIX: &str = "market:remove:";
 const REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_ASSETS: usize = 24;
@@ -101,6 +104,8 @@ pub struct MarketExtension {
     next_refresh: Instant,
     refresh_requested: bool,
     refreshing: bool,
+    settings_open: bool,
+    add_open: bool,
     last_updated: Option<String>,
     last_alerts: HashMap<String, Instant>,
     pending_notifications: Vec<Notification>,
@@ -121,6 +126,8 @@ impl MarketExtension {
             next_refresh: Instant::now(),
             refresh_requested: false,
             refreshing: false,
+            settings_open: false,
+            add_open: false,
             last_updated: None,
             last_alerts: HashMap::new(),
             pending_notifications: Vec::new(),
@@ -487,7 +494,23 @@ impl RuntimeExtension for MarketExtension {
                 self.refresh_requested = true;
                 self.error = None;
             }
-            Action::Custom(value) if value == ADD_ACTION => self.add_asset(),
+            Action::Custom(value) if value == ADD_ACTION => {
+                self.add_asset();
+                if self.error.is_none() {
+                    self.add_open = false;
+                }
+            }
+            Action::Custom(value) if value == ADD_OPEN_ACTION => {
+                self.error = None;
+                self.add_open = true;
+            }
+            Action::Custom(value) if value == ADD_CANCEL_ACTION => {
+                self.error = None;
+                self.add_open = false;
+            }
+            Action::Custom(value) if value == SETTINGS_ACTION => {
+                self.settings_open = !self.settings_open;
+            }
             Action::Custom(value) if value.starts_with(REMOVE_PREFIX) => {
                 let tail = &value[REMOVE_PREFIX.len()..];
                 if let Some((kind, symbol)) = tail.split_once(':') {

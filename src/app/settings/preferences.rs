@@ -33,6 +33,8 @@ pub struct CompactPreferences {
     pub quiet_hours: QuietHours,
     pub widget_theme: WidgetTheme,
     pub widget_accent: [u8; 3],
+    pub compact_text_size: f32,
+    pub compact_text_color: Option<[u8; 3]>,
     pub widget_order: Vec<ExtensionId>,
     pub pages: Vec<ExtensionPage>,
 }
@@ -56,6 +58,8 @@ impl Default for CompactPreferences {
             quiet_hours: QuietHours::default(),
             widget_theme: WidgetTheme::default(),
             widget_accent: DEFAULT_WIDGET_ACCENT,
+            compact_text_size: 11.0,
+            compact_text_color: None,
             widget_order: registry
                 .by_kind(ContributionKind::Widget)
                 .into_iter()
@@ -105,6 +109,20 @@ impl CompactPreferences {
                     if let Some(accent) = parse_preset_accent(value) {
                         settings.widget_accent = accent;
                     }
+                }
+                "compact_text_size" => {
+                    if let Ok(size) = value.trim().parse::<f32>() {
+                        if size.is_finite() {
+                            settings.compact_text_size = size.clamp(8.0, 18.0);
+                        }
+                    }
+                }
+                "compact_text_color" => {
+                    settings.compact_text_color = if value.trim() == "theme" {
+                        None
+                    } else {
+                        parse_hex_color(value)
+                    };
                 }
                 "widget_order" => {
                     settings.widget_order = value
@@ -168,6 +186,14 @@ impl CompactPreferences {
             format!(
                 "widget_accent=#{:02x}{:02x}{:02x}",
                 self.widget_accent[0], self.widget_accent[1], self.widget_accent[2]
+            ),
+            format!("compact_text_size={:.1}", self.compact_text_size),
+            format!(
+                "compact_text_color={}",
+                self.compact_text_color.map_or_else(
+                    || "theme".into(),
+                    |color| format!("#{:02x}{:02x}{:02x}", color[0], color[1], color[2]),
+                )
             ),
             format!("quiet_manual={}", self.quiet_hours.manual_enabled),
             format!("quiet_periods={}", encode_periods(&self.quiet_hours)),
@@ -384,6 +410,18 @@ impl CompactPreferences {
             }
         }
     }
+}
+
+fn parse_hex_color(value: &str) -> Option<[u8; 3]> {
+    let value = value.trim().strip_prefix('#')?;
+    if value.len() != 6 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some([
+        u8::from_str_radix(&value[0..2], 16).ok()?,
+        u8::from_str_radix(&value[2..4], 16).ok()?,
+        u8::from_str_radix(&value[4..6], 16).ok()?,
+    ])
 }
 
 fn parse_periods(value: &str) -> QuietHours {

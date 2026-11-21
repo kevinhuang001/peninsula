@@ -2,8 +2,7 @@ use super::monitor::{self, Download, DownloadState, Snapshot};
 use crate::extension::{
     CompactView, ContributionDescriptor, ContributionKind, ExtensionId, ExtensionOutput,
     Notification, NotificationAction, NotificationAlertView, NotificationCenterItemView,
-    NotificationPresentationProvider, NotificationPriority, ReloadPolicy, RuntimeExtension,
-    SettingSchema, SettingValue, Settings, ViewNode,
+    NotificationPresentationProvider, NotificationPriority, RuntimeExtension, ViewNode,
 };
 use crate::ui::declarative::*;
 use std::{
@@ -26,15 +25,7 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             false,
             5,
         )
-        .with_size_hint(COMPACT_WIDTH, 28.0)
-        .with_settings(
-            1,
-            vec![SettingSchema::new(
-                "show_rate",
-                SettingValue::Boolean(true),
-                "在胶囊显示下载速率",
-            )],
-        ),
+        .with_size_hint(COMPACT_WIDTH, 28.0),
         ContributionDescriptor::builtin(
             NOTIFICATION_ID,
             ContributionKind::Notification,
@@ -53,7 +44,6 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
 pub struct DownloadExtension {
     updates: Option<crate::core::worker::Worker<Snapshot>>,
     snapshot: Snapshot,
-    show_rate: bool,
     notification_sequence: u64,
     recent_completion: Option<(Download, Instant)>,
 }
@@ -63,7 +53,6 @@ impl DownloadExtension {
         Self {
             updates: None,
             snapshot: Snapshot::default(),
-            show_rate: true,
             notification_sequence: 0,
             recent_completion: None,
         }
@@ -132,17 +121,6 @@ impl RuntimeExtension for DownloadExtension {
         output
     }
 
-    fn on_settings_changed(
-        &mut self,
-        _ctx: &crate::extension::ExtensionContext,
-        _id: &ExtensionId,
-        settings: &Settings,
-        _policy: ReloadPolicy,
-    ) -> ExtensionOutput {
-        self.show_rate = settings.get("show_rate") != Some(&SettingValue::Boolean(false));
-        ExtensionOutput::default()
-    }
-
     fn compact_views(&self) -> Vec<CompactView> {
         let Some(download) = self.snapshot.preferred_active().or_else(|| {
             self.recent_completion
@@ -157,15 +135,7 @@ impl RuntimeExtension for DownloadExtension {
         } else {
             ColorSpec::Cyan
         };
-        let size = download.total.filter(|total| *total > 0).map_or_else(
-            || compact_size(download.received),
-            |total| compact_pair(download.received, total),
-        );
-        let progress = if complete {
-            1.0
-        } else {
-            download.progress().unwrap_or(0.0)
-        };
+        let size = compact_size(download.received);
         let icon = if complete {
             ViewNode::svg("compact/check", 16.0).motion(Motion {
                 duration_ms: 300,
@@ -189,25 +159,16 @@ impl RuntimeExtension for DownloadExtension {
                 ..Default::default()
             })
         };
-        let mut leading = ViewNode::new(Node::Stack(
-            [Align::Center; 2],
-            vec![
-                ViewNode::ring(progress, "", 24.0, 1.6, 7.0)
-                    .motion(Motion::progress(progress, 220)),
-                icon,
-            ],
-        ))
-        .sized(Size::Fixed(25.0), Size::Fixed(25.0));
+        let mut leading = ViewNode::new(Node::Stack([Align::Center; 2], vec![icon]))
+            .sized(Size::Fixed(25.0), Size::Fixed(25.0));
         leading.key = Some(format!("{}:{}", download.id, complete));
         let (title, detail) = if complete {
             ("下载完成".into(), download.filename())
-        } else if self.show_rate {
+        } else {
             (
                 crate::builtins::performance::sampler::format_speed(download.bytes_per_second),
                 format!("下载中 · {size}"),
             )
-        } else {
-            ("正在下载".into(), size.clone())
         };
         let content = ViewNode::compact(
             leading,
@@ -370,31 +331,6 @@ fn compact_size(bytes: u64) -> String {
     format!("{value:.1}{}", ["B", "K", "M", "G"][unit])
 }
 
-fn compact_pair(received: u64, total: u64) -> String {
-    let unit = [received, total]
-        .into_iter()
-        .max()
-        .map(unit_index)
-        .unwrap_or(0);
-    let divisor = 1024_f64.powi(unit as i32);
-    format!(
-        "{}/{}{}",
-        (received as f64 / divisor).round() as u64,
-        (total as f64 / divisor).round() as u64,
-        ["B", "K", "M", "G"][unit]
-    )
-}
-
-fn unit_index(bytes: u64) -> usize {
-    let mut value = bytes;
-    let mut unit = 0;
-    while value >= 1024 && unit < 3 {
-        value /= 1024;
-        unit += 1;
-    }
-    unit
-}
-
 #[cfg(test)]
 mod compact_tests {
     use super::*;
@@ -405,7 +341,6 @@ mod compact_tests {
         let mut extension = DownloadExtension {
             updates: Some(crate::core::worker::Worker::from_receiver(updates)),
             snapshot: Snapshot::default(),
-            show_rate: true,
             notification_sequence: 0,
             recent_completion: None,
         };
@@ -415,7 +350,6 @@ mod compact_tests {
             browser: "Chrome",
             path: "/tmp/example.zip".into(),
             received: 40,
-            total: Some(100),
             bytes_per_second: 20.0,
             state: DownloadState::Active,
         };
