@@ -1,7 +1,7 @@
 //! A worker's owner cancels and joins it before reporting Stopped.
 use std::{
     sync::mpsc::{self, Receiver, Sender},
-    thread::{self, JoinHandle},
+    thread::JoinHandle,
     time::Duration,
 };
 
@@ -31,38 +31,57 @@ impl<T: Send + 'static> Worker<T> {
     pub fn try_recv(&self) -> Result<T, mpsc::TryRecvError> {
         self.updates.try_recv()
     }
-    pub fn spawn_latest(
+    pub fn spawn_scoped(
+        tasks: &crate::sdk::tasks::TaskScope,
         name: &str,
         interval: Duration,
         mut sample: impl FnMut() -> T + Send + 'static,
-    ) -> Self {
+    ) -> std::io::Result<Self> {
+        let (sender, updates) = mpsc::channel();
+        let (stop, stopped) = mpsc::channel();
+        tasks.spawn(name, move |cancel| {
+            while !cancel.is_cancelled() && stopped.try_recv() == Err(mpsc::TryRecvError::Empty) {
+                if sender.send(sample()).is_err() || cancel.wait(interval) {
+                    break;
+                }
+            }
+        })?;
+        Ok(Self {
+            updates,
+            latest: None,
+            stop,
+            thread: None,
+        })
+    }
+
+    pub fn spawn_scoped_latest(
+        tasks: &crate::sdk::tasks::TaskScope,
+        name: &str,
+        interval: Duration,
+        mut sample: impl FnMut(&crate::sdk::tasks::CancellationToken) -> T + Send + 'static,
+    ) -> std::io::Result<Self> {
         let (sender, latest) = crate::core::latest::channel();
         let (_, updates) = mpsc::channel();
-        let (stop, cancelled) = mpsc::channel();
-        let thread = thread::Builder::new()
-            .name(name.into())
-            .spawn(move || loop {
-                if cancelled.try_recv().is_ok() {
-                    break;
-                }
+        let (stop, stopped) = mpsc::channel();
+        tasks.spawn(name, move |cancel| {
+            while !cancel.is_cancelled() && stopped.try_recv() == Err(mpsc::TryRecvError::Empty) {
                 let started = std::time::Instant::now();
-                if !sender.send(sample()) {
-                    break;
-                }
-                if cancelled.recv_timeout(interval.saturating_sub(started.elapsed()))
-                    != Err(mpsc::RecvTimeoutError::Timeout)
+                if !sender.send(sample(&cancel))
+                    || cancel.wait(interval.saturating_sub(started.elapsed()))
                 {
                     break;
                 }
-            })
-            .expect("spawn extension sampler");
-        Self {
+            }
+        })?;
+        Ok(Self {
             updates,
             latest: Some(latest),
             stop,
-            thread: Some(thread),
-        }
+            thread: None,
+        })
     }
+
+    #[cfg(test)]
     pub fn spawn(
         name: &str,
         interval: Duration,
@@ -70,7 +89,7 @@ impl<T: Send + 'static> Worker<T> {
     ) -> Self {
         let (sender, updates) = mpsc::channel();
         let (stop, cancelled) = mpsc::channel();
-        let thread = thread::Builder::new()
+        let thread = std::thread::Builder::new()
             .name(name.into())
             .spawn(move || loop {
                 if cancelled.try_recv().is_ok() {

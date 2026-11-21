@@ -112,7 +112,10 @@ impl IslandApp {
         preferences
             .widget_theme
             .install(context, preferences.widget_accent);
-        let extensions = ExtensionManager::new(crate::builtins::runtimes());
+        let mut extensions = ExtensionManager::new(
+            crate::builtins::runtimes(),
+            preferences.contribution_preferences(),
+        );
         preferences.read_extension_settings(&extensions);
         let active_widget = extensions.widget_ids()[0].clone();
         let window_size = Vec2::from(INITIAL_WINDOW_SIZE);
@@ -126,20 +129,14 @@ impl IslandApp {
         {
             eprintln!("Unable to reconcile data-source alert history: {error}");
         }
-        let compact_ids = datasources.compact_ids();
-        let datasource_preferences_changed = preferences.sync_data_source_items(&compact_ids);
-        for source in datasources.snapshots() {
-            if let Ok(id) = ExtensionId::new(format!("datasource/{}/value", source.id)) {
-                let enabled = preferences.is_enabled(&id);
-                if let Err(error) = datasources.set_enabled(&source.id, enabled) {
-                    eprintln!("Unable to restore data-source enabled state: {error}");
-                }
-                let _ = datasources.set_compact(&source.id, enabled);
-            }
-        }
-        if datasource_preferences_changed {
+        let source_owner = ExtensionId::builtin(crate::core::datasource::CATALOG_OWNER);
+        extensions.sync_external_contributions(&source_owner, datasources.contributions());
+        datasources.apply_contributions(&extensions);
+        if preferences.sync_contributions(extensions.registry()) {
             let _ = preferences.save();
         }
+        preferences.read_contribution_defaults(&extensions);
+        preferences.read_contribution_settings(&extensions);
         let secret_index_path = extensions.data_dir().join("secret-keys.json");
         let secret_keys = std::fs::read(&secret_index_path)
             .ok()
@@ -307,18 +304,21 @@ impl IslandApp {
                     .event(event, &self.extensions.mascot_sources(), Instant::now());
             }
         }
-        let published = !output.notifications.is_empty();
         for key in &output.resolved_notifications {
             self.notifications.acknowledge(key);
         }
-        for notification in output.notifications.iter().cloned() {
-            self.notifications.publish(notification);
-        }
-        if !output.notifications.is_empty() {
-            self.extensions
-                .on_notifications_committed(&output.notifications);
-        }
-        if published {
+        let accepted: Vec<_> = output
+            .notifications
+            .into_iter()
+            .filter(|notification| {
+                self.notifications
+                    .publish_if_enabled(notification.clone(), |id| {
+                        self.extensions.accepts_notification(id)
+                    })
+            })
+            .collect();
+        if !accepted.is_empty() {
+            self.extensions.on_notifications_committed(&accepted);
             self.scheduler.on_event(Event::NotificationPublished);
         }
         if repaint {
@@ -429,33 +429,38 @@ impl eframe::App for IslandApp {
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
         let now = Instant::now();
         self.poll_unlock_task(context, now);
-        if self.unlock.visible(self.secret_store.is_locked(), now) {
-            self.update_viewport_size(context, 270.0);
+        if self.unlock.visible(self.secret_store.is_locked()) {
+            self.update_viewport_size(context, unlock::WIDTH);
             self.show_unlock_capsule(context, now);
             return;
         }
-        self.datasources.register_icons(context);
-        for source in self.datasources.snapshots() {
-            if let Ok(id) = ExtensionId::new(format!("datasource/{}/value", source.id)) {
-                let enabled = self.preferences.is_enabled(&id);
-                if enabled != source.enabled {
-                    if let Err(error) = self.datasources.set_enabled(&source.id, enabled) {
-                        eprintln!("Unable to update data-source enabled state: {error}");
-                        self.preferences
-                            .set_compact_item_enabled(&id, source.enabled);
-                        if let Err(error) = self.preferences.save() {
-                            eprintln!("Unable to restore data-source preference: {error}");
-                        }
-                    }
-                }
-                if enabled != source.compact {
-                    if let Err(error) = self.datasources.set_compact(&source.id, enabled) {
-                        eprintln!("Unable to update data-source Compact state: {error}");
-                    }
-                }
-            }
+        let global_motion = if self.preferences.motion_off {
+            crate::core::mascot::MotionPolicy::Off
+        } else if self.preferences.reduced_motion {
+            crate::core::mascot::MotionPolicy::Reduced
+        } else {
+            crate::core::mascot::MotionPolicy::Full
+        };
+        let unlock_handoff = self.unlock.handoff(now, global_motion);
+        let handoff = unlock_handoff.filter(|handoff| !handoff.finished());
+        if unlock_handoff.is_some() && handoff.is_none() {
+            self.unlock = Default::default();
         }
+        self.datasources.register_icons(context);
+        let source_owner = ExtensionId::builtin(crate::core::datasource::CATALOG_OWNER);
+        self.extensions
+            .sync_external_contributions(&source_owner, self.datasources.contributions());
+        self.datasources.apply_contributions(&self.extensions);
         for pending_alert in self.datasources.poll(now, &self.secret_store, context) {
+            if !self
+                .extensions
+                .accepts_notification(&pending_alert.notification.source_id)
+                || !self
+                    .datasources
+                    .accepts_notification(&pending_alert.notification.source_id)
+            {
+                continue;
+            }
             let notification_id = pending_alert.notification.id.clone();
             if let Err(error) = self.datasources.prepare_alert(
                 &pending_alert.source_id,
@@ -520,17 +525,23 @@ impl eframe::App for IslandApp {
             }
         }
 
-        let mut dynamic_items_changed = false;
-        for (owner, items) in self.extensions.dynamic_compact_items() {
-            dynamic_items_changed |= self.preferences.sync_dynamic_compact_items(&owner, &items);
-        }
-        if dynamic_items_changed {
+        if self
+            .preferences
+            .sync_contributions(self.extensions.registry())
+        {
             if let Err(error) = self.preferences.save() {
-                eprintln!("Unable to save dynamic Compact items: {error}");
+                eprintln!("Unable to save contribution preferences: {error}");
             }
             context.request_repaint();
         }
 
+        self.preferences
+            .read_contribution_defaults(&self.extensions);
+        self.preferences
+            .read_contribution_settings(&self.extensions);
+        self.notifications.retain_alert_sources(|id| {
+            self.extensions.accepts_notification(id) || self.datasources.accepts_notification(id)
+        });
         self.preferences.refresh_status(&self.extensions);
         let scheduled_quiet = self.preferences.quiet_hours.is_scheduled_now();
         if !scheduled_quiet {
@@ -538,10 +549,14 @@ impl eframe::App for IslandApp {
         }
         let do_not_disturb = self.preferences.quiet_hours.manual_enabled
             || (scheduled_quiet && !self.quiet_bypassed);
-        if self
-            .notifications
-            .update(now, !self.settings_open, do_not_disturb)
-        {
+        if unlock_handoff.is_some() {
+            self.notifications.suppress_alert();
+        }
+        if self.notifications.update(
+            now,
+            !self.settings_open && unlock_handoff.is_none(),
+            do_not_disturb,
+        ) {
             self.state.show_notification();
             context.request_repaint();
         }
@@ -728,18 +743,15 @@ impl eframe::App for IslandApp {
             context,
             self.preferences.reduced_motion || self.preferences.motion_off,
         );
-        self.extensions
-            .set_motion_policy(if self.preferences.motion_off {
-                crate::core::mascot::MotionPolicy::Off
-            } else if self.preferences.reduced_motion {
-                crate::core::mascot::MotionPolicy::Reduced
-            } else {
-                crate::core::mascot::MotionPolicy::Full
-            });
+        self.extensions.set_motion_policy(global_motion);
         let active_prompt = self.extensions.active_prompt(
             now,
-            !self.state.expanded && !self.settings_open && notice.is_none(),
+            !self.state.expanded
+                && !self.settings_open
+                && notice.is_none()
+                && unlock_handoff.is_none(),
         );
+        let active_prompt = active_prompt.filter(|_| unlock_handoff.is_none());
         let prompt_active = active_prompt.is_some();
         let mut available_views = active_prompt.as_ref().map_or_else(
             || self.extensions.compact_views(now),
@@ -753,10 +765,18 @@ impl eframe::App for IslandApp {
             && !self.state.expanded
             && !prompt_active
             && !context.input(|input| input.viewport().minimized.unwrap_or(false));
-        if let Some(delay) = self
-            .mascot
-            .update(&sources, mascot_visible, now, self.mascot_policy())
-        {
+        let mascot_policy = self.mascot_policy();
+        let mascot_delay = if handoff.is_some() && mascot_visible {
+            self.mascot.update_unlock(
+                crate::core::mascot::UnlockMascotState::Succeeded,
+                now,
+                mascot_policy,
+            )
+        } else {
+            self.mascot
+                .update(&sources, mascot_visible, now, mascot_policy)
+        };
+        if let Some(delay) = mascot_delay {
             context.request_repaint_after(delay);
         }
         if self.preferences.mascot_enabled && !prompt_active {
@@ -784,7 +804,15 @@ impl eframe::App for IslandApp {
             context,
             compact_width.max(widget_width).max(self.state.width.value),
         );
-        self.state.set_compact_width(compact_width);
+        if let Some(unlock) = unlock_handoff {
+            self.state
+                .begin_unlock_transition(unlock.width(compact_width));
+            if handoff.is_none() {
+                context.request_repaint();
+            }
+        } else {
+            self.state.set_compact_width(compact_width);
+        }
         let dt = context.input(|input| input.unstable_dt).clamp(0.0, 0.1);
         if self.preferences.motion_off {
             self.state.finish_motion();
@@ -822,6 +850,18 @@ impl eframe::App for IslandApp {
                 ui.set_min_size(self.window_size);
                 ui.vertical_centered(|ui| {
                     ui.add_space(WINDOW_TOP_PADDING);
+                    if let Some(handoff) = handoff {
+                        interactive_rect = Some(capsule::show_unlock_handoff(
+                            ui,
+                            pill_width.min(self.window_size.x),
+                            compact_width.min(self.window_size.x),
+                            handoff,
+                            &self.preferences,
+                            &compact_views,
+                            &self.icons,
+                        ));
+                        return;
+                    }
                     let (
                         rect,
                         toggle_settings,
@@ -920,6 +960,17 @@ impl eframe::App for IslandApp {
             }
             if preferences_changed {
                 context.request_repaint();
+                self.extensions
+                    .apply_contribution_preferences(self.preferences.contribution_preferences());
+                for (id, values) in self.preferences.contribution_values.clone() {
+                    if self.extensions.configured_contribution_settings(&id) != Some(&values) {
+                        if let Err(error) =
+                            self.extensions.update_contribution_settings(&id, values)
+                        {
+                            eprintln!("Unable to save contribution settings: {error}");
+                        }
+                    }
+                }
                 for page in self.preferences.pages.clone() {
                     match self
                         .extensions
@@ -937,6 +988,8 @@ impl eframe::App for IslandApp {
                 }
                 self.preferences.read_extension_settings(&self.extensions);
                 self.preferences
+                    .read_contribution_settings(&self.extensions);
+                self.preferences
                     .widget_theme
                     .install(context, self.preferences.widget_accent);
                 if let Err(error) = self.preferences.save() {
@@ -948,12 +1001,7 @@ impl eframe::App for IslandApp {
             }
         }
 
-        self.datasource_window.show(
-            context,
-            &mut self.datasources,
-            &mut self.preferences,
-            &mut self.notifications,
-        );
+        self.datasource_window.show(context, &mut self.datasources);
 
         if self.settings_open {
             for request in self.settings_view.take_due_searches(&self.preferences, now) {
@@ -1059,11 +1107,13 @@ impl eframe::App for IslandApp {
         if drag_started {
             self.window_drag.begin(frame, context);
         }
-        if self.state.observe_interaction(
-            hovering || dragging || notice.is_some() || menu_rect.is_some(),
-            self.settings_open,
-            dt,
-        ) {
+        if handoff.is_none()
+            && self.state.observe_interaction(
+                hovering || dragging || notice.is_some() || menu_rect.is_some(),
+                self.settings_open,
+                dt,
+            )
+        {
             context.request_repaint();
         }
         if self.dashboard_open {
@@ -1071,7 +1121,8 @@ impl eframe::App for IslandApp {
         }
         // Active services, visible views and Core deadlines determine the next wake.
         // With no running source or pending transition, egui can sleep until input.
-        let animated = self.state.animating()
+        let animated = handoff.is_some()
+            || self.state.animating()
             || self.state.hover_pending()
             || !self.widget_height.settled()
             || dragging;

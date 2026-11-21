@@ -20,6 +20,7 @@ use std::{
 
 const ID: &str = "builtin.rss";
 const WIDGET_ID: &str = "builtin.rss/reader";
+const SERVICE_ID: &str = "builtin.rss/service.feed";
 const NOTIFICATION_ID: &str = "builtin.rss/updates";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -50,7 +51,12 @@ impl Fetcher {
                     if cancelled.is_cancelled() {
                         break;
                     }
-                    let result = feed::fetch(&url);
+                    let result =
+                        match crate::sdk::http::run_cancellable(&cancelled, feed::fetch(&url)) {
+                            Ok(Some(result)) => result,
+                            Ok(None) => break,
+                            Err(error) => Err(error.to_string()),
+                        };
                     if cancelled.is_cancelled() || output.send((url, result)).is_err() {
                         break;
                     }
@@ -80,6 +86,7 @@ pub struct RssExtension {
     refresh_interval: Duration,
     next_refresh: Instant,
     reader: Option<reader::Reader>,
+    alerts_enabled: bool,
 }
 
 impl Default for RssExtension {
@@ -97,6 +104,7 @@ impl Default for RssExtension {
             refresh_interval: Duration::from_secs(600),
             next_refresh: Instant::now(),
             reader: None,
+            alerts_enabled: true,
         }
     }
 }
@@ -193,7 +201,7 @@ impl RssExtension {
             self.feeds[index] = old;
             return Err(format!("文章缓存保存失败：{error}"));
         }
-        let Some(article) = fresh.first() else {
+        let Some(article) = fresh.first().filter(|_| self.alerts_enabled) else {
             return Ok(None);
         };
         let feed = &self.feeds[index];
@@ -311,12 +319,28 @@ impl RuntimeExtension for RssExtension {
             crate::extension::Capability::Event,
             crate::extension::Capability::Action,
         ]);
+        let service = ContributionDescriptor::builtin(
+            SERVICE_ID,
+            ContributionKind::BackgroundService,
+            "订阅刷新",
+            "rss",
+            true,
+            0,
+        )
+        .with_execution_policy(crate::extension::ExecutionPolicy::Interval(
+            Duration::from_millis(250),
+        ));
         let mut descriptor = ExtensionDescriptor::builtin(
             ID,
             "RSS",
             "订阅与阅读 RSS / Atom",
-            vec![widget, notifications],
+            vec![
+                widget.with_dependency(service.id.clone()),
+                notifications.with_dependency(service.id.clone()),
+                service,
+            ],
         );
+        descriptor.execution_policy = crate::extension::ExecutionPolicy::EventDriven;
         descriptor.settings = vec![SettingSchema::new(
             "refresh_minutes",
             SettingValue::Integer(10),
@@ -334,23 +358,59 @@ impl RuntimeExtension for RssExtension {
             .unwrap_or_default();
         self.selected = self.feeds.first().map(|feed| feed.url.clone());
         self.storage = Some(storage);
-        self.fetcher = Some(Fetcher::start(ctx.sdk().tasks())?);
         self.next_refresh = Instant::now();
         Ok(())
     }
 
-    fn on_stop(&mut self, _: &ExtensionContext) -> Result<(), String> {
-        self.fetcher = None;
-        self.pending.clear();
-        self.reader = None;
+    fn on_contribution_start(
+        &mut self,
+        ctx: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == SERVICE_ID {
+            self.fetcher = Some(Fetcher::start(ctx.tasks())?);
+            self.next_refresh = Instant::now();
+        }
         Ok(())
+    }
+
+    fn on_contribution_stop(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == SERVICE_ID {
+            self.fetcher = None;
+            self.pending.clear();
+        }
+        if id.as_str() == WIDGET_ID {
+            self.reader = None;
+        }
+        Ok(())
+    }
+
+    fn on_contribution_state(
+        &mut self,
+        _: &ExtensionContext,
+        active: &std::collections::BTreeMap<ExtensionId, Settings>,
+    ) {
+        self.alerts_enabled = active.contains_key(&ExtensionId::builtin(NOTIFICATION_ID));
     }
 
     fn widget_view(&self, id: &ExtensionId) -> Option<WidgetView> {
         (id.as_str() == WIDGET_ID).then(|| view::build(self))
     }
 
-    fn update(&mut self, now: Instant) -> ExtensionOutput {
+    fn on_contribution_update(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+        now: Instant,
+    ) -> ExtensionOutput {
+        if id.as_str() != SERVICE_ID {
+            return ExtensionOutput::default();
+        }
+
         let mut changed = false;
         let mut notifications = Vec::new();
         if now >= self.next_refresh {
@@ -620,6 +680,9 @@ mod tests {
         let ctx = ExtensionContext::new(root.path().join("data"), root.path().join("config"));
         let mut extension = RssExtension::default();
         extension.on_start(&ctx).unwrap();
+        extension
+            .on_contribution_start(&ctx, &ExtensionId::builtin(SERVICE_ID))
+            .unwrap();
         extension.on_action(
             Action::SetText {
                 key: "rss-url".into(),
@@ -637,7 +700,11 @@ mod tests {
         assert_eq!(extension.feeds.len(), 1);
         let deadline = Instant::now() + Duration::from_secs(8);
         while extension.feeds[0].articles.is_empty() {
-            extension.update(Instant::now());
+            extension.on_contribution_update(
+                &ctx,
+                &ExtensionId::builtin(SERVICE_ID),
+                Instant::now(),
+            );
             assert!(
                 Instant::now() < deadline,
                 "feed did not load: {:?}",

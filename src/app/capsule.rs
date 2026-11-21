@@ -123,6 +123,7 @@ pub(super) fn show(
                 prefs: content.preferences,
                 views: content.compact_views,
                 icons: content.icons,
+                handoff: None,
             },
         );
         (false, false)
@@ -187,6 +188,50 @@ pub(super) fn show(
     )
 }
 
+pub(super) fn show_unlock_handoff(
+    ui: &mut egui::Ui,
+    width: f32,
+    compact_width: f32,
+    handoff: super::unlock::UnlockHandoff,
+    preferences: &CompactPreferences,
+    views: &[CompactItem<'_>],
+    icons: &Icons,
+) -> Rect {
+    let (shell, _) = ui.allocate_exact_size(Vec2::new(width, CAPSULE_HEIGHT), Sense::hover());
+    paint_shell(ui, shell, 0.0, false);
+    let destination =
+        Rect::from_center_size(shell.center(), Vec2::new(compact_width, CAPSULE_HEIGHT));
+    let mut surface = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt("unlock-handoff")
+            .max_rect(shell),
+    );
+    surface.set_clip_rect(ui.clip_rect().intersect(shell));
+    compact::show(
+        &mut surface,
+        destination,
+        0.0,
+        compact::CompactContent {
+            prefs: preferences,
+            views,
+            icons,
+            handoff: Some(handoff),
+        },
+    );
+    let status_opacity = handoff.status_opacity();
+    if status_opacity > 0.0 {
+        let color = crate::ui::palette::TextPalette::for_mode(ui.visuals().dark_mode).secondary;
+        surface.painter().text(
+            shell.center(),
+            egui::Align2::CENTER_CENTER,
+            "已解锁",
+            egui::FontId::proportional(12.0),
+            color.linear_multiply(status_opacity),
+        );
+    }
+    shell
+}
+
 fn capsule_height(progress: f32, expanded_height: f32) -> f32 {
     let reveal = progress.clamp(0.0, 1.0);
     CAPSULE_HEIGHT + (EXPANDED_BASE_HEIGHT - CAPSULE_HEIGHT + expanded_height) * reveal
@@ -235,7 +280,7 @@ fn drag_handle_bounds(rect: Rect, progress: f32) -> Rect {
     }
 }
 
-fn paint_shell(ui: &egui::Ui, rect: Rect, progress: f32, settings_open: bool) {
+pub(super) fn paint_shell(ui: &egui::Ui, rect: Rect, progress: f32, settings_open: bool) {
     let painter = ui.painter();
     let corner_radius = corner_radius(progress);
     let dark = ui.visuals().dark_mode || settings_open;

@@ -119,11 +119,8 @@ impl NotificationStore {
     pub fn datasource_alert_history(&self) -> std::collections::BTreeMap<String, u64> {
         let mut history = std::collections::BTreeMap::new();
         for record in &self.records {
-            let Some(id) = record
-                .notification
-                .source_id
-                .as_str()
-                .strip_prefix("datasource.")
+            let Some(id) =
+                crate::core::datasource::notification_source_local(&record.notification.source_id)
             else {
                 continue;
             };
@@ -167,16 +164,5 @@ impl NotificationStore {
             self.save();
         }
         changed
-    }
-
-    pub fn remove_source(&mut self, source: &crate::extension::ExtensionId) -> usize {
-        let before = self.records.len();
-        self.records
-            .retain(|record| &record.notification.source_id != source);
-        let removed = before - self.records.len();
-        if removed > 0 {
-            self.save();
-        }
-        removed
     }
 }

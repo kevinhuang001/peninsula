@@ -71,62 +71,78 @@ impl Default for MetricsSampler {
 }
 
 impl MetricsSampler {
-    pub fn start(interval: std::time::Duration) -> crate::core::worker::Worker<Snapshot> {
+    pub fn start(
+        tasks: &crate::sdk::tasks::TaskScope,
+        interval: std::time::Duration,
+        details: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> std::io::Result<crate::core::worker::Worker<Snapshot>> {
         let mut sampler = None;
-        crate::core::worker::Worker::spawn_latest("system-monitor", interval, move || {
-            sampler.get_or_insert_with(Self::default).sample()
-        })
+        crate::core::worker::Worker::spawn_scoped_latest(
+            tasks,
+            "system-monitor",
+            interval,
+            move |_| {
+                sampler
+                    .get_or_insert_with(Self::default)
+                    .sample(details.load(std::sync::atomic::Ordering::Relaxed))
+            },
+        )
     }
-    fn sample(&mut self) -> Snapshot {
+    fn sample(&mut self, details: bool) -> Snapshot {
         self.system.refresh_cpu_all();
         self.snapshot.cpu_percent = self.system.global_cpu_usage();
         self.system.refresh_memory();
-        self.system.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::nothing()
-                .with_cpu()
-                .with_memory()
-                .with_exe(UpdateKind::OnlyIfNotSet),
-        );
         self.snapshot.memory_used = self.system.used_memory();
         self.snapshot.memory_total = self.system.total_memory();
-        let cores = self.system.cpus().len().max(1) as f32;
-        let processes: Vec<_> = self
-            .system
-            .processes()
-            .iter()
-            // Linux also exposes individual tasks here. Their RSS is shared
-            // with the parent; listing them would duplicate memory and CPU.
-            .filter(|(_, process)| process.thread_kind().is_none())
-            .map(|(pid, process)| ApplicationSnapshot {
-                name: process.name().to_string_lossy().into_owned(),
-                path: process.exe().map(PathBuf::from),
-                processes: vec![ProcessIdentity {
-                    pid: *pid,
-                    started_at: process.start_time(),
-                }],
-                icon: None,
-                cpu_percent: if self.sampled_once {
-                    (process.cpu_usage() / cores).clamp(0.0, 100.0)
-                } else {
-                    0.0
-                },
-                memory_bytes: process.memory(),
-            })
-            .collect();
-        let applications = aggregate_applications(processes);
-        self.snapshot.top_cpu = ranked(applications.clone(), true);
-        self.snapshot.top_memory = ranked(applications, false);
-        for process in self
-            .snapshot
-            .top_cpu
-            .iter_mut()
-            .chain(self.snapshot.top_memory.iter_mut())
-        {
-            if let Some(exe) = process.path.as_deref() {
-                process.icon = self.icons.get(exe);
+        if details {
+            self.system.refresh_processes_specifics(
+                ProcessesToUpdate::All,
+                true,
+                ProcessRefreshKind::nothing()
+                    .with_cpu()
+                    .with_memory()
+                    .with_exe(UpdateKind::OnlyIfNotSet),
+            );
+            let cores = self.system.cpus().len().max(1) as f32;
+            let processes: Vec<_> = self
+                .system
+                .processes()
+                .iter()
+                // Linux also exposes individual tasks here. Their RSS is shared
+                // with the parent; listing them would duplicate memory and CPU.
+                .filter(|(_, process)| process.thread_kind().is_none())
+                .map(|(pid, process)| ApplicationSnapshot {
+                    name: process.name().to_string_lossy().into_owned(),
+                    path: process.exe().map(PathBuf::from),
+                    processes: vec![ProcessIdentity {
+                        pid: *pid,
+                        started_at: process.start_time(),
+                    }],
+                    icon: None,
+                    cpu_percent: if self.sampled_once {
+                        (process.cpu_usage() / cores).clamp(0.0, 100.0)
+                    } else {
+                        0.0
+                    },
+                    memory_bytes: process.memory(),
+                })
+                .collect();
+            let applications = aggregate_applications(processes);
+            self.snapshot.top_cpu = ranked(applications.clone(), true);
+            self.snapshot.top_memory = ranked(applications, false);
+            for process in self
+                .snapshot
+                .top_cpu
+                .iter_mut()
+                .chain(self.snapshot.top_memory.iter_mut())
+            {
+                if let Some(exe) = process.path.as_deref() {
+                    process.icon = self.icons.get(exe);
+                }
             }
+        } else {
+            self.snapshot.top_cpu.clear();
+            self.snapshot.top_memory.clear();
         }
         self.snapshot.ready = self.sampled_once;
         self.networks.refresh(true);
@@ -297,7 +313,7 @@ mod tests {
 
     #[test]
     fn live_sampler_returns_bounded_metrics_without_panicking() {
-        let snapshot = super::MetricsSampler::default().sample();
+        let snapshot = super::MetricsSampler::default().sample(true);
         assert!((0.0..=100.0).contains(&snapshot.cpu_percent));
         assert!(snapshot
             .gpu_percent
@@ -340,7 +356,7 @@ mod process_tests {
     #[test]
     fn first_sample_reads_memory_and_waits_for_cpu_baseline() {
         let mut sampler = MetricsSampler::default();
-        let first = sampler.sample();
+        let first = sampler.sample(true);
         assert!(!first.ready);
         assert!(first.top_cpu.iter().all(|p| p.cpu_percent == 0.0));
         assert!(first.memory_total > 0);

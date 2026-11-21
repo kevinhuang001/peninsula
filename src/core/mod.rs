@@ -9,6 +9,7 @@ pub mod views;
 
 pub use scheduler::Dispatcher as Scheduler;
 
+mod contribution_catalog;
 pub mod extension_manager;
 pub mod mascot;
 

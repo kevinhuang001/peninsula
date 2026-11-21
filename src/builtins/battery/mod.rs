@@ -41,8 +41,8 @@ impl RuntimeExtension for BatteryExtension {
             ],
         )
     }
-    fn on_start(&mut self, _: &ExtensionContext) -> Result<(), String> {
-        self.updates = Some(power::start());
+    fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
+        self.updates = Some(power::start(&ctx.tasks()).map_err(|error| error.to_string())?);
         Ok(())
     }
     fn on_stop(&mut self, _: &ExtensionContext) -> Result<(), String> {

@@ -20,12 +20,17 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, Sender},
+        Arc,
+    },
     time::{Duration, Instant, SystemTime},
 };
 
 const ID: &str = "builtin.mail";
 const WIDGET_ID: &str = "builtin.mail/inbox";
+const SERVICE_ID: &str = "builtin.mail/service.sync";
 const NOTIFICATION_ID: &str = "builtin.mail/updates";
 const ACCOUNT_FILE: &str = "accounts.json";
 const REFRESH_MINUTES_KEY: &str = "refresh_minutes";
@@ -109,7 +114,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn start(tasks: TaskScope) -> Result<Self, String> {
+    fn start(tasks: TaskScope, notifications: Arc<AtomicBool>) -> Result<Self, String> {
         let (requests, incoming) = mpsc::channel();
         let (outgoing, results) = mpsc::channel();
         tasks
@@ -118,6 +123,9 @@ impl Worker {
                     let Ok(request) = incoming.recv() else {
                         break;
                     };
+                    if cancel.is_cancelled() {
+                        break;
+                    }
                     let result = match request {
                         WorkerRequest::Refresh { account, password } => {
                             let account_id = account.id.clone();
@@ -127,6 +135,8 @@ impl Worker {
                                     &account,
                                     &password,
                                     account.last_uid,
+                                    &cancel,
+                                    &notifications,
                                 ),
                             }
                         }
@@ -139,7 +149,7 @@ impl Worker {
                             WorkerResult::Opened {
                                 account_id,
                                 uid,
-                                result: client::open_message(&account, &password, uid),
+                                result: client::open_message(&account, &password, uid, &cancel),
                             }
                         }
                         WorkerRequest::Stop => break,
@@ -168,6 +178,7 @@ pub struct MailExtension {
     storage: Option<ExtensionStorage>,
     secrets: Option<SecretStore>,
     worker: Option<Worker>,
+    widget_worker: Option<Worker>,
     opening: Option<(String, u32)>,
     reader: Option<reader::Reader>,
     adding: bool,
@@ -179,7 +190,7 @@ pub struct MailExtension {
     pending_notifications: Vec<Notification>,
     refresh_interval: Duration,
     next_refresh: Instant,
-    notify_new: bool,
+    notify_new: Arc<AtomicBool>,
 }
 
 impl Default for MailExtension {
@@ -192,6 +203,7 @@ impl Default for MailExtension {
             storage: None,
             secrets: None,
             worker: None,
+            widget_worker: None,
             opening: None,
             reader: None,
             adding: false,
@@ -203,7 +215,7 @@ impl Default for MailExtension {
             pending_notifications: Vec::new(),
             refresh_interval: Duration::from_secs(DEFAULT_REFRESH_MINUTES as u64 * 60),
             next_refresh: Instant::now(),
-            notify_new: true,
+            notify_new: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -438,7 +450,7 @@ impl MailExtension {
             .cloned()
             .ok_or_else(|| "请重新添加账号并输入应用专用密码".to_owned())?;
         let worker = self
-            .worker
+            .widget_worker
             .as_ref()
             .ok_or_else(|| "邮件同步服务尚未启动".to_owned())?;
         worker
@@ -529,7 +541,7 @@ impl MailExtension {
                         mailbox.messages.truncate(MAX_MESSAGES);
                         mailbox.unread_count = snapshot.unread_count;
                         mailbox.error = None;
-                        let notifications = if self.notify_new {
+                        let notifications = if self.notify_new.load(Ordering::Relaxed) {
                             snapshot
                                 .new_messages
                                 .iter()
@@ -629,17 +641,15 @@ impl MailExtension {
             self.refresh_interval = Duration::from_secs((*minutes).clamp(1, 60) as u64 * 60);
             self.next_refresh = Instant::now() + self.refresh_interval;
         }
-        if let Some(SettingValue::Boolean(enabled)) = settings.get(NOTIFY_NEW_KEY) {
-            self.notify_new = *enabled;
-        }
     }
 
     fn poll_worker(&mut self) -> bool {
         let results: Vec<_> = self
             .worker
-            .as_ref()
-            .map(|worker| worker.results.try_iter().collect())
-            .unwrap_or_default();
+            .iter()
+            .chain(&self.widget_worker)
+            .flat_map(|worker| worker.results.try_iter())
+            .collect();
         let mut changed = false;
         for result in results {
             changed |= self.receive(result);
@@ -716,17 +726,34 @@ impl RuntimeExtension for MailExtension {
             ID,
             "邮件",
             "IMAP 邮箱分账号阅读、已读同步与新邮件提醒",
-            vec![widget, notifications],
+            vec![
+                widget
+                    .with_dependency(ExtensionId::builtin(SERVICE_ID))
+                    .with_execution_policy(crate::extension::ExecutionPolicy::Interval(
+                        Duration::from_millis(250),
+                    )),
+                notifications.with_dependency(ExtensionId::builtin(SERVICE_ID)),
+                ContributionDescriptor::builtin(
+                    SERVICE_ID,
+                    ContributionKind::BackgroundService,
+                    "IMAP 同步",
+                    "mail",
+                    true,
+                    0,
+                )
+                .with_execution_policy(
+                    crate::extension::ExecutionPolicy::Interval(Duration::from_millis(250)),
+                ),
+            ],
         );
-        descriptor.settings = vec![
-            SettingSchema::new(
-                REFRESH_MINUTES_KEY,
-                SettingValue::Integer(DEFAULT_REFRESH_MINUTES),
-                "邮件刷新间隔（分钟）",
-            )
-            .range(1.0, 60.0),
-            SettingSchema::new(NOTIFY_NEW_KEY, SettingValue::Boolean(true), "新邮件提醒"),
-        ];
+        descriptor.execution_policy = crate::extension::ExecutionPolicy::EventDriven;
+        descriptor.settings_version = 2;
+        descriptor.settings = vec![SettingSchema::new(
+            REFRESH_MINUTES_KEY,
+            SettingValue::Integer(DEFAULT_REFRESH_MINUTES),
+            "邮件刷新间隔（分钟）",
+        )
+        .range(1.0, 60.0)];
         descriptor
     }
 
@@ -734,28 +761,97 @@ impl RuntimeExtension for MailExtension {
         let storage = ctx.sdk().storage();
         let secrets = ctx.sdk().secrets();
         self.load_accounts(storage, secrets)?;
-        self.worker = Some(Worker::start(ctx.sdk().tasks())?);
         self.next_refresh = Instant::now();
         Ok(())
     }
 
-    fn on_stop(&mut self, _: &ExtensionContext) -> Result<(), String> {
-        self.worker = None;
-        self.reader = None;
-        for mailbox in self.mailboxes.values_mut() {
-            mailbox.pending = false;
+    fn migrate_settings(
+        &self,
+        _: &ExtensionId,
+        old_version: u32,
+        mut values: Settings,
+    ) -> Result<Settings, String> {
+        if old_version != 1 {
+            return Err(format!("unsupported mail settings version {old_version}"));
         }
-        self.opening = None;
+        values.remove(NOTIFY_NEW_KEY);
+        Ok(values)
+    }
+
+    fn contribution_preference_migration(
+        &self,
+        values: &Settings,
+    ) -> std::collections::BTreeMap<ExtensionId, bool> {
+        if let Some(SettingValue::Boolean(enabled)) = values.get(NOTIFY_NEW_KEY) {
+            return [(ExtensionId::builtin(NOTIFICATION_ID), *enabled)].into();
+        }
+        Default::default()
+    }
+
+    fn on_contribution_start(
+        &mut self,
+        ctx: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        match id.as_str() {
+            SERVICE_ID => {
+                self.worker = Some(Worker::start(ctx.tasks(), self.notify_new.clone())?);
+                self.next_refresh = Instant::now();
+            }
+            WIDGET_ID => {
+                self.widget_worker = Some(Worker::start(ctx.tasks(), self.notify_new.clone())?)
+            }
+            _ => {}
+        }
         Ok(())
+    }
+
+    fn on_contribution_stop(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        match id.as_str() {
+            SERVICE_ID => {
+                self.worker = None;
+                for mailbox in self.mailboxes.values_mut() {
+                    mailbox.pending = false;
+                }
+            }
+            WIDGET_ID => {
+                self.widget_worker = None;
+                self.reader = None;
+                self.opening = None;
+            }
+            NOTIFICATION_ID => self.pending_notifications.clear(),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn on_contribution_state(
+        &mut self,
+        _: &ExtensionContext,
+        active: &std::collections::BTreeMap<ExtensionId, Settings>,
+    ) {
+        self.notify_new.store(
+            active.contains_key(&ExtensionId::builtin(NOTIFICATION_ID)),
+            Ordering::Relaxed,
+        );
     }
 
     fn widget_view(&self, id: &ExtensionId) -> Option<WidgetView> {
         (id.as_str() == WIDGET_ID).then(|| view::build(self))
     }
 
-    fn update(&mut self, now: Instant) -> ExtensionOutput {
+    fn on_contribution_update(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+        now: Instant,
+    ) -> ExtensionOutput {
         let mut changed = self.poll_worker();
-        if now >= self.next_refresh {
+        if id.as_str() == SERVICE_ID && now >= self.next_refresh {
             self.refresh_accounts();
             self.next_refresh = now + self.refresh_interval;
             changed |= !self.accounts.is_empty();

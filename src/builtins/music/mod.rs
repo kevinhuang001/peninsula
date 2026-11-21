@@ -14,12 +14,12 @@ use lyrics::Lyrics;
 use platform::{Backend, Command, Playback, Track};
 use std::{
     collections::VecDeque,
-    sync::{mpsc, Arc},
-    thread,
+    sync::{mpsc, Arc, Mutex},
     time::{Duration, Instant},
 };
 
 const WIDGET_ID: &str = "builtin.music/now-playing";
+const SERVICE_ID: &str = "builtin.music/service.playback";
 const COMPACT_ID: &str = "builtin.music/lyrics";
 const WIDGET_SIZE: [f32; 2] = [280.0, 188.0];
 const COMPACT_WIDTH: f32 = 176.0;
@@ -38,6 +38,7 @@ pub(super) fn descriptors() -> Vec<ContributionDescriptor> {
             true,
             5,
         )
+        .with_dependency(ExtensionId::builtin(SERVICE_ID))
         .with_size_hint(WIDGET_SIZE[0], WIDGET_SIZE[1])
         .with_widget_bounds(widget_bounds())
         .with_capabilities(vec![Capability::View, Capability::Action]),
@@ -49,7 +50,19 @@ pub(super) fn descriptors() -> Vec<ContributionDescriptor> {
             true,
             9,
         )
+        .with_dependency(ExtensionId::builtin(SERVICE_ID))
         .with_size_hint(COMPACT_WIDTH, 28.0),
+        ContributionDescriptor::builtin(
+            SERVICE_ID,
+            ContributionKind::BackgroundService,
+            "播放状态与歌词",
+            "music",
+            true,
+            0,
+        )
+        .with_execution_policy(crate::extension::ExecutionPolicy::Interval(
+            Duration::from_millis(250),
+        )),
     ]
 }
 
@@ -75,7 +88,7 @@ type LyricsResult = Result<Option<Arc<Lyrics>>, ()>;
 
 #[derive(Default)]
 pub(super) struct MusicExtension {
-    workers: Vec<std::thread::JoinHandle<()>>,
+    artwork_scope: Arc<Mutex<Option<crate::sdk::tasks::TaskScope>>>,
     playback: Option<Playback>,
     controller: Option<mpsc::Sender<ControlRequest>>,
     media_updates: Option<mpsc::Receiver<MediaUpdate>>,
@@ -92,12 +105,14 @@ impl NotificationPresentationProvider for MusicExtension {}
 
 impl RuntimeExtension for MusicExtension {
     fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
-        crate::extension::ExtensionDescriptor::builtin(
+        let mut descriptor = crate::extension::ExtensionDescriptor::builtin(
             "builtin.music",
             "音乐",
             "播放控制与同步歌词",
             descriptors(),
-        )
+        );
+        descriptor.execution_policy = crate::extension::ExecutionPolicy::EventDriven;
+        descriptor
     }
 
     fn mascot_state(&self) -> std::collections::BTreeMap<String, String> {
@@ -118,23 +133,38 @@ impl RuntimeExtension for MusicExtension {
             crate::core::mascot::MascotMotion::Listening,
         )]
     }
-    fn on_start(&mut self, _context: &ExtensionContext) -> Result<(), String> {
+    fn on_contribution_start(
+        &mut self,
+        context: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == WIDGET_ID {
+            *self
+                .artwork_scope
+                .lock()
+                .map_err(|error| error.to_string())? = Some(context.tasks());
+            return Ok(());
+        }
+        if id.as_str() != SERVICE_ID {
+            return Ok(());
+        }
+
         let (controller, controls) = mpsc::channel();
         let (media_output, media_updates) = mpsc::channel();
         let (lyric_requests, requests) = mpsc::channel();
         let (lyric_output, lyric_updates) = mpsc::channel();
-        self.workers.push(
-            thread::Builder::new()
-                .name("music-session".into())
-                .spawn(move || watch_media(controls, media_output))
-                .map_err(|error| error.to_string())?,
-        );
-        self.workers.push(
-            thread::Builder::new()
-                .name("music-lyrics".into())
-                .spawn(move || fetch_lyrics(requests, lyric_output))
-                .map_err(|error| error.to_string())?,
-        );
+        let tasks = context.tasks();
+        let artwork = self.artwork_scope.clone();
+        tasks
+            .spawn("music-session", move |cancel| {
+                watch_media(controls, media_output, cancel, artwork)
+            })
+            .map_err(|error| error.to_string())?;
+        tasks
+            .spawn("music-lyrics", move |cancel| {
+                fetch_lyrics(requests, lyric_output, cancel)
+            })
+            .map_err(|error| error.to_string())?;
         self.controller = Some(controller);
         self.media_updates = Some(media_updates);
         self.lyric_requests = Some(lyric_requests);
@@ -142,14 +172,30 @@ impl RuntimeExtension for MusicExtension {
         Ok(())
     }
 
-    fn on_stop(&mut self, _context: &ExtensionContext) -> Result<(), String> {
+    fn on_contribution_stop(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == WIDGET_ID {
+            *self
+                .artwork_scope
+                .lock()
+                .map_err(|error| error.to_string())? = None;
+            self.plain_lyrics_open = false;
+            if let Some(playback) = &mut self.playback {
+                playback.artwork = None;
+            }
+            return Ok(());
+        }
+        if id.as_str() != SERVICE_ID {
+            return Ok(());
+        }
+
         self.controller = None;
         self.media_updates = None;
         self.lyric_requests = None;
         self.lyric_updates = None;
-        for worker in self.workers.drain(..) {
-            let _ = worker.join();
-        }
         self.set_playback(None);
         Ok(())
     }
@@ -218,7 +264,92 @@ impl RuntimeExtension for MusicExtension {
         }]
     }
 
-    fn update(&mut self, now: Instant) -> ExtensionOutput {
+    fn on_contribution_update(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+        now: Instant,
+    ) -> ExtensionOutput {
+        if id.as_str() == SERVICE_ID {
+            self.poll(now)
+        } else {
+            ExtensionOutput::default()
+        }
+    }
+    fn on_contribution_event(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+        event: &crate::extension::Event,
+        now: Instant,
+    ) -> ExtensionOutput {
+        if id.as_str() == SERVICE_ID
+            && matches!(event, crate::extension::Event::Custom(task) if task == "music-lyric-boundary")
+        {
+            self.poll(now)
+        } else {
+            ExtensionOutput::default()
+        }
+    }
+
+    fn on_action(&mut self, action: Action, now: Instant) -> ExtensionOutput {
+        let Some(playback) = &self.playback else {
+            return ExtensionOutput::default();
+        };
+        let command = match action {
+            Action::Toggle => Command::Toggle,
+            Action::SetProgress {
+                ref key,
+                basis_points,
+            } if key == "seek" => {
+                let Some(duration) = playback.track.duration else {
+                    return ExtensionOutput::default();
+                };
+                Command::Seek(
+                    (duration * 1000.0 * f64::from(basis_points.min(10_000)) / 10_000.0).round()
+                        as u64,
+                )
+            }
+            Action::Custom(ref name) if name == "previous" => Command::Previous,
+            Action::Advance => Command::Next,
+            Action::Custom(ref name) if name == "lyrics-retry" => {
+                self.lyric_result = None;
+                self.request_lyrics();
+                return invalidate();
+            }
+            Action::Custom(ref name) if name == "lyrics-plain" => {
+                self.plain_lyrics_open = !self.plain_lyrics_open;
+                return invalidate();
+            }
+            _ => return ExtensionOutput::default(),
+        };
+        if !playback.controls.allows(command) {
+            return ExtensionOutput::default();
+        }
+        self.control_failed = self
+            .controller
+            .as_ref()
+            .is_none_or(|sender| sender.send((playback.session.clone(), command)).is_err());
+        if !self.control_failed {
+            if let Command::Seek(milliseconds) = command {
+                if let Some(playback) = self.playback.as_mut() {
+                    playback.position = milliseconds as f64 / 1000.0;
+                    playback.observed = now;
+                }
+                self.active_line = self
+                    .lyric_result
+                    .as_ref()
+                    .and_then(|r| r.as_ref().ok())
+                    .and_then(Option::as_deref)
+                    .and_then(|lyrics| lyrics.current_index(milliseconds as f64 / 1000.0));
+            }
+        }
+        invalidate()
+    }
+}
+
+impl MusicExtension {
+    fn poll(&mut self, now: Instant) -> ExtensionOutput {
         let mut changed = false;
         while let Some(update) = self
             .media_updates
@@ -297,63 +428,6 @@ impl RuntimeExtension for MusicExtension {
         output
     }
 
-    fn on_action(&mut self, action: Action, now: Instant) -> ExtensionOutput {
-        let Some(playback) = &self.playback else {
-            return ExtensionOutput::default();
-        };
-        let command = match action {
-            Action::Toggle => Command::Toggle,
-            Action::SetProgress {
-                ref key,
-                basis_points,
-            } if key == "seek" => {
-                let Some(duration) = playback.track.duration else {
-                    return ExtensionOutput::default();
-                };
-                Command::Seek(
-                    (duration * 1000.0 * f64::from(basis_points.min(10_000)) / 10_000.0).round()
-                        as u64,
-                )
-            }
-            Action::Custom(ref name) if name == "previous" => Command::Previous,
-            Action::Advance => Command::Next,
-            Action::Custom(ref name) if name == "lyrics-retry" => {
-                self.lyric_result = None;
-                self.request_lyrics();
-                return invalidate();
-            }
-            Action::Custom(ref name) if name == "lyrics-plain" => {
-                self.plain_lyrics_open = !self.plain_lyrics_open;
-                return invalidate();
-            }
-            _ => return ExtensionOutput::default(),
-        };
-        if !playback.controls.allows(command) {
-            return ExtensionOutput::default();
-        }
-        self.control_failed = self
-            .controller
-            .as_ref()
-            .is_none_or(|sender| sender.send((playback.session.clone(), command)).is_err());
-        if !self.control_failed {
-            if let Command::Seek(milliseconds) = command {
-                if let Some(playback) = self.playback.as_mut() {
-                    playback.position = milliseconds as f64 / 1000.0;
-                    playback.observed = now;
-                }
-                self.active_line = self
-                    .lyric_result
-                    .as_ref()
-                    .and_then(|r| r.as_ref().ok())
-                    .and_then(Option::as_deref)
-                    .and_then(|lyrics| lyrics.current_index(milliseconds as f64 / 1000.0));
-            }
-        }
-        invalidate()
-    }
-}
-
-impl MusicExtension {
     fn set_playback(&mut self, next: Option<Playback>) -> bool {
         let next = next.filter(|next| {
             next.playing
@@ -437,12 +511,18 @@ fn invalidate() -> ExtensionOutput {
     }
 }
 
-fn watch_media(controls: mpsc::Receiver<ControlRequest>, output: mpsc::Sender<MediaUpdate>) {
+fn watch_media(
+    controls: mpsc::Receiver<ControlRequest>,
+    output: mpsc::Sender<MediaUpdate>,
+    cancel: crate::sdk::tasks::CancellationToken,
+    artwork: Arc<Mutex<Option<crate::sdk::tasks::TaskScope>>>,
+) {
     let mut backend = Backend::default();
     let mut session = None::<String>;
     let mut last_success = Instant::now();
-    loop {
-        let snapshot = match backend.observe(session.as_deref()) {
+    while !cancel.is_cancelled() {
+        let scope = artwork.lock().ok().and_then(|scope| scope.clone());
+        let snapshot = match backend.observe(session.as_deref(), scope.as_ref()) {
             Ok(snapshot) => {
                 last_success = Instant::now();
                 Some(snapshot)
@@ -463,6 +543,12 @@ fn watch_media(controls: mpsc::Receiver<ControlRequest>, output: mpsc::Sender<Me
         };
         match controls.recv_timeout(interval) {
             Ok((target, command)) => {
+                if scope
+                    .as_ref()
+                    .is_none_or(|scope| scope.token().is_cancelled())
+                {
+                    continue;
+                }
                 let failed = session.as_deref() != Some(&target)
                     || backend.control(&target, command).is_err();
                 if failed && output.send(MediaUpdate::ControlFailed(target)).is_err() {
@@ -475,10 +561,18 @@ fn watch_media(controls: mpsc::Receiver<ControlRequest>, output: mpsc::Sender<Me
     }
 }
 
-fn fetch_lyrics(requests: mpsc::Receiver<Track>, output: mpsc::Sender<(Track, LyricsResult)>) {
+fn fetch_lyrics(
+    requests: mpsc::Receiver<Track>,
+    output: mpsc::Sender<(Track, LyricsResult)>,
+    cancel: crate::sdk::tasks::CancellationToken,
+) {
     while let Ok(first) = requests.recv() {
         let track = requests.try_iter().last().unwrap_or(first);
-        let result = lyrics::lookup(&track).map(|lyrics| lyrics.map(Arc::new));
+        let result = match crate::sdk::http::run_cancellable(&cancel, lyrics::lookup(&track)) {
+            Ok(Some(result)) => result.map(|lyrics| lyrics.map(Arc::new)),
+            Ok(None) => return,
+            Err(_) => Err(()),
+        };
         if output.send((track, result)).is_err() {
             return;
         }
@@ -550,7 +644,7 @@ mod tests {
             },
         ])))));
         assert_eq!(
-            music.update(now + Duration::from_secs(1)).invalidated.len(),
+            music.poll(now + Duration::from_secs(1)).invalidated.len(),
             2
         );
         assert_eq!(music.compact_views()[0].min_width, COMPACT_LYRIC_MIN_WIDTH);
@@ -561,7 +655,7 @@ mod tests {
             .unwrap()
             .starts_with("第一句"));
         assert_eq!(
-            music.update(now + Duration::from_secs(2)).invalidated.len(),
+            music.poll(now + Duration::from_secs(2)).invalidated.len(),
             2
         );
         assert!(music.compact_views()[0]
@@ -571,7 +665,7 @@ mod tests {
             .starts_with("第二句"));
 
         music.set_playback(Some(sample(false, 1.0, now + Duration::from_secs(2))));
-        music.update(now + Duration::from_secs(10));
+        music.poll(now + Duration::from_secs(10));
         assert_eq!(music.active_line, Some(0));
     }
 }
@@ -603,12 +697,12 @@ mod timing_tests {
         let now = Instant::now();
         let mut music = music(now);
         assert_eq!(
-            music.update(now).schedule[0].deadline,
+            music.poll(now).schedule[0].deadline,
             now + Duration::from_millis(125)
         );
-        music.update(now + Duration::from_millis(124));
+        music.poll(now + Duration::from_millis(124));
         assert_eq!(music.active_line, None);
-        let output = music.update(now + Duration::from_millis(125));
+        let output = music.poll(now + Duration::from_millis(125));
         assert_eq!(music.active_line, Some(0));
         assert_eq!(
             output.schedule[0].deadline,
@@ -618,21 +712,18 @@ mod timing_tests {
         playback.rate = 2.0;
         assert!(music.set_playback(Some(playback)));
         assert_eq!(
-            music.update(now + Duration::from_millis(125)).schedule[0].deadline,
+            music.poll(now + Duration::from_millis(125)).schedule[0].deadline,
             now + Duration::from_millis(200)
         );
         music.set_playback(Some(super::tests::sample(false, 0.2, now)));
-        assert!(music
-            .update(now + Duration::from_secs(5))
-            .schedule
-            .is_empty());
+        assert!(music.poll(now + Duration::from_secs(5)).schedule.is_empty());
         assert_eq!(music.active_line, Some(0));
         music.set_playback(Some(super::tests::sample(
             true,
             0.0,
             now + Duration::from_secs(5),
         )));
-        music.update(now + Duration::from_secs(5));
+        music.poll(now + Duration::from_secs(5));
         assert_eq!(music.active_line, None);
     }
 }

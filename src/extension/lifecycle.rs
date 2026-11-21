@@ -13,11 +13,11 @@ use super::ExtensionId;
 #[derive(Clone, Debug)]
 pub struct ExtensionContext {
     owner: Option<ExtensionId>,
+    extension_owner: Option<ExtensionId>,
     generation: u64,
     data_dir: PathBuf,
     config_dir: PathBuf,
-    scheduled: Arc<Mutex<Vec<(String, Instant)>>>,
-    canceled: Arc<Mutex<Vec<String>>>,
+    task_commands: Arc<Mutex<HashMap<String, Option<Instant>>>>,
     task_scopes: crate::sdk::tasks::TaskRegistry,
     task_scope: Option<crate::sdk::tasks::TaskScope>,
 }
@@ -26,11 +26,11 @@ impl ExtensionContext {
     pub fn new(data_dir: PathBuf, config_dir: PathBuf) -> Self {
         Self {
             owner: None,
+            extension_owner: None,
             generation: 0,
             data_dir,
             config_dir,
-            scheduled: Arc::new(Mutex::new(Vec::new())),
-            canceled: Arc::new(Mutex::new(Vec::new())),
+            task_commands: Arc::new(Mutex::new(HashMap::new())),
             task_scopes: crate::sdk::tasks::TaskRegistry::default(),
             task_scope: None,
         }
@@ -42,10 +42,22 @@ impl ExtensionContext {
     pub fn scoped_at(&self, owner: &ExtensionId, generation: u64) -> Self {
         let mut context = self.clone();
         context.owner = Some(owner.clone());
+        context.extension_owner = Some(owner.clone());
         context.generation = generation;
         context.task_scope = Some(self.task_scopes.scope(owner, generation));
         context
     }
+    pub(crate) fn scoped_contribution(
+        &self,
+        owner: &ExtensionId,
+        contribution: &ExtensionId,
+        generation: u64,
+    ) -> Self {
+        let mut context = self.scoped_at(contribution, generation);
+        context.extension_owner = Some(owner.clone());
+        context
+    }
+
     fn task_key(&self, task: String) -> String {
         self.owner.as_ref().map_or_else(
             || task.clone(),
@@ -56,7 +68,7 @@ impl ExtensionContext {
         &self.data_dir
     }
     pub fn extension_id(&self) -> Option<&ExtensionId> {
-        self.owner.as_ref()
+        self.extension_owner.as_ref()
     }
     pub fn generation(&self) -> u64 {
         self.generation
@@ -67,10 +79,16 @@ impl ExtensionContext {
     pub fn tasks(&self) -> crate::sdk::tasks::TaskScope {
         self.task_scope.clone().unwrap_or_default()
     }
-    pub fn shutdown_tasks(&self) {
-        if let Some(owner) = self.owner.as_ref() {
-            self.task_scopes.cancel(owner, self.generation);
-        }
+    pub fn shutdown_tasks(&self) -> bool {
+        self.owner
+            .as_ref()
+            .is_none_or(|owner| self.task_scopes.cancel(owner, self.generation))
+    }
+    pub(crate) fn reap_tasks(&self) {
+        self.task_scopes.reap();
+    }
+    pub(crate) fn can_start_tasks(&self, id: &ExtensionId) -> bool {
+        self.task_scopes.can_start(id)
     }
     pub(crate) fn config_dir(&self) -> &Path {
         &self.config_dir
@@ -87,28 +105,31 @@ impl ExtensionContext {
     }
 
     pub fn schedule_at(&self, task_id: impl Into<String>, deadline: Instant) {
-        if let Ok(mut scheduled) = self.scheduled.lock() {
-            scheduled.push((self.task_key(task_id.into()), deadline));
+        if let Ok(mut commands) = self.task_commands.lock() {
+            commands.insert(self.task_key(task_id.into()), Some(deadline));
         }
     }
 
     pub fn cancel_task(&self, task_id: impl Into<String>) {
-        if let Ok(mut canceled) = self.canceled.lock() {
-            canceled.push(self.task_key(task_id.into()));
+        if let Ok(mut commands) = self.task_commands.lock() {
+            commands.insert(self.task_key(task_id.into()), None);
         }
     }
 
     pub fn drain_tasks(&self) -> (Vec<(String, Instant)>, Vec<String>) {
-        let scheduled = self
-            .scheduled
+        let commands = self
+            .task_commands
             .lock()
-            .map(|mut queue| std::mem::take(&mut *queue))
+            .map(|mut commands| std::mem::take(&mut *commands))
             .unwrap_or_default();
-        let canceled = self
-            .canceled
-            .lock()
-            .map(|mut queue| std::mem::take(&mut *queue))
-            .unwrap_or_default();
+        let mut scheduled = Vec::new();
+        let mut canceled = Vec::new();
+        for (key, deadline) in commands {
+            match deadline {
+                Some(deadline) => scheduled.push((key, deadline)),
+                None => canceled.push(key),
+            }
+        }
         (scheduled, canceled)
     }
 }

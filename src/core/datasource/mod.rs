@@ -14,8 +14,7 @@ use serde_json::{Map, Value};
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
-    io::Read,
-    net::{IpAddr, SocketAddr, ToSocketAddrs},
+    net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     sync::mpsc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -101,6 +100,8 @@ struct ManagedSource {
     config: SourceConfig,
     state: SavedState,
     compact: bool,
+    active_alerts: bool,
+    alert_interval_ms: u64,
     next_refresh: Instant,
     last_request: Option<Instant>,
     in_flight: bool,
@@ -118,8 +119,6 @@ pub struct SourceSnapshot {
     pub description: String,
     pub origin: String,
     pub enabled: bool,
-    pub compact: bool,
-    pub alerts: bool,
     pub refresh_interval_ms: u64,
     pub min_alert_interval_ms: u64,
     pub next_refresh_in_ms: u64,
@@ -136,7 +135,6 @@ pub struct SourceSnapshot {
     pub http_status: Option<u16>,
     pub in_flight: bool,
     pub icon_warning: Option<String>,
-    pub alert_enabled: bool,
     pub storage_error: Option<String>,
 }
 
@@ -159,12 +157,44 @@ struct FetchError {
     retry_after: Option<Duration>,
 }
 
+pub const CATALOG_OWNER: &str = "datasource";
+const ALERT_COOLDOWN: &str = "cooldown";
+
+pub struct DataSourceCatalog;
+
+impl crate::extension::NotificationPresentationProvider for DataSourceCatalog {}
+impl crate::extension::RuntimeExtension for DataSourceCatalog {
+    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+        let mut descriptor = crate::extension::ExtensionDescriptor::builtin(
+            CATALOG_OWNER,
+            "数据源",
+            "已授权的数据源",
+            vec![],
+        );
+        descriptor.default_enabled = true;
+        descriptor.execution_policy = crate::extension::ExecutionPolicy::EventDriven;
+        descriptor
+    }
+}
+
+pub(super) fn notification_source_local(id: &ExtensionId) -> Option<&str> {
+    let key = id.as_str();
+    key.strip_prefix("datasource/")
+        .and_then(|key| key.strip_suffix("/notification"))
+        .or_else(|| key.strip_prefix("datasource."))
+}
+
+fn notification_id(id: &str) -> Result<ExtensionId, String> {
+    ExtensionId::new(format!("datasource/{id}/notification")).map_err(|error| error.to_string())
+}
+
 pub struct DataSourceManager {
     root: PathBuf,
     sources: BTreeMap<String, ManagedSource>,
     sender: mpsc::Sender<FinishedRequest>,
     receiver: mpsc::Receiver<FinishedRequest>,
     active_requests: usize,
+    request_tasks: crate::sdk::tasks::TaskScope,
     registered_icons: HashMap<String, (u64, Option<String>)>,
     icon_textures: HashMap<String, egui::TextureHandle>,
     storage_read_error: Option<String>,
@@ -268,6 +298,8 @@ impl DataSourceManager {
                         config,
                         state,
                         compact: false,
+                        active_alerts: false,
+                        alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
                         next_refresh,
                         last_request: None,
                         in_flight: false,
@@ -287,6 +319,7 @@ impl DataSourceManager {
             sender,
             receiver,
             active_requests: 0,
+            request_tasks: Default::default(),
             registered_icons: HashMap::new(),
             icon_textures: HashMap::new(),
             storage_read_error,
@@ -307,10 +340,8 @@ impl DataSourceManager {
                     description: source.definition.description.clone(),
                     origin: source.config.origin.clone(),
                     enabled: source.config.enabled,
-                    compact: source.compact,
-                    alerts: source.config.alerts,
                     refresh_interval_ms: source.config.refresh_interval_ms,
-                    min_alert_interval_ms: source.config.min_alert_interval_ms,
+                    min_alert_interval_ms: source.alert_interval_ms,
                     next_refresh_in_ms: source
                         .next_refresh
                         .saturating_duration_since(Instant::now())
@@ -328,18 +359,94 @@ impl DataSourceManager {
                     http_status: source.state.http_status,
                     in_flight: source.in_flight,
                     icon_warning: source.icon_warning.clone(),
-                    alert_enabled: source.definition.alert.is_some(),
                     storage_error: self.storage_error().map(ToOwned::to_owned),
                 }
             })
             .collect()
     }
 
-    pub fn compact_ids(&self) -> Vec<ExtensionId> {
+    pub fn contributions(&self) -> Vec<crate::extension::ContributionDescriptor> {
+        use crate::extension::{
+            ContributionDescriptor as Descriptor, ContributionKind, SettingSchema, SettingValue,
+        };
         self.sources
-            .keys()
-            .filter_map(|id| compact_id(id).ok())
+            .values()
+            .flat_map(|source| {
+                let mut entries = Vec::with_capacity(2);
+                let id = &source.definition.id;
+                if let Ok(compact) = compact_id(id) {
+                    entries.push(Descriptor::new(
+                        compact,
+                        ContributionKind::Compact,
+                        source.definition.name.clone(),
+                        "chart",
+                        false,
+                        150,
+                    ));
+                }
+                if source.definition.alert.is_some() {
+                    if let Ok(alert) = notification_id(id) {
+                        entries.push(
+                            Descriptor::new(
+                                alert,
+                                ContributionKind::Notification,
+                                format!("{} 提醒", source.definition.name),
+                                "bell",
+                                source.config.alerts,
+                                150,
+                            )
+                            .with_settings(
+                                1,
+                                vec![SettingSchema::new(
+                                    ALERT_COOLDOWN,
+                                    SettingValue::Duration(source.config.min_alert_interval_ms),
+                                    "最短提醒间隔",
+                                )
+                                .range(MIN_ALERT_INTERVAL_MS as f64, MAX_ALERT_INTERVAL_MS as f64)],
+                            ),
+                        );
+                    }
+                }
+                entries
+            })
             .collect()
+    }
+
+    pub fn apply_contributions(&mut self, host: &crate::core::extension_manager::ExtensionManager) {
+        let owner_enabled = host.running(&ExtensionId::builtin(CATALOG_OWNER));
+        for (id, source) in &mut self.sources {
+            let was_running = source.compact || source.active_alerts;
+            source.compact = compact_id(id).is_ok_and(|id| host.contribution_running(&id));
+            source.active_alerts = notification_id(id).is_ok_and(|id| {
+                if let Some(crate::extension::SettingValue::Duration(ms)) = host
+                    .configured_contribution_settings(&id)
+                    .and_then(|values| values.get(ALERT_COOLDOWN))
+                {
+                    source.alert_interval_ms = *ms;
+                }
+                host.accepts_notification(&id)
+            });
+            let running = source.compact || source.active_alerts;
+            if !owner_enabled || (was_running && !running) {
+                source.force_refresh = false;
+                if let Some(token) = &source.cancellation {
+                    if !token.is_cancelled() {
+                        token.cancel();
+                        source.generation = source.generation.wrapping_add(1);
+                    }
+                }
+            } else if running && !was_running {
+                source.next_refresh = Instant::now();
+            }
+        }
+    }
+
+    pub fn accepts_notification(&self, id: &ExtensionId) -> bool {
+        notification_source_local(id).is_some_and(|local| {
+            self.sources.get(local).is_some_and(|source| {
+                source.config.enabled && source.active_alerts && source.definition.alert.is_some()
+            })
+        })
     }
 
     pub fn storage_error(&self) -> Option<&str> {
@@ -527,6 +634,8 @@ impl DataSourceManager {
                 config,
                 state,
                 compact,
+                active_alerts: false,
+                alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
                 next_refresh: now,
                 last_request: None,
                 in_flight,
@@ -580,35 +689,6 @@ impl DataSourceManager {
         Ok(())
     }
 
-    pub fn set_compact(&mut self, id: &str, compact: bool) -> Result<(), String> {
-        self.source_mut(id)?.compact = compact;
-        Ok(())
-    }
-
-    pub fn set_alerts(&mut self, id: &str, alerts: bool) -> Result<(), String> {
-        let source = self.source_mut(id)?;
-        let alerts = alerts && source.definition.alert.is_some();
-        if source.config.alerts == alerts {
-            return Ok(());
-        }
-        let previous = source.config.alerts;
-        let previous_next_refresh = source.next_refresh;
-        source.config.alerts = alerts;
-        source.generation = source.generation.wrapping_add(1);
-        if let Some(token) = &source.cancellation {
-            token.cancel();
-        }
-        source.next_refresh = Instant::now();
-        if let Err(error) = self.save_all() {
-            if let Some(source) = self.sources.get_mut(id) {
-                source.config.alerts = previous;
-                source.next_refresh = previous_next_refresh;
-            }
-            return Err(error);
-        }
-        Ok(())
-    }
-
     pub fn set_refresh_interval(&mut self, id: &str, interval: Duration) -> Result<(), String> {
         let millis = interval
             .as_millis()
@@ -628,26 +708,6 @@ impl DataSourceManager {
             if let Some(source) = self.sources.get_mut(id) {
                 source.config.refresh_interval_ms = previous;
                 source.next_refresh = previous_next_refresh;
-            }
-            return Err(error);
-        }
-        Ok(())
-    }
-
-    pub fn set_min_alert_interval(&mut self, id: &str, interval: Duration) -> Result<(), String> {
-        let millis = interval
-            .as_millis()
-            .try_into()
-            .map_err(|_| "提醒间隔无效")?;
-        if !(MIN_ALERT_INTERVAL_MS..=MAX_ALERT_INTERVAL_MS).contains(&millis) {
-            return Err("最短提醒间隔必须在 1 分钟到 30 天之间".into());
-        }
-        let source = self.source_mut(id)?;
-        let previous = source.config.min_alert_interval_ms;
-        source.config.min_alert_interval_ms = millis;
-        if let Err(error) = self.save_all() {
-            if let Some(source) = self.sources.get_mut(id) {
-                source.config.min_alert_interval_ms = previous;
             }
             return Err(error);
         }
@@ -757,8 +817,8 @@ impl DataSourceManager {
             .values()
             .filter(|source| {
                 !source.in_flight
-                    && (source.force_refresh
-                        || (source.config.enabled && (source.compact || source.config.alerts)))
+                    && source.config.enabled
+                    && (source.compact || source.active_alerts)
             })
             .map(|source| source.next_refresh)
             .min()
@@ -796,7 +856,7 @@ impl DataSourceManager {
                     source.state.retry_at_ms = None;
                     source.retry_count = 0;
                     source.next_refresh = now + configured_interval(source);
-                    if source.config.alerts {
+                    if source.active_alerts {
                         if let Some(alert) = evaluate_alert(source, timestamp_ms()) {
                             notifications.push(alert);
                         }
@@ -831,10 +891,9 @@ impl DataSourceManager {
             .filter(|(_, source)| {
                 !source.in_flight
                     && self.active_requests < MAX_CONCURRENT_REQUESTS
-                    && (source.force_refresh
-                        || (source.config.enabled
-                            && (source.compact || source.config.alerts)
-                            && source.next_refresh <= now))
+                    && source.config.enabled
+                    && (source.compact || source.active_alerts)
+                    && (source.force_refresh || source.next_refresh <= now)
             })
             .map(|(id, _)| id.clone())
             .take(MAX_CONCURRENT_REQUESTS.saturating_sub(self.active_requests))
@@ -950,15 +1009,27 @@ impl DataSourceManager {
         }
         let sender = self.sender.clone();
         let request_id = id.to_owned();
-        std::thread::spawn(move || {
-            let result = execute_request(task);
-            let _ = sender.send(FinishedRequest {
-                id: request_id,
-                generation,
-                result,
+        let spawned = self
+            .request_tasks
+            .spawn(format!("datasource-{id}"), move |_| {
+                let result = run_request(task);
+                let _ = sender.send(FinishedRequest {
+                    id: request_id,
+                    generation,
+                    result,
+                });
+                context.request_repaint();
             });
-            context.request_repaint();
-        });
+        if let Err(error) = spawned {
+            if let Some(source) = self.sources.get_mut(id) {
+                source.in_flight = false;
+                source.cancellation = None;
+                source.last_request = previous_last_request;
+                source.state.last_request_ms = previous_last_request_ms;
+                source.state.retry_at_ms = previous_retry_at;
+            }
+            return Err(error.to_string());
+        }
         self.active_requests += 1;
         Ok(())
     }
@@ -1121,6 +1192,7 @@ impl Drop for DataSourceManager {
                 token.cancel();
             }
         }
+        self.request_tasks.shutdown();
     }
 }
 
@@ -1476,7 +1548,14 @@ struct RequestTask {
     cancellation: crate::sdk::tasks::CancellationToken,
 }
 
-fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
+fn run_request(task: RequestTask) -> Result<FetchResult, FetchError> {
+    let cancellation = task.cancellation.clone();
+    crate::sdk::http::run_cancellable(&cancellation, execute_request(task))
+        .map_err(|_| fetch_error("无法启动 HTTP 任务"))?
+        .ok_or_else(|| fetch_error("请求已取消"))?
+}
+
+async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
     if task.cancellation.is_cancelled() {
         return Err(fetch_error("请求已取消"));
     }
@@ -1496,10 +1575,18 @@ fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
     let port = url
         .port_or_known_default()
         .ok_or_else(|| fetch_error("请求端口无效"))?;
-    let addresses: Vec<SocketAddr> = (host.as_str(), port)
-        .to_socket_addrs()
-        .map_err(|_| fetch_error("无法解析请求目标"))?
-        .collect();
+    let addresses: Vec<SocketAddr> = tokio::time::timeout(
+        Duration::from_millis(
+            request
+                .timeout_ms
+                .min(schema::MAX_TIMEOUT.as_millis() as u64),
+        ),
+        tokio::net::lookup_host((host.as_str(), port)),
+    )
+    .await
+    .map_err(|_| fetch_error("解析请求目标超时"))?
+    .map_err(|_| fetch_error("无法解析请求目标"))?
+    .collect();
     if addresses.is_empty() {
         return Err(fetch_error("请求目标没有可用地址"));
     }
@@ -1515,7 +1602,7 @@ fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
             .timeout_ms
             .min(schema::MAX_TIMEOUT.as_millis() as u64),
     );
-    let builder = reqwest::blocking::Client::builder()
+    let builder = reqwest::Client::builder()
         .connect_timeout(timeout.min(Duration::from_secs(10)))
         .timeout(timeout)
         .redirect(reqwest::redirect::Policy::none())
@@ -1543,7 +1630,7 @@ fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
         let body = expand_string(body, &task.inputs, false)?;
         request_builder = request_builder.body(body);
     }
-    let mut response = request_builder.send().map_err(|error| {
+    let mut response = request_builder.send().await.map_err(|error| {
         fetch_error(if error.is_timeout() {
             "HTTP 请求超时"
         } else {
@@ -1578,13 +1665,15 @@ fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
         return Err(fetch_error("HTTP 响应超过 1 MB"));
     }
     let mut bytes = Vec::new();
-    response
-        .by_ref()
-        .take((MAX_RESPONSE_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|_| fetch_error("无法读取 HTTP 响应"))?;
-    if bytes.len() > MAX_RESPONSE_BYTES {
-        return Err(fetch_error("HTTP 响应超过 1 MB"));
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| fetch_error("无法读取 HTTP 响应"))?
+    {
+        if bytes.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+            return Err(fetch_error("HTTP 响应超过 1 MB"));
+        }
+        bytes.extend_from_slice(&chunk);
     }
     let json: Value =
         serde_json::from_slice(&bytes).map_err(|_| fetch_error("响应不是合法 JSON"))?;
@@ -1796,7 +1885,7 @@ fn evaluate_alert(source: &ManagedSource, now_ms: u64) -> Option<PendingAlert> {
         threshold,
         alert.operator,
         source.state.last_alert_ms,
-        source.config.min_alert_interval_ms,
+        source.alert_interval_ms,
         now_ms,
     ) {
         return None;
@@ -1804,7 +1893,7 @@ fn evaluate_alert(source: &ManagedSource, now_ms: u64) -> Option<PendingAlert> {
     let formatted = source.state.formatted.as_deref().unwrap_or("—");
     let title = expand_alert_template(&alert.title, formatted, &source.config.inputs);
     let body = expand_alert_template(&alert.message, formatted, &source.config.inputs);
-    let source_id = ExtensionId::new(format!("datasource.{}", source.definition.id)).ok()?;
+    let source_id = notification_id(&source.definition.id).ok()?;
     Some(PendingAlert {
         source_id: source.definition.id.clone(),
         alerted_at_ms: now_ms,
@@ -1865,7 +1954,7 @@ fn alert_diagnostic(source: &ManagedSource, now_ms: u64) -> String {
     let Some(alert) = &source.definition.alert else {
         return "未配置提醒".into();
     };
-    if !source.config.alerts {
+    if !source.active_alerts {
         return "提醒已关闭".into();
     }
     let Some(value) = source.state.value else {
@@ -1882,8 +1971,8 @@ fn alert_diagnostic(source: &ManagedSource, now_ms: u64) -> String {
     }
     if let Some(last) = source.state.last_alert_ms {
         let elapsed = now_ms.saturating_sub(last);
-        if elapsed < source.config.min_alert_interval_ms {
-            let remaining = source.config.min_alert_interval_ms - elapsed;
+        if elapsed < source.alert_interval_ms {
+            let remaining = source.alert_interval_ms - elapsed;
             return format!("已达到阈值，冷却剩余 {}", duration_text(remaining));
         }
     }
@@ -1958,6 +2047,8 @@ mod tests {
                 ..SavedState::default()
             },
             compact: true,
+            active_alerts: false,
+            alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
             next_refresh: Instant::now(),
             last_request: None,
             in_flight: false,
@@ -2111,7 +2202,7 @@ mod tests {
     fn cancelled_request_does_not_start_network_work() {
         let cancellation = crate::sdk::tasks::CancellationToken::default();
         cancellation.cancel();
-        let error = execute_request(RequestTask {
+        let error = run_request(RequestTask {
             definition: definition(),
             inputs: BTreeMap::new(),
             origin: String::new(),
@@ -2149,24 +2240,20 @@ mod tests {
             assert!(manager
                 .set_refresh_interval("open-meteo-shanghai-temperature", Duration::from_secs(20))
                 .is_err());
-            manager
-                .set_min_alert_interval(
-                    "open-meteo-shanghai-temperature",
-                    Duration::from_secs(1800),
-                )
-                .unwrap();
+            let legacy = &mut manager
+                .sources
+                .get_mut("open-meteo-shanghai-temperature")
+                .unwrap()
+                .config;
+            legacy.min_alert_interval_ms = 1_800_000;
+            legacy.alerts = true;
+            manager.save_all().unwrap();
             manager
                 .set_input(
                     "open-meteo-shanghai-temperature",
                     "alert_threshold",
                     Value::from(8),
                 )
-                .unwrap();
-            manager
-                .set_alerts("open-meteo-shanghai-temperature", false)
-                .unwrap();
-            manager
-                .set_alerts("open-meteo-shanghai-temperature", true)
                 .unwrap();
             manager
                 .set_enabled("open-meteo-shanghai-temperature", false)
@@ -2181,9 +2268,17 @@ mod tests {
         let manager = DataSourceManager::open(root.path());
         let source = manager.snapshots().remove(0);
         assert_eq!(source.refresh_interval_ms, 120_000);
-        assert_eq!(source.min_alert_interval_ms, 1_800_000);
+        let alert = manager
+            .contributions()
+            .into_iter()
+            .find(|entry| entry.kind == crate::extension::ContributionKind::Notification)
+            .unwrap();
+        assert_eq!(
+            alert.settings[0].default,
+            Some(crate::extension::SettingValue::Duration(1_800_000))
+        );
         assert_eq!(source.last_alert_ms, Some(1_000_000));
-        assert!(source.alerts);
+        assert!(alert.default_enabled);
         assert!(source.enabled);
     }
 

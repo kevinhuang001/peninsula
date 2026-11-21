@@ -45,7 +45,11 @@ impl Backend {
     pub fn observe(
         &mut self,
         previous: Option<&str>,
+        artwork_scope: Option<&crate::sdk::tasks::TaskScope>,
     ) -> std::result::Result<Option<Playback>, String> {
+        if artwork_scope.is_none() {
+            self.artwork = artwork::Cache::default();
+        }
         let active = self.active.take();
         match self.manager().and_then(|manager| {
             observe(
@@ -62,12 +66,17 @@ impl Backend {
                     playback.track.artist,
                     playback.track.album
                 );
-                let thumbnail = thumbnail
-                    .as_ref()
-                    .and_then(|image| AgileReference::new(image).ok());
-                playback.artwork = self
-                    .artwork
-                    .get(&key, move || read_agile_thumbnail(thumbnail));
+                if let Some(tasks) = artwork_scope {
+                    let thumbnail = thumbnail
+                        .as_ref()
+                        .and_then(|image| AgileReference::new(image).ok());
+                    playback.artwork = self.artwork.get(tasks, &key, move |cancel| {
+                        if cancel.is_cancelled() {
+                            return None;
+                        }
+                        read_agile_thumbnail(thumbnail)
+                    });
+                }
                 self.active = Some((playback.session.clone(), session));
                 Ok(Some(playback))
             }

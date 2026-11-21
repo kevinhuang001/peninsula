@@ -23,6 +23,8 @@ use std::{
 };
 
 pub const WIDGET_ID: &str = "builtin.kuaidi/shipments";
+const SERVICE_ID: &str = "builtin.kuaidi/service.tracking";
+const PICKUP_ID: &str = "builtin.kuaidi/pickup";
 const NOTIFICATION_ID: &str = "builtin.kuaidi/notifications";
 pub const DEFAULT_REFRESH_MINUTES: u16 = 20;
 pub const REFRESH_MINUTES_KEY: &str = "refresh_minutes";
@@ -40,27 +42,7 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             true,
             3,
         )
-        .with_settings(
-            1,
-            vec![
-                SettingSchema::new(
-                    REFRESH_MINUTES_KEY,
-                    SettingValue::Integer(i64::from(DEFAULT_REFRESH_MINUTES)),
-                    "快递刷新间隔（分钟）",
-                )
-                .range(1.0, f64::from(MAX_REFRESH_MINUTES)),
-                SettingSchema::new(
-                    CHANGE_NOTIFICATIONS_KEY,
-                    SettingValue::Boolean(true),
-                    "快递变更通知",
-                ),
-                SettingSchema::new(
-                    PICKUP_NOTIFICATIONS_KEY,
-                    SettingValue::Boolean(true),
-                    "取件通知",
-                ),
-            ],
-        )
+        .with_dependency(ExtensionId::builtin(SERVICE_ID))
         .with_capabilities(vec![Capability::Action])
         .with_widget_bounds(WidgetBounds {
             fit_width: true,
@@ -75,7 +57,28 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             "bell",
             true,
             21,
-        ),
+        )
+        .with_dependency(ExtensionId::builtin(SERVICE_ID)),
+        ContributionDescriptor::builtin(
+            PICKUP_ID,
+            ContributionKind::Notification,
+            "取件提醒",
+            "bell",
+            true,
+            22,
+        )
+        .with_dependency(ExtensionId::builtin(SERVICE_ID)),
+        ContributionDescriptor::builtin(
+            SERVICE_ID,
+            ContributionKind::BackgroundService,
+            "物流查询",
+            "bell",
+            true,
+            0,
+        )
+        .with_execution_policy(crate::extension::ExecutionPolicy::Interval(
+            Duration::from_millis(250),
+        )),
     ]
 }
 
@@ -125,7 +128,7 @@ impl KuaidiExtension {
         let (sender, results) = mpsc::channel();
         let worker = tasks.spawn("kuaidi-sync", move |cancel| {
             let program = PathBuf::from("opencli");
-            let cli = poller::check_plugin(&program).map(|()| program);
+            let cli = poller::check_plugin(&program, &cancel).map(|()| program);
 
             if cancel.is_cancelled() {
                 return;
@@ -135,7 +138,7 @@ impl KuaidiExtension {
                     break;
                 }
                 let result = match &cli {
-                    Ok(program) => platform.collect(program),
+                    Ok(program) => platform.collect(program, &cancel),
                     Err(error) => Err(*error),
                 };
                 if sender.send((platform, result)).is_err() {
@@ -171,7 +174,11 @@ impl KuaidiExtension {
             checked_at: SystemTime::now(),
             parcels,
         };
-        let changes = snapshot.changes(source.snapshot.as_ref());
+        let changes = if self.change_notifications || self.pickup_notifications {
+            snapshot.changes(source.snapshot.as_ref())
+        } else {
+            Vec::new()
+        };
         if let Some(storage) = &self.storage {
             let file = format!("{}.json", platform.command());
             source.error = storage
@@ -252,7 +259,7 @@ fn shipment_notification(
         .unwrap_or_default()
         .as_nanos();
     Notification {
-        source_id: ExtensionId::builtin(NOTIFICATION_ID),
+        source_id: ExtensionId::builtin(if pickup { PICKUP_ID } else { NOTIFICATION_ID }),
         id: format!("shipment-{timestamp}-{sequence}"),
         title: if pickup {
             format!("{} · 取件提醒", platform.name())
@@ -278,17 +285,58 @@ fn shorten(value: &str, max_chars: usize) -> String {
 
 impl RuntimeExtension for KuaidiExtension {
     fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
-        crate::extension::ExtensionDescriptor::builtin(
+        let mut descriptor = crate::extension::ExtensionDescriptor::builtin(
             "builtin.kuaidi",
             "快递",
             "物流状态与取件通知",
             descriptors(),
-        )
+        );
+        descriptor = descriptor.with_settings(
+            2,
+            vec![SettingSchema::new(
+                REFRESH_MINUTES_KEY,
+                SettingValue::Integer(i64::from(DEFAULT_REFRESH_MINUTES)),
+                "快递刷新间隔（分钟）",
+            )
+            .range(1.0, f64::from(MAX_REFRESH_MINUTES))],
+        );
+        descriptor.execution_policy = crate::extension::ExecutionPolicy::EventDriven;
+        descriptor.settings_version = 2;
+        descriptor
+    }
+
+    fn migrate_settings(
+        &self,
+        _: &ExtensionId,
+        version: u32,
+        mut values: Settings,
+    ) -> Result<Settings, String> {
+        if version != 1 {
+            return Err(format!("unsupported tracking settings version {version}"));
+        }
+        values.remove(CHANGE_NOTIFICATIONS_KEY);
+        values.remove(PICKUP_NOTIFICATIONS_KEY);
+        Ok(values)
+    }
+
+    fn contribution_preference_migration(
+        &self,
+        old: &Settings,
+    ) -> std::collections::BTreeMap<ExtensionId, bool> {
+        [
+            (NOTIFICATION_ID, CHANGE_NOTIFICATIONS_KEY),
+            (PICKUP_ID, PICKUP_NOTIFICATIONS_KEY),
+        ]
+        .into_iter()
+        .filter_map(|(id, key)| match old.get(key) {
+            Some(SettingValue::Boolean(enabled)) => Some((ExtensionId::builtin(id), *enabled)),
+            _ => None,
+        })
+        .collect()
     }
 
     fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
         let storage = ctx.sdk().storage().data().clone();
-        self.tasks = Some(ctx.sdk().tasks());
         for platform in Platform::ALL {
             let name = format!("{}.json", platform.command());
             self.sources[platform as usize].snapshot = storage
@@ -307,7 +355,48 @@ impl RuntimeExtension for KuaidiExtension {
         Ok(())
     }
 
-    fn update(&mut self, now: Instant) -> ExtensionOutput {
+    fn on_contribution_start(
+        &mut self,
+        ctx: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == SERVICE_ID {
+            self.tasks = Some(ctx.tasks());
+            self.last_poll = None;
+        }
+        Ok(())
+    }
+
+    fn on_contribution_stop(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == SERVICE_ID {
+            self.refresh = None;
+            self.tasks = None;
+        }
+        Ok(())
+    }
+
+    fn on_contribution_state(
+        &mut self,
+        _: &ExtensionContext,
+        active: &std::collections::BTreeMap<ExtensionId, Settings>,
+    ) {
+        self.change_notifications = active.contains_key(&ExtensionId::builtin(NOTIFICATION_ID));
+        self.pickup_notifications = active.contains_key(&ExtensionId::builtin(PICKUP_ID));
+    }
+
+    fn on_contribution_update(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+        now: Instant,
+    ) -> ExtensionOutput {
+        if id.as_str() != SERVICE_ID {
+            return ExtensionOutput::default();
+        }
         let mut output = ExtensionOutput::default();
         if self.storage.is_some()
             && self.refresh.is_none()
@@ -349,12 +438,6 @@ impl RuntimeExtension for KuaidiExtension {
         if id.as_str() == WIDGET_ID || id.as_str() == "builtin.kuaidi" {
             if let Some(SettingValue::Integer(minutes)) = settings.get(REFRESH_MINUTES_KEY) {
                 self.poll_interval = Duration::from_secs(*minutes as u64 * 60);
-            }
-            if let Some(SettingValue::Boolean(enabled)) = settings.get(CHANGE_NOTIFICATIONS_KEY) {
-                self.change_notifications = *enabled;
-            }
-            if let Some(SettingValue::Boolean(enabled)) = settings.get(PICKUP_NOTIFICATIONS_KEY) {
-                self.pickup_notifications = *enabled;
             }
         }
         ExtensionOutput::default()
@@ -441,7 +524,7 @@ impl RuntimeExtension for KuaidiExtension {
 
 impl NotificationPresentationProvider for KuaidiExtension {
     fn handles_notification(&self, source_id: &ExtensionId) -> bool {
-        source_id.as_str() == NOTIFICATION_ID
+        matches!(source_id.as_str(), NOTIFICATION_ID | PICKUP_ID)
     }
 }
 
@@ -468,7 +551,16 @@ mod tests {
             .invalidated
             .is_empty());
         drop(sender);
-        assert_eq!(extension.update(Instant::now()).invalidated, vec![widget()]);
+        assert_eq!(
+            extension
+                .on_contribution_update(
+                    &ExtensionContext::new(Default::default(), Default::default()),
+                    &ExtensionId::builtin(SERVICE_ID),
+                    Instant::now()
+                )
+                .invalidated,
+            vec![widget()]
+        );
         assert!(describe(&extension).contains("立即刷新"));
     }
 
