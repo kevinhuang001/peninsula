@@ -122,7 +122,7 @@ impl MascotHost {
 
     fn frame(policy: MotionPolicy, active: bool) -> Option<Duration> {
         match policy {
-            MotionPolicy::Full => Some(Duration::from_millis(if active { 32 } else { 72 })),
+            MotionPolicy::Full => Some(Duration::from_millis(if active { 17 } else { 60 })),
             MotionPolicy::Reduced => Some(Duration::from_millis(if active { 64 } else { 100 })),
             MotionPolicy::Off => None,
         }
@@ -192,9 +192,11 @@ impl MascotHost {
             self.pose = if policy == MotionPolicy::Off {
                 expression
             } else {
+                let enter = (duration * 0.22).min(0.12);
+                let exit = (duration * 0.30).min(0.20);
                 p.from
-                    .blend(expression, animation::ease(elapsed / 0.12))
-                    .blend(idle, animation::ease(1.0 - (duration - elapsed) / 0.20))
+                    .blend(expression, animation::ease(elapsed / enter))
+                    .blend(idle, animation::ease(1.0 - (duration - elapsed) / exit))
             };
             Some(p.start + p.action.duration)
         } else {

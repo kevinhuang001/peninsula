@@ -66,8 +66,16 @@ pub(crate) fn readable_accent(accent: Color32, dark: bool) -> Color32 {
         TEXT_BACKGROUND_LIGHT
     };
     let start = accent.lerp_to_gamma(target, if dark { 0.68 } else { 0.10 });
-    for step in 0..=20 {
-        let color = start.lerp_to_gamma(target, step as f32 / 20.0);
+    ensure_text_contrast(start, background, target)
+}
+
+pub(crate) fn ensure_text_contrast(
+    foreground: Color32,
+    background: Color32,
+    target: Color32,
+) -> Color32 {
+    for step in 0..20 {
+        let color = foreground.lerp_to_gamma(target, step as f32 / 20.0);
         if contrast(color, background) >= 7.0 {
             return color;
         }
@@ -122,6 +130,18 @@ mod tests {
                 contrast(palette.secondary, backgrounds[0])
                     > contrast(palette.muted, backgrounds[0])
             );
+        }
+    }
+
+    #[test]
+    fn custom_compact_text_is_only_adjusted_when_contrast_is_low() {
+        for (background, primary) in [
+            (Color32::from_rgb(25, 34, 48), TextPalette::DARK.primary),
+            (Color32::from_rgb(235, 241, 249), TextPalette::LIGHT.primary),
+        ] {
+            assert_eq!(ensure_text_contrast(primary, background, primary), primary);
+            let corrected = ensure_text_contrast(background, background, primary);
+            assert!(contrast(corrected, background) >= 7.0);
         }
     }
 

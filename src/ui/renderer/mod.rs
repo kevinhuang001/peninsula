@@ -158,6 +158,35 @@ pub fn natural_content_width(
     limit: f32,
     icons: &Icons,
 ) -> f32 {
+    measure_natural_width(ctx, root, limit, icons, None)
+}
+
+pub fn compact_content_width(
+    ctx: &egui::Context,
+    root: &ViewNode,
+    limit: f32,
+    icons: &Icons,
+    text_size: f32,
+) -> f32 {
+    measure_natural_width(
+        ctx,
+        root,
+        limit,
+        icons,
+        Some(CompactTextAppearance {
+            size: text_size,
+            color: None,
+        }),
+    )
+}
+
+fn measure_natural_width(
+    ctx: &egui::Context,
+    root: &ViewNode,
+    limit: f32,
+    icons: &Icons,
+    appearance: Option<CompactTextAppearance>,
+) -> f32 {
     let ui = Ui::new(
         ctx.clone(),
         Id::new("natural-width-measure"),
@@ -165,6 +194,7 @@ pub fn natural_content_width(
     );
     let mut renderer = Renderer::new(&ui, icons);
     renderer.intrinsic_width = true;
+    renderer.compact_text_appearance = appearance;
     renderer
         .measure(&ui, root, vec2(point(limit), 0.0), [None; 2], 0)
         .x
@@ -451,7 +481,7 @@ impl<'a> Renderer<'a> {
     fn compact_text_style(&self, mut style: TextStyle) -> TextStyle {
         if let Some(appearance) = self.compact_text_appearance {
             style.font_size = FontSize::Custom(appearance.size);
-            style.font_weight = FontWeight::Normal;
+            style.font_weight = FontWeight::Bold;
             style.line_height = None;
             style.monospace = false;
         }

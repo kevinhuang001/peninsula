@@ -771,6 +771,7 @@ impl eframe::App for IslandApp {
                         && view.id.as_str() == crate::core::mascot::MASCOT_SLOT_ID)
             }),
             &self.icons,
+            self.preferences.compact_text_size,
         );
         if prompt_active {
             for view in &mut compact_views {

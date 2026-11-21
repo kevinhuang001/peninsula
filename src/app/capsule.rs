@@ -28,8 +28,7 @@ pub(super) fn body_size(width: f32, widget_height: f32) -> Vec2 {
 }
 
 pub(super) fn draw_compact_chip(ui: &egui::Ui, rect: Rect, opacity: f32) {
-    let painter = ui.painter();
-    painter.rect_filled(
+    ui.painter().rect_filled(
         rect,
         rect.height() * 0.5,
         ui.visuals()
@@ -37,20 +36,6 @@ pub(super) fn draw_compact_chip(ui: &egui::Ui, rect: Rect, opacity: f32) {
             .noninteractive
             .bg_fill
             .linear_multiply(opacity),
-    );
-    painter.rect_stroke(
-        rect,
-        rect.height() * 0.5,
-        Stroke::new(
-            1.0_f32,
-            ui.visuals()
-                .widgets
-                .noninteractive
-                .bg_stroke
-                .color
-                .linear_multiply(opacity),
-        ),
-        egui::StrokeKind::Inside,
     );
 }
 

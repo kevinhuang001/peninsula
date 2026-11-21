@@ -36,6 +36,7 @@ pub(super) fn measure_views<'a>(
     context: &egui::Context,
     available: impl IntoIterator<Item = &'a CompactView>,
     icons: &Icons,
+    text_size: f32,
 ) -> Vec<CompactItem<'a>> {
     available
         .into_iter()
@@ -44,11 +45,12 @@ pub(super) fn measure_views<'a>(
             if view.fit_width {
                 // Include the chip insets and round up so fractional metrics
                 // cannot introduce an ellipsis on the last glyph.
-                let width = (renderer::natural_content_width(
+                let width = (renderer::compact_content_width(
                     context,
                     &view.content,
                     MAX_CONTENT_WIDTH - 6.0,
                     icons,
+                    text_size,
                 ) + 6.0)
                     .ceil();
                 item.preferred_width = width.max(item.min_width);
@@ -352,7 +354,7 @@ mod lyric_tests {
         let mut preferences = CompactPreferences::default();
         preferences.set_enabled(&id, true);
         let _ = context.run(egui::RawInput::default(), |context| {
-            let measured = measure_views(context, [&view], &icons);
+            let measured = measure_views(context, [&view], &icons, preferences.compact_text_size);
             let references = [&measured[0]];
             let capsule = width(&preferences, &measured);
             assert!(capsule > 600.0);
@@ -362,12 +364,14 @@ mod lyric_tests {
             );
             let natural = renderer::content_width(context, &view.content, 16_384.0, &icons);
             assert!(measured[0].preferred_width >= natural + 6.0);
+            let large = measure_views(context, [&view], &icons, 18.0);
+            assert!(large[0].preferred_width > measured[0].preferred_width);
             let mut short = view.clone();
             let Node::Compact(compact) = &mut short.content.kind else {
                 unreachable!("lyric fixture is a Compact node");
             };
             compact.content = ViewNode::text("♪短句♪", Default::default());
-            let short = measure_views(context, [&short], &icons);
+            let short = measure_views(context, [&short], &icons, preferences.compact_text_size);
             assert_eq!(short[0].preferred_width, 360.0);
             assert_eq!(short[0].min_width, 360.0);
             assert_eq!(width(&preferences, &short), 360.0 + HORIZONTAL_PADDING);

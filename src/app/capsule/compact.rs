@@ -68,6 +68,12 @@ pub(super) fn show(
     let mut x = rect.center().x - total * 0.5;
     let center_y = rect.center().y;
 
+    let appearance = renderer::CompactTextAppearance {
+        size: prefs.compact_text_size,
+        color: prefs
+            .compact_text_color
+            .map(|[r, g, b]| egui::Color32::from_rgb(r, g, b)),
+    };
     let mut action = None;
     for (item, width) in views.into_iter().zip(widths) {
         let view = item.view;
@@ -75,7 +81,9 @@ pub(super) fn show(
             Pos2::new(x + width * 0.5, center_y),
             Vec2::new(width, CHIP_HEIGHT),
         );
-        draw_compact_chip(ui, item_rect, opacity);
+        if view.id.as_str() != crate::core::mascot::MASCOT_SLOT_ID {
+            draw_compact_chip(ui, item_rect, opacity);
+        }
         if let Some(tooltip) = &view.tooltip {
             ui.interact(
                 item_rect,
@@ -84,19 +92,7 @@ pub(super) fn show(
             )
             .on_hover_text(tooltip);
         }
-        let mut content_rect = item_rect.shrink2(egui::vec2(3.0, 0.0));
-        if view.id.as_str() == crate::core::mascot::MASCOT_SLOT_ID {
-            content_rect = Rect::from_center_size(
-                content_rect.center(),
-                Vec2::new(content_rect.width(), (rect.height() - 6.0).max(0.0)),
-            );
-        }
-        let appearance = renderer::CompactTextAppearance {
-            size: prefs.compact_text_size,
-            color: prefs
-                .compact_text_color
-                .map(|color| egui::Color32::from_rgb(color[0], color[1], color[2])),
-        };
+        let content_rect = item_rect.shrink2(egui::vec2(3.0, 0.0));
         if let Some(clicked) = renderer::show_compact_with_appearance(
             ui,
             content_rect,

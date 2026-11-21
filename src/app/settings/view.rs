@@ -1123,7 +1123,10 @@ fn capsule_options(
                 prefs.compact_text_color = (!follow_theme).then_some([245, 248, 255]);
             }
             if let Some(color) = &mut prefs.compact_text_color {
-                changed |= ui.color_edit_button_srgb(color).changed();
+                changed |= ui
+                    .color_edit_button_srgb(color)
+                    .on_hover_text("显示时会自动调整颜色，确保文字与背景有足够对比度")
+                    .changed();
             }
             changed
         });

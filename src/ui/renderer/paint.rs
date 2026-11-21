@@ -121,11 +121,24 @@ fn named_icon(name: &str) -> Option<Icon> {
 }
 
 impl Renderer<'_> {
-    fn paint_text(&self, ui: &Ui, rect: Rect, value: &str, style: TextStyle, color: Color32) {
+    fn paint_text(
+        &self,
+        ui: &Ui,
+        rect: Rect,
+        value: &str,
+        style: TextStyle,
+        color: Color32,
+        opacity: f32,
+    ) {
         let color = self.compact_text_appearance.map_or(color, |appearance| {
+            let primary = self.theme.color(ui, ColorSpec::PrimaryText);
+            let background = ui.visuals().widgets.noninteractive.bg_fill;
             appearance
                 .color
-                .unwrap_or_else(|| self.theme.color(ui, ColorSpec::PrimaryText))
+                .map_or(primary, |custom| {
+                    crate::ui::palette::ensure_text_contrast(custom, background, primary)
+                })
+                .linear_multiply(opacity)
         });
         text(ui, rect, value, self.compact_text_style(style), color);
     }
@@ -536,6 +549,7 @@ impl Renderer<'_> {
                     ..table_header_style()
                 },
                 color(ColorSpec::SecondaryText),
+                opacity,
             );
             x += width + TABLE_GAP;
         }
@@ -651,7 +665,7 @@ impl Renderer<'_> {
             Node::Text {
                 text: value,
                 text_style,
-            } => self.paint_text(ui, rect, value, *text_style, fg),
+            } => self.paint_text(ui, rect, value, *text_style, fg, opacity),
             Node::Icon { name, icon_style } => {
                 let size = Vec2::splat(point(icon_style.size)).min(rect.size());
                 let icon_rect = Rect::from_min_size(anchor(rect, size, icon_style.alignment), size);
@@ -776,6 +790,7 @@ impl Renderer<'_> {
                         ..Default::default()
                     },
                     color(ColorSpec::SecondaryText),
+                    opacity,
                 );
                 let value = format!("{value}{unit}");
                 self.paint_text(
@@ -787,6 +802,7 @@ impl Renderer<'_> {
                         ..Default::default()
                     },
                     fg,
+                    opacity,
                 );
             }
             Node::Badge(label) => self.paint_text(
@@ -795,6 +811,7 @@ impl Renderer<'_> {
                 label,
                 TextStyle::default(),
                 fg,
+                opacity,
             ),
             Node::Divider { vertical } => {
                 let c = rect.center();
@@ -958,7 +975,14 @@ impl Renderer<'_> {
                         Stroke::new(point(*stroke), fg),
                     );
                 }
-                self.paint_text(ui, rect, label, *text_style, color(ColorSpec::PrimaryText));
+                self.paint_text(
+                    ui,
+                    rect,
+                    label,
+                    *text_style,
+                    color(ColorSpec::PrimaryText),
+                    opacity,
+                );
             }
             Node::Gauge { fraction, label } => {
                 let radius = (rect.width() * 0.5).min(rect.height()) - 3.0;
@@ -982,7 +1006,7 @@ impl Renderer<'_> {
                         Stroke::new(3.0_f32, fg),
                     );
                 }
-                self.paint_text(ui, rect, label, TextStyle::default(), fg);
+                self.paint_text(ui, rect, label, TextStyle::default(), fg, opacity);
             }
             Node::Sparkline(values) => chart(&painter, rect, ChartKind::Line, values, fg),
             Node::Chart { kind, values } => chart(&painter, rect, *kind, values, fg),
@@ -1050,6 +1074,7 @@ impl Renderer<'_> {
                             ..Default::default()
                         },
                         fg,
+                        opacity,
                     );
                 } else if let Some(icon) = icon.as_deref().and_then(named_icon) {
                     let extent = rect.width().min(rect.height()) * 0.76;
@@ -1062,6 +1087,7 @@ impl Renderer<'_> {
                         label,
                         TextStyle::default(),
                         fg,
+                        opacity,
                     );
                 }
             }

@@ -127,7 +127,7 @@ fn off_keeps_static_unlock_feedback_without_continuous_repaint() {
         None
     );
     let error = host.pose;
-    assert!(error.brow > 0.5);
+    assert!(error.smile < -0.5);
     host.update_unlock(
         UnlockMascotState::Failed,
         now + Duration::from_millis(800),
@@ -136,6 +136,7 @@ fn off_keeps_static_unlock_feedback_without_continuous_repaint() {
     assert_eq!(host.pose, error);
     host.update_unlock(UnlockMascotState::Succeeded, now, MotionPolicy::Off);
     assert!(host.pose.smile > 0.8);
+    assert!(host.pose.eyes[0] < 0.2);
 }
 
 #[test]
@@ -164,11 +165,22 @@ fn every_procedural_motion_fits_both_small_and_large_slots() {
         Listening, Focused, Charging, Typing, Verifying, Error, Success,
     ];
     let ctx = egui::Context::default();
-    for size in [vec2(18.0, 38.0), vec2(38.0, 38.0), vec2(64.0, 48.0)] {
+    for size in [
+        vec2(18.0, 28.0),
+        vec2(32.0, 28.0),
+        vec2(38.0, 38.0),
+        vec2(64.0, 48.0),
+    ] {
         let rect = egui::Rect::from_min_size(pos2(20.0, 20.0), size);
         for motion in motions {
-            for step in 0..=16 {
-                let phase = step as f32 / 16.0;
+            let still = animation::sample(motion, 0.0, 0.0, 0.0, MotionPolicy::Off);
+            assert_eq!(
+                still,
+                animation::sample(motion, 1.0, 10.0, 1.0, MotionPolicy::Off),
+                "{motion:?} moved with motion off",
+            );
+            for step in 0..=32 {
+                let phase = step as f32 / 32.0;
                 let pose = animation::sample(motion, phase, 10.0 * phase, 0.0, MotionPolicy::Full);
                 let output = ctx.run(egui::RawInput::default(), |ctx| {
                     let painter = ctx.layer_painter(egui::LayerId::background());
@@ -177,6 +189,9 @@ fn every_procedural_motion_fits_both_small_and_large_slots() {
                 assert!(!output.shapes.is_empty(), "{motion:?} emitted no shapes");
                 for entry in output.shapes {
                     let bounds = entry.shape.visual_bounding_rect();
+                    if bounds == egui::Rect::NOTHING {
+                        continue;
+                    }
                     assert!(
                         rect.contains_rect(bounds),
                         "{motion:?} at phase {phase}: {bounds:?} exceeds {rect:?}",
@@ -185,6 +200,28 @@ fn every_procedural_motion_fits_both_small_and_large_slots() {
             }
         }
     }
+}
+
+#[test]
+fn short_blink_expression_reaches_closed_eyes_before_returning_to_idle() {
+    let now = Instant::now();
+    let sources = [(
+        ExtensionId::builtin("test"),
+        vec![MascotExpression::event(
+            "blink",
+            "blink",
+            MascotMotion::Blink,
+        )],
+        BTreeMap::new(),
+    )];
+    let mut host = MascotHost::default();
+    host.event("blink", &sources, now);
+    host.update(&sources, true, now, MotionPolicy::Full);
+    let duration = MascotMotion::Blink.duration();
+    host.update(&sources, true, now + duration / 2, MotionPolicy::Full);
+    assert!(host.pose.eyes.into_iter().all(|eye| eye < 0.1));
+    host.update(&sources, true, now + duration, MotionPolicy::Full);
+    assert_eq!(host.pose.eyes, [1.0; 2]);
 }
 
 #[test]

@@ -276,37 +276,11 @@ impl Icons {
     }
 
     pub fn paint(&self, painter: &Painter, icon: Icon, rect: Rect, color: Color32, opacity: f32) {
-        if matches!(icon, Icon::Dashboard) {
-            let center = rect.center();
-            let cell = rect.width().min(rect.height()) * 0.36;
-            let offset = cell * 0.68;
-            let stroke = Stroke::new(1.25_f32, color.linear_multiply(opacity));
-            for y in [-offset, offset] {
-                for x in [-offset, offset] {
-                    painter.rect_stroke(
-                        Rect::from_center_size(center + Vec2::new(x, y), Vec2::splat(cell)),
-                        1.0,
-                        stroke,
-                        egui::StrokeKind::Inside,
-                    );
-                }
-            }
-            return;
-        }
-        if matches!(icon, Icon::Database) {
-            paint_database(painter, rect, color.linear_multiply(opacity));
-            return;
-        }
-        if matches!(icon, Icon::Pin) {
-            paint_pin(painter, rect, color.linear_multiply(opacity));
-            return;
-        }
-        if matches!(icon, Icon::Moon) {
-            paint_moon(painter, rect, color.linear_multiply(opacity));
-            return;
-        }
-        if matches!(icon, Icon::Settings) {
-            paint_settings(painter, rect, color.linear_multiply(opacity));
+        if matches!(
+            icon,
+            Icon::Database | Icon::Dashboard | Icon::Pin | Icon::Moon | Icon::Settings
+        ) {
+            paint_toolbar_icon(painter, icon, rect, color.linear_multiply(opacity));
             return;
         }
         if matches!(icon, Icon::Cpu) {
@@ -449,98 +423,88 @@ impl Icons {
     }
 }
 
-fn paint_database(painter: &Painter, rect: Rect, color: Color32) {
+fn paint_toolbar_icon(painter: &Painter, icon: Icon, rect: Rect, color: Color32) {
     let unit = rect.width().min(rect.height()) / 24.0;
     let at = |x: f32, y: f32| rect.center() + Vec2::new(x - 12.0, y - 12.0) * unit;
-    let stroke = Stroke::new(1.8 * unit, color);
-    let ellipse = |cy: f32| {
-        (0..=32)
-            .map(|index| {
-                let angle = std::f32::consts::TAU * index as f32 / 32.0;
-                at(12.0 + 8.0 * angle.cos(), cy + 3.0 * angle.sin())
-            })
-            .collect::<Vec<_>>()
+    let stroke = Stroke::new(2.0 * unit, color);
+    let line = |a, b| painter.line_segment([a, b], stroke);
+    let frame = |min, max| {
+        painter.rect_stroke(
+            Rect::from_min_max(min, max),
+            3.0 * unit,
+            stroke,
+            egui::StrokeKind::Middle,
+        )
     };
-    painter.add(egui::Shape::line(ellipse(5.0), stroke));
-    painter.line_segment([at(4.0, 5.0), at(4.0, 19.0)], stroke);
-    painter.line_segment([at(20.0, 5.0), at(20.0, 19.0)], stroke);
-    painter.add(egui::Shape::line(ellipse(19.0), stroke));
-    let middle = (0..=16)
-        .map(|index| {
-            let angle = std::f32::consts::PI * index as f32 / 16.0;
-            at(12.0 + 8.0 * angle.cos(), 12.0 + 3.0 * angle.sin())
-        })
-        .collect();
-    painter.add(egui::Shape::line(middle, stroke));
-}
 
-fn paint_pin(painter: &Painter, rect: Rect, color: Color32) {
-    let unit = rect.width().min(rect.height()) / 24.0;
-    let at = |x: f32, y: f32| rect.center() + Vec2::new(x - 12.0, y - 12.0) * unit;
-    let stroke = Stroke::new(1.8 * unit, color);
-    painter.rect_stroke(
-        Rect::from_center_size(at(12.0, 5.5), Vec2::new(8.0, 5.0) * unit),
-        2.0 * unit,
-        stroke,
-        egui::StrokeKind::Inside,
-    );
-    painter.add(egui::Shape::line(
-        vec![
-            at(8.0, 8.0),
-            at(8.0, 11.0),
-            at(5.0, 14.0),
-            at(5.0, 16.0),
-            at(19.0, 16.0),
-            at(19.0, 14.0),
-            at(16.0, 11.0),
-            at(16.0, 8.0),
-        ],
-        stroke,
-    ));
-    painter.line_segment([at(12.0, 8.0), at(12.0, 21.0)], stroke);
-    painter.line_segment([at(9.0, 21.0), at(15.0, 21.0)], stroke);
-}
-
-fn paint_moon(painter: &Painter, rect: Rect, color: Color32) {
-    let unit = rect.width().min(rect.height()) / 24.0;
-    let at = |x: f32, y: f32| rect.center() + Vec2::new(x - 12.0, y - 12.0) * unit;
-    let stroke = Stroke::new(1.8 * unit, color);
-    painter.add(egui::Shape::line(
-        vec![
-            at(20.5, 13.5),
-            at(19.6, 16.0),
-            at(17.8, 18.1),
-            at(15.4, 19.6),
-            at(12.6, 20.2),
-            at(9.8, 19.8),
-            at(7.3, 18.4),
-            at(5.4, 16.2),
-            at(4.2, 13.5),
-            at(4.1, 10.7),
-            at(5.0, 8.0),
-            at(6.8, 5.8),
-            at(9.2, 4.3),
-            at(12.0, 3.8),
-            at(10.4, 6.2),
-            at(9.7, 9.0),
-            at(10.2, 11.8),
-            at(11.8, 14.2),
-            at(14.2, 15.8),
-            at(17.0, 16.0),
-            at(19.5, 15.0),
-            at(20.5, 13.5),
-        ],
-        stroke,
-    ));
-}
-
-fn paint_settings(painter: &Painter, rect: Rect, color: Color32) {
-    let unit = rect.width().min(rect.height()) / 24.0;
-    let at = |x: f32, y: f32| rect.center() + Vec2::new(x - 12.0, y - 12.0) * unit;
-    let stroke = Stroke::new(1.8 * unit, color);
-    for (y, x) in [(7.0, 8.0), (17.0, 16.0)] {
-        painter.line_segment([at(3.0, y), at(21.0, y)], stroke);
-        painter.circle_stroke(at(x, y), 3.0 * unit, stroke);
+    match icon {
+        Icon::Database => {
+            for y in [4.5, 13.5] {
+                frame(at(4.0, y), at(20.0, y + 6.0));
+                painter.circle_filled(at(7.5, y + 3.0), 0.95 * unit, color);
+            }
+        }
+        Icon::Dashboard => {
+            frame(at(4.0, 4.0), at(20.0, 20.0));
+            line(at(4.0, 9.0), at(20.0, 9.0));
+            line(at(10.0, 9.0), at(10.0, 20.0));
+        }
+        Icon::Pin => {
+            let angled =
+                |x: f32, y: f32| at(12.0 + 0.82 * x - 0.57 * y, 11.5 + 0.57 * x + 0.82 * y);
+            painter.add(egui::Shape::closed_line(
+                [
+                    (-3.5, -7.5),
+                    (3.5, -7.5),
+                    (2.5, -5.5),
+                    (2.5, -1.0),
+                    (5.0, 1.7),
+                    (-5.0, 1.7),
+                    (-2.5, -1.0),
+                    (-2.5, -5.5),
+                ]
+                .map(|(x, y)| angled(x, y))
+                .to_vec(),
+                stroke,
+            ));
+            line(angled(0.0, 1.7), angled(0.0, 9.0));
+        }
+        Icon::Moon => {
+            use egui::epaint::CubicBezierShape;
+            let top = at(12.2, 3.6);
+            let bottom = at(7.9, 19.1);
+            let tip = at(20.5, 13.4);
+            let curves = [
+                [top, at(4.9, 3.7), at(0.7, 13.8), bottom],
+                [bottom, at(13.1, 23.0), at(19.9, 19.5), tip],
+                [tip, at(12.9, 16.5), at(8.1, 10.3), top],
+            ];
+            let outline = curves
+                .into_iter()
+                .flat_map(|points| {
+                    let curve = CubicBezierShape::from_points_stroke(
+                        points,
+                        false,
+                        Color32::TRANSPARENT,
+                        stroke,
+                    );
+                    (0..12).map(move |i| curve.sample(i as f32 / 12.0))
+                })
+                .collect();
+            painter.add(egui::Shape::closed_line(outline, stroke));
+        }
+        Icon::Settings => {
+            for (x, y) in [(7.5, 9.0), (16.5, 15.0)] {
+                line(at(x, 3.8), at(x, y - 1.6));
+                line(at(x, y + 1.6), at(x, 20.2));
+                painter.rect_filled(
+                    Rect::from_min_max(at(x - 2.6, y - 1.6), at(x + 2.6, y + 1.6)),
+                    1.4 * unit,
+                    color,
+                );
+            }
+        }
+        _ => unreachable!("not a toolbar icon"),
     }
 }
 
@@ -792,7 +756,13 @@ mod tests {
         assert!(icons.battery_charging.size()[0] > 0);
         let output = context.run(Default::default(), |context| {
             egui::CentralPanel::default().show(context, |ui| {
-                for icon in [Icon::Database, Icon::Pin, Icon::Moon, Icon::Settings] {
+                for icon in [
+                    Icon::Database,
+                    Icon::Dashboard,
+                    Icon::Pin,
+                    Icon::Moon,
+                    Icon::Settings,
+                ] {
                     icons.paint(
                         ui.painter(),
                         icon,

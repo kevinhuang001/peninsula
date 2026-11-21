@@ -508,7 +508,7 @@ impl RuntimeExtension for WeatherExtension {
             visibility: Default::default(),
             min_width: COMPACT_WIDTH,
             preferred_width: COMPACT_WIDTH,
-            fit_width: false,
+            fit_width: true,
             priority: 0,
             tooltip: Some(tooltip),
         }]
