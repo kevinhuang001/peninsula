@@ -71,8 +71,8 @@ base64 -w0 identity.p12 > identity.p12.b64
 ## 触发发布
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 `Release` workflow 会：

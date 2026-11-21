@@ -31,16 +31,12 @@ pub(crate) enum Icon {
 }
 
 pub(crate) struct Icons {
-    pin: TextureHandle,
-    moon: TextureHandle,
-    settings: TextureHandle,
     battery: TextureHandle,
     battery_charging: TextureHandle,
     arrow_down: TextureHandle,
     arrow_up: TextureHandle,
     clock: TextureHandle,
     close: TextureHandle,
-    database: TextureHandle,
     widget_icons: HashMap<&'static str, TextureHandle>,
 }
 
@@ -88,21 +84,6 @@ impl Icons {
             register_svg(context, asset, source);
         }
         let icons = Self {
-            pin: load(
-                context,
-                "lucide-pin",
-                include_bytes!("../../assets/icons/lucide/pin.svg"),
-            ),
-            moon: load(
-                context,
-                "lucide-moon",
-                include_bytes!("../../assets/icons/lucide/moon.svg"),
-            ),
-            settings: load(
-                context,
-                "lucide-settings",
-                include_bytes!("../../assets/icons/lucide/settings-2.svg"),
-            ),
             battery: load(
                 context,
                 "lucide-battery",
@@ -132,11 +113,6 @@ impl Icons {
                 context,
                 "lucide-close",
                 include_bytes!("../../assets/icons/lucide/x.svg"),
-            ),
-            database: load(
-                context,
-                "lucide-database",
-                include_bytes!("../../assets/icons/lucide/database.svg"),
             ),
             widget_icons: [
                 (
@@ -207,7 +183,6 @@ impl Icons {
         };
         for (name, texture) in [
             ("lucide/clock", &icons.clock),
-            ("lucide/moon", &icons.moon),
             ("lucide/arrow-down", &icons.arrow_down),
             ("lucide/arrow-up", &icons.arrow_up),
         ] {
@@ -318,6 +293,22 @@ impl Icons {
             }
             return;
         }
+        if matches!(icon, Icon::Database) {
+            paint_database(painter, rect, color.linear_multiply(opacity));
+            return;
+        }
+        if matches!(icon, Icon::Pin) {
+            paint_pin(painter, rect, color.linear_multiply(opacity));
+            return;
+        }
+        if matches!(icon, Icon::Moon) {
+            paint_moon(painter, rect, color.linear_multiply(opacity));
+            return;
+        }
+        if matches!(icon, Icon::Settings) {
+            paint_settings(painter, rect, color.linear_multiply(opacity));
+            return;
+        }
         if matches!(icon, Icon::Cpu) {
             paint_cpu(painter, rect, color.linear_multiply(opacity));
             return;
@@ -423,9 +414,6 @@ impl Icons {
             return;
         }
         let texture = match icon {
-            Icon::Pin => &self.pin,
-            Icon::Moon => &self.moon,
-            Icon::Settings => &self.settings,
             Icon::Battery => &self.battery,
             Icon::BatteryCharging => &self.battery_charging,
             Icon::Cpu
@@ -433,6 +421,10 @@ impl Icons {
             | Icon::Gpu
             | Icon::Bell
             | Icon::Dashboard
+            | Icon::Database
+            | Icon::Pin
+            | Icon::Moon
+            | Icon::Settings
             | Icon::Music
             | Icon::MusicNote
             | Icon::Speaker
@@ -447,7 +439,6 @@ impl Icons {
             Icon::ArrowUp => &self.arrow_up,
             Icon::Clock => &self.clock,
             Icon::Close => &self.close,
-            Icon::Database => &self.database,
         };
         painter.image(
             texture.id(),
@@ -455,6 +446,101 @@ impl Icons {
             Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
             color.linear_multiply(opacity),
         );
+    }
+}
+
+fn paint_database(painter: &Painter, rect: Rect, color: Color32) {
+    let unit = rect.width().min(rect.height()) / 24.0;
+    let at = |x: f32, y: f32| rect.center() + Vec2::new(x - 12.0, y - 12.0) * unit;
+    let stroke = Stroke::new(1.8 * unit, color);
+    let ellipse = |cy: f32| {
+        (0..=32)
+            .map(|index| {
+                let angle = std::f32::consts::TAU * index as f32 / 32.0;
+                at(12.0 + 8.0 * angle.cos(), cy + 3.0 * angle.sin())
+            })
+            .collect::<Vec<_>>()
+    };
+    painter.add(egui::Shape::line(ellipse(5.0), stroke));
+    painter.line_segment([at(4.0, 5.0), at(4.0, 19.0)], stroke);
+    painter.line_segment([at(20.0, 5.0), at(20.0, 19.0)], stroke);
+    painter.add(egui::Shape::line(ellipse(19.0), stroke));
+    let middle = (0..=16)
+        .map(|index| {
+            let angle = std::f32::consts::PI * index as f32 / 16.0;
+            at(12.0 + 8.0 * angle.cos(), 12.0 + 3.0 * angle.sin())
+        })
+        .collect();
+    painter.add(egui::Shape::line(middle, stroke));
+}
+
+fn paint_pin(painter: &Painter, rect: Rect, color: Color32) {
+    let unit = rect.width().min(rect.height()) / 24.0;
+    let at = |x: f32, y: f32| rect.center() + Vec2::new(x - 12.0, y - 12.0) * unit;
+    let stroke = Stroke::new(1.8 * unit, color);
+    painter.rect_stroke(
+        Rect::from_center_size(at(12.0, 5.5), Vec2::new(8.0, 5.0) * unit),
+        2.0 * unit,
+        stroke,
+        egui::StrokeKind::Inside,
+    );
+    painter.add(egui::Shape::line(
+        vec![
+            at(8.0, 8.0),
+            at(8.0, 11.0),
+            at(5.0, 14.0),
+            at(5.0, 16.0),
+            at(19.0, 16.0),
+            at(19.0, 14.0),
+            at(16.0, 11.0),
+            at(16.0, 8.0),
+        ],
+        stroke,
+    ));
+    painter.line_segment([at(12.0, 8.0), at(12.0, 21.0)], stroke);
+    painter.line_segment([at(9.0, 21.0), at(15.0, 21.0)], stroke);
+}
+
+fn paint_moon(painter: &Painter, rect: Rect, color: Color32) {
+    let unit = rect.width().min(rect.height()) / 24.0;
+    let at = |x: f32, y: f32| rect.center() + Vec2::new(x - 12.0, y - 12.0) * unit;
+    let stroke = Stroke::new(1.8 * unit, color);
+    painter.add(egui::Shape::line(
+        vec![
+            at(20.5, 13.5),
+            at(19.6, 16.0),
+            at(17.8, 18.1),
+            at(15.4, 19.6),
+            at(12.6, 20.2),
+            at(9.8, 19.8),
+            at(7.3, 18.4),
+            at(5.4, 16.2),
+            at(4.2, 13.5),
+            at(4.1, 10.7),
+            at(5.0, 8.0),
+            at(6.8, 5.8),
+            at(9.2, 4.3),
+            at(12.0, 3.8),
+            at(10.4, 6.2),
+            at(9.7, 9.0),
+            at(10.2, 11.8),
+            at(11.8, 14.2),
+            at(14.2, 15.8),
+            at(17.0, 16.0),
+            at(19.5, 15.0),
+            at(20.5, 13.5),
+        ],
+        stroke,
+    ));
+}
+
+fn paint_settings(painter: &Painter, rect: Rect, color: Color32) {
+    let unit = rect.width().min(rect.height()) / 24.0;
+    let at = |x: f32, y: f32| rect.center() + Vec2::new(x - 12.0, y - 12.0) * unit;
+    let stroke = Stroke::new(1.8 * unit, color);
+    for (y, x) in [(7.0, 8.0), (17.0, 16.0)] {
+        painter.line_segment([at(3.0, y), at(21.0, y)], stroke);
+        painter.circle_stroke(at(x, y), 3.0 * unit, stroke);
     }
 }
 
@@ -696,14 +782,28 @@ fn svg_image(svg: &[u8], pixels: u32) -> Result<egui::ColorImage, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::Icons;
+    use super::{Icon, Icons};
+    use eframe::egui::{self, Color32, Pos2, Rect, Vec2};
 
     #[test]
     fn bundled_lucide_icons_load_and_are_attributed_under_the_open_license() {
         let context = eframe::egui::Context::default();
         let icons = Icons::load(&context);
-        assert!(icons.pin.size()[0] >= 96);
         assert!(icons.battery_charging.size()[0] > 0);
+        let output = context.run(Default::default(), |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                for icon in [Icon::Database, Icon::Pin, Icon::Moon, Icon::Settings] {
+                    icons.paint(
+                        ui.painter(),
+                        icon,
+                        Rect::from_min_size(Pos2::ZERO, Vec2::splat(24.0)),
+                        Color32::WHITE,
+                        1.0,
+                    );
+                }
+            });
+        });
+        assert!(output.shapes.len() >= 8);
         let license = include_str!("../../assets/icons/lucide/LICENSE");
         assert!(license.contains("ISC License"));
     }

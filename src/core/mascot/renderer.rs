@@ -5,7 +5,7 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, pose: MascotPose, dark: bool)
     if !rect.is_positive() {
         return;
     }
-    let unit = rect.width().min(rect.height()) / 2.85;
+    let unit = rect.width().min(rect.height()) / 2.75;
     let center = rect.center() + vec2(0.0, -0.29 * unit * pose.lift);
     let (sin, cos) = pose.tilt.sin_cos();
     let point = |x: f32, y: f32| {
@@ -43,14 +43,14 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, pose: MascotPose, dark: bool)
     };
 
     rounded(0.96, 0.72, 0.39, shell);
-    rounded(0.77, 0.50, 0.28, visor);
+    rounded(0.84, 0.58, 0.30, visor);
     for (index, side) in [-1.0, 1.0].into_iter().enumerate() {
         let x = side * (0.31 + 0.15 * pose.spacing) + 0.13 * pose.gaze[0];
         let y = -0.10 + 0.14 * pose.gaze[1];
-        let h = (0.17 * pose.eyes[index]).max(0.018);
+        let h = (0.22 * pose.eyes[index]).max(0.022);
         painter.line_segment(
             [point(x, y - h * 0.62), point(x, y + h * 0.62)],
-            Stroke::new(unit * 0.15, eye),
+            Stroke::new(unit * 0.13, eye),
         );
         if pose.brow > 0.04 {
             painter.line_segment(
@@ -73,7 +73,7 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, pose: MascotPose, dark: bool)
     if open > 0.0 {
         painter.add(Shape::ellipse_filled(
             point(0.0, 0.25),
-            vec2(0.13, 0.06 + 0.11 * pose.mouth) * unit,
+            vec2(0.17, 0.075 + 0.13 * pose.mouth) * unit,
             eye.linear_multiply(open),
         ));
     }
@@ -81,12 +81,12 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, pose: MascotPose, dark: bool)
         let mouth = (0..=8)
             .map(|i| {
                 let x = i as f32 / 4.0 - 1.0;
-                point(x * 0.21, 0.22 + (1.0 - x * x) * 0.17 * pose.smile)
+                point(x * 0.25, 0.22 + (1.0 - x * x) * 0.19 * pose.smile)
             })
             .collect();
         painter.add(Shape::line(
             mouth,
-            Stroke::new(unit * 0.064, eye.linear_multiply(1.0 - open)),
+            Stroke::new(unit * 0.052, eye.linear_multiply(1.0 - open)),
         ));
     }
     if pose.heart > 0.02 {
