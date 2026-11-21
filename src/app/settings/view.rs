@@ -485,7 +485,7 @@ impl SettingsView {
         );
         editor.add_space(8.0);
         let input_stroke = if error_active {
-            Stroke::new(3.0_f32, Color32::from_rgb(255, 55, 72))
+            Stroke::new(2.5, Color32::from_rgb(194, 103, 109))
         } else {
             Stroke::NONE
         };
@@ -1044,7 +1044,15 @@ fn capsule_options(
                 .iter()
                 .flat_map(|p| &p.descriptor.contributions)
                 .find(|c| c.id == id)
-                .map_or_else(|| id.to_string(), |c| c.title.clone());
+                .map_or_else(
+                    || {
+                        id.as_str()
+                            .strip_prefix("builtin.market/assets/")
+                            .and_then(|asset| asset.rsplit('/').next())
+                            .map_or_else(|| id.to_string(), str::to_owned)
+                    },
+                    |c| c.title.clone(),
+                );
             let mut direction = 0;
             let mut enabled = prefs.is_enabled(&id);
             let mut toggled = false;

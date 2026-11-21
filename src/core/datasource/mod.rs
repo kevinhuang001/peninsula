@@ -1130,7 +1130,7 @@ fn new_config(
     allow_private_network: bool,
 ) -> SourceConfig {
     SourceConfig {
-        enabled: true,
+        enabled: false,
         alerts: false,
         refresh_interval_ms: DEFAULT_REFRESH_INTERVAL_MS,
         min_alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
@@ -1985,6 +1985,9 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let mut manager = DataSourceManager::open(root.path());
         manager.import(definition(), false).unwrap();
+        manager
+            .set_enabled("open-meteo-shanghai-temperature", true)
+            .unwrap();
         {
             let source = manager
                 .sources
@@ -2035,6 +2038,7 @@ mod tests {
         let mut manager = DataSourceManager::open(root.path());
         manager.import(definition(), false).unwrap();
         let id = "open-meteo-shanghai-temperature";
+        manager.set_enabled(id, true).unwrap();
         {
             let source = manager.sources.get_mut(id).unwrap();
             source.state.retry_at_ms = Some(u64::MAX);

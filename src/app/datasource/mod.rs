@@ -397,7 +397,7 @@ impl DataSourceWindow {
                             .auto_shrink([false; 2])
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                self.source_detail(ui, &selected, manager);
+                                self.source_detail(ui, &selected, manager, preferences);
                             });
                     } else {
                         ui.vertical_centered(|ui| {
@@ -490,6 +490,7 @@ impl DataSourceWindow {
         ui: &mut egui::Ui,
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
+        preferences: &mut CompactPreferences,
     ) {
         ui.horizontal(|ui| {
             if let Some(icon) = manager.icon_texture(&source.id) {
@@ -535,7 +536,14 @@ impl DataSourceWindow {
         let mut enabled = source.enabled;
         form_surface(ui).show(ui, |ui| {
             if switch_row(ui, &mut enabled, "启用") {
-                self.set_source_status(&source.id, manager.set_enabled(&source.id, enabled));
+                let result = manager.set_enabled(&source.id, enabled);
+                if result.is_ok() {
+                    let id = compact_item_id(&source.id);
+                    preferences.set_compact_item_enabled(&id, enabled);
+                    let _ = manager.set_compact(&source.id, enabled);
+                    self.save_preferences(preferences);
+                }
+                self.set_source_status(&source.id, result);
             }
         });
         ui.add_space(8.0);
