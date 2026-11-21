@@ -5,7 +5,7 @@ use super::{
     theme::{WidgetTheme, ACCENT, ACCENT_SELECTED, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT},
     CompactPreferences,
 };
-use crate::extension::ExtensionId;
+use crate::extension::{ExtensionId, SettingValue};
 use crate::sdk::secrets::SecretStore;
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
 use std::{
@@ -789,6 +789,15 @@ impl SettingsView {
             forms::empty(ui, "没有已注册的扩展");
             return false;
         };
+        let market_items: Vec<_> = prefs
+            .compact_items
+            .iter()
+            .filter_map(|item| {
+                let suffix = item.id.as_str().strip_prefix("builtin.market/assets/")?;
+                let (kind, symbol) = suffix.split_once('/')?;
+                Some((format!("{kind}:{symbol}"), symbol.to_owned()))
+            })
+            .collect();
         let Some(page) = prefs.pages.iter_mut().find(|p| &p.descriptor.id == id) else {
             return false;
         };
@@ -800,7 +809,11 @@ impl SettingsView {
             forms::value(ui, "配置", "无需额外配置");
         }
         let extension_id = page.descriptor.id.clone();
+        let is_market = extension_id.as_str() == "builtin.market";
         for field in &page.descriptor.settings {
+            if is_market && field.key == "alert_rules" {
+                continue;
+            }
             if let Some(value) = page.values.get_mut(&field.key) {
                 ui.push_id((id, &field.key), |ui| {
                     if field.search.is_some() {
@@ -813,6 +826,12 @@ impl SettingsView {
                         changed |= forms::setting_control(ui, field, value);
                     }
                 });
+            }
+        }
+        if is_market {
+            forms::section(ui, "价格提醒");
+            if let Some(SettingValue::String(value)) = page.values.get_mut("alert_rules") {
+                changed |= market_alert_rules(ui, &market_items, value);
             }
         }
         forms::section(ui, "Doctor 自检");
@@ -941,6 +960,60 @@ impl SettingsView {
         }
         changed
     }
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct MarketAlertPreference {
+    condition: String,
+    price: Option<String>,
+}
+
+fn market_alert_rules(ui: &mut egui::Ui, items: &[(String, String)], source: &mut String) -> bool {
+    let mut rules =
+        serde_json::from_str::<HashMap<String, MarketAlertPreference>>(source).unwrap_or_default();
+    let mut changed = false;
+    if items.is_empty() {
+        ui.label(egui::RichText::new("添加自选后可配置价格提醒").color(SECONDARY_TEXT));
+        return false;
+    }
+
+    for (key, symbol) in items {
+        let rule = rules
+            .entry(key.clone())
+            .or_insert_with(|| MarketAlertPreference {
+                condition: "Greater".into(),
+                price: None,
+            });
+        let mut price = rule.price.clone().unwrap_or_default();
+        ui.horizontal(|ui| {
+            ui.label(symbol);
+            egui::ComboBox::from_id_salt(("market-alert-condition", key))
+                .width(54.0)
+                .selected_text(if rule.condition == "Less" { "<" } else { ">" })
+                .show_ui(ui, |ui| {
+                    changed |= ui
+                        .selectable_value(&mut rule.condition, "Greater".into(), ">")
+                        .changed();
+                    changed |= ui
+                        .selectable_value(&mut rule.condition, "Less".into(), "<")
+                        .changed();
+                });
+            let response = ui.add_sized(
+                [ui.available_width(), 24.0],
+                egui::TextEdit::singleline(&mut price).hint_text("价格"),
+            );
+            if response.changed() {
+                changed = true;
+                rule.price = (!price.is_empty()).then_some(price.clone());
+            }
+        });
+    }
+    if changed {
+        if let Ok(encoded) = serde_json::to_string(&rules) {
+            *source = encoded;
+        }
+    }
+    changed
 }
 
 fn general(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {

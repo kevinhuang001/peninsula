@@ -451,6 +451,9 @@ impl<'a> Renderer<'a> {
     fn compact_text_style(&self, mut style: TextStyle) -> TextStyle {
         if let Some(appearance) = self.compact_text_appearance {
             style.font_size = FontSize::Custom(appearance.size);
+            style.font_weight = FontWeight::Normal;
+            style.line_height = None;
+            style.monospace = false;
         }
         style
     }

@@ -80,7 +80,7 @@ cargo run
 
 ```powershell
 cargo build --locked --release
-makensis /DAPP_VERSION=0.1.3 scripts/installer.nsi
+makensis /DAPP_VERSION=0.1.4 scripts/installer.nsi
 ```
 
 `Windows installer` workflow 会在推送到 `main` / `codex/weather-integration` 或打 `v*` 标签时，用 sccache 和 Rust 缓存构建 release，上传 `Peninsula-<版本>-windows-x64-setup.exe` 与便携版 zip。安装包按用户安装到 `%LOCALAPPDATA%\Programs\Peninsula`，不需要管理员权限。

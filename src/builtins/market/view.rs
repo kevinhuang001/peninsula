@@ -1,19 +1,15 @@
-use super::{
-    Asset, MarketExtension, MarketQuote, ALERT_CONDITION_PREFIX, ALERT_INTERVAL_KEY,
-    ALERT_PRICE_PREFIX, WIDGET_ID,
-};
+use super::{Asset, MarketExtension, MarketQuote, WIDGET_ID};
 use crate::{
     extension::{Action, CompactView, ExtensionId},
     ui::declarative::{
-        Align, ColorSpec, ControlKind, Flow, FontSize, FontWeight, ImageFit, Justify, Node, Paint,
-        Size, Style, Table, TableColumn, TableRowMenu, TextStyle, ViewNode,
+        Align, ColorSpec, Flow, FontSize, FontWeight, ImageFit, Justify, Node, Paint, Size, Style,
+        Table, TableColumn, TableRowMenu, TextStyle, ViewNode,
     },
 };
 
 const ADD_ACTION: &str = "market:add";
 const ADD_OPEN_ACTION: &str = "market:add-open";
 const ADD_CANCEL_ACTION: &str = "market:add-cancel";
-const SETTINGS_ACTION: &str = "market:settings";
 const REMOVE_ACTION: &str = "market:remove:";
 
 pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
@@ -39,19 +35,10 @@ pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
         Action::Advance,
     )
     .sized(Size::Auto, Size::Fixed(26.0));
-    let settings = ViewNode::subtle_button(
-        if market.settings_open {
-            "行情"
-        } else {
-            "设置"
-        },
-        Action::Custom(SETTINGS_ACTION.into()),
-    )
-    .sized(Size::Auto, Size::Fixed(26.0));
     let add = ViewNode::subtle_button("添加", Action::Custom(ADD_OPEN_ACTION.into()))
         .sized(Size::Auto, Size::Fixed(26.0));
     let heading = ViewNode::row(
-        vec![updated, settings, add, refresh],
+        vec![updated, add, refresh],
         Flow {
             gap: Some(8.0),
             align: Align::Center,
@@ -75,11 +62,7 @@ pub(super) fn build(market: &MarketExtension) -> crate::extension::WidgetView {
             .color(ColorSpec::Warning),
         );
     }
-    if market.settings_open {
-        children.push(alert_settings(market));
-    } else {
-        children.push(table(market));
-    }
+    children.push(table(market));
 
     let mut root = ViewNode::column(
         children,
@@ -155,141 +138,6 @@ fn table(market: &MarketExtension) -> ViewNode {
         padding: [2.0; 4],
         ..Default::default()
     })
-}
-
-fn alert_price_input(asset: &Asset, market: &MarketExtension) -> ViewNode {
-    let key = asset.cache_key();
-    let value = market
-        .alert_price_drafts
-        .get(&key)
-        .cloned()
-        .unwrap_or_else(|| {
-            market
-                .watchlist
-                .alert_rules
-                .get(&key)
-                .and_then(|rule| rule.price.map(|price| price.to_string()))
-                .unwrap_or_default()
-        });
-    let condition = market
-        .watchlist
-        .alert_rules
-        .get(&key)
-        .map_or(super::AlertCondition::Greater, |rule| rule.condition);
-    let selector = ViewNode::new(Node::Control {
-        kind: ControlKind::Button,
-        label: match condition {
-            super::AlertCondition::Greater => ">".into(),
-            super::AlertCondition::Less => "<".into(),
-        },
-        action: Action::Custom(format!("{ALERT_CONDITION_PREFIX}{key}")),
-        enabled: true,
-        icon: None,
-    })
-    .sized(Size::Fixed(30.0), Size::Fixed(26.0));
-    let mut input = ViewNode::new(Node::TextInput {
-        key: format!("{ALERT_PRICE_PREFIX}{key}"),
-        value,
-        hint: "价格".into(),
-    })
-    .sized(Size::Fill(1.0), Size::Fixed(26.0));
-    input.style.normal.background = Some(ColorSpec::SurfaceVariant);
-    input.style.normal.border_color = Some(ColorSpec::Border);
-    input.style.normal.border_width = Some(1.0);
-    input.style.normal.corner_radius = Some(6.0);
-    input.style.padding = [3.0; 4];
-    ViewNode::row(
-        vec![selector, input],
-        Flow {
-            gap: Some(4.0),
-            align: Align::Center,
-            ..Default::default()
-        },
-    )
-    .sized(Size::Fill(1.0), Size::Fixed(26.0))
-}
-
-fn alert_settings(market: &MarketExtension) -> ViewNode {
-    let interval_value = market
-        .alert_interval_draft
-        .clone()
-        .unwrap_or_else(|| market.watchlist.alert_interval_minutes.to_string());
-    let interval_input = ViewNode::new(Node::TextInput {
-        key: ALERT_INTERVAL_KEY.into(),
-        value: interval_value,
-        hint: "分钟".into(),
-    })
-    .sized(Size::Fixed(88.0), Size::Fixed(28.0));
-    let interval = ViewNode::row(
-        vec![
-            ViewNode::text("提醒间隔（分钟）", TextStyle::default())
-                .color(ColorSpec::SecondaryText)
-                .sized(Size::Fill(1.0), Size::Auto),
-            interval_input,
-        ],
-        Flow {
-            gap: Some(8.0),
-            align: Align::Center,
-            ..Default::default()
-        },
-    )
-    .sized(Size::Fill(1.0), Size::Fixed(34.0));
-    let mut rows = vec![
-        ViewNode::text(
-            "价格提醒",
-            TextStyle {
-                font_size: FontSize::Custom(15.0),
-                font_weight: FontWeight::Bold,
-                align: Align::Start,
-                ..Default::default()
-            },
-        ),
-        interval,
-    ];
-    for asset in &market.watchlist.assets {
-        let label = format!(
-            "{} · {}",
-            asset.symbol,
-            match asset.kind {
-                super::MarketKind::Stock => "股票",
-                super::MarketKind::Crypto => "加密资产",
-            }
-        );
-        let mut row = ViewNode::column(
-            vec![
-                ViewNode::text(
-                    label,
-                    TextStyle {
-                        font_weight: FontWeight::Bold,
-                        align: Align::Start,
-                        ..Default::default()
-                    },
-                ),
-                alert_price_input(asset, market),
-            ],
-            Flow {
-                gap: Some(5.0),
-                align: Align::Stretch,
-                ..Default::default()
-            },
-        )
-        .sized(Size::Fill(1.0), Size::Auto);
-        row.style.padding = [8.0; 4];
-        row.style.normal.background = Some(ColorSpec::SurfaceVariant);
-        row.style.normal.border_color = Some(ColorSpec::Border);
-        row.style.normal.border_width = Some(1.0);
-        row.style.normal.corner_radius = Some(9.0);
-        rows.push(row);
-    }
-    ViewNode::column(
-        rows,
-        Flow {
-            gap: Some(8.0),
-            align: Align::Stretch,
-            ..Default::default()
-        },
-    )
-    .sized(Size::Fill(1.0), Size::Auto)
 }
 
 fn add_modal(base: ViewNode, market: &MarketExtension) -> ViewNode {

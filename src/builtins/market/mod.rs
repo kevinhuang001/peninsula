@@ -7,7 +7,7 @@ use crate::{
         Action, CompactView, ContributionDescriptor, ContributionKind, ExtensionContext,
         ExtensionDescriptor, ExtensionId, ExtensionOutput, Notification, NotificationAlertView,
         NotificationCenterItemView, NotificationPresentationProvider, NotificationPriority,
-        RuntimeExtension,
+        ReloadPolicy, RuntimeExtension, SettingSchema, SettingValue, Settings,
     },
     ui::declarative::{Overflow, ScrollAxes, WidgetBounds},
 };
@@ -26,17 +26,15 @@ const ID: &str = "builtin.market";
 const WIDGET_ID: &str = "builtin.market/overview";
 const ALERT_ID: &str = "builtin.market/price-alerts";
 const ADD_KEY: &str = "market-symbol";
-const ALERT_INTERVAL_KEY: &str = "market-alert-interval";
-const ALERT_PRICE_PREFIX: &str = "market-alert-price:";
-const ALERT_CONDITION_PREFIX: &str = "market-alert-condition:";
 const ADD_ACTION: &str = "market:add";
 const ADD_OPEN_ACTION: &str = "market:add-open";
 const ADD_CANCEL_ACTION: &str = "market:add-cancel";
-const SETTINGS_ACTION: &str = "market:settings";
 const REMOVE_PREFIX: &str = "market:remove:";
 const REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_ASSETS: usize = 24;
 const DEFAULT_ALERT_INTERVAL_MINUTES: u32 = 30;
+const SETTINGS_ALERT_INTERVAL: &str = "alert_interval_minutes";
+const SETTINGS_ALERT_RULES: &str = "alert_rules";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Watchlist {
@@ -59,6 +57,12 @@ enum AlertCondition {
 struct PriceAlertRule {
     condition: AlertCondition,
     price: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct AlertSettingsRule {
+    condition: AlertCondition,
+    price: Option<String>,
 }
 
 fn default_alert_interval() -> u32 {
@@ -96,15 +100,13 @@ pub struct MarketExtension {
     watchlist: Watchlist,
     quotes: HashMap<String, MarketQuote>,
     draft: String,
-    alert_price_drafts: HashMap<String, String>,
-    alert_interval_draft: Option<String>,
     error: Option<String>,
     pending: Option<Receiver<Vec<MarketQuote>>>,
     watchlist_path: Option<PathBuf>,
+    settings_interval_snapshot: Option<u32>,
     next_refresh: Instant,
     refresh_requested: bool,
     refreshing: bool,
-    settings_open: bool,
     add_open: bool,
     last_updated: Option<String>,
     last_alerts: HashMap<String, Instant>,
@@ -118,15 +120,13 @@ impl MarketExtension {
             quotes: loading_quotes(&watchlist.assets),
             watchlist,
             draft: String::new(),
-            alert_price_drafts: HashMap::new(),
-            alert_interval_draft: None,
             error: None,
             pending: None,
             watchlist_path: None,
+            settings_interval_snapshot: None,
             next_refresh: Instant::now(),
             refresh_requested: false,
             refreshing: false,
-            settings_open: false,
             add_open: false,
             last_updated: None,
             last_alerts: HashMap::new(),
@@ -261,77 +261,8 @@ impl MarketExtension {
         self.quotes.remove(&key);
         self.watchlist.alert_rules.remove(&key);
         self.last_alerts.remove(&key);
-        self.alert_price_drafts.remove(&key);
         if let Err(error) = self.save_watchlist() {
             self.error = Some(format!("自选列表保存失败：{error}"));
-        }
-    }
-
-    fn set_alert_price(&mut self, key: &str, value: &str) {
-        self.alert_price_drafts
-            .insert(key.to_owned(), value.to_owned());
-        let value = value.trim();
-        if value.is_empty() {
-            if let Some(rule) = self.watchlist.alert_rules.get_mut(key) {
-                rule.price = None;
-                if let Err(error) = self.save_watchlist() {
-                    self.error = Some(format!("提醒价格保存失败：{error}"));
-                }
-            }
-            return;
-        }
-        let Ok(price) = value.parse::<f64>() else {
-            return;
-        };
-        if !price.is_finite() || price <= 0.0 {
-            return;
-        }
-        let rule = self
-            .watchlist
-            .alert_rules
-            .entry(key.to_owned())
-            .or_insert(PriceAlertRule {
-                condition: AlertCondition::Greater,
-                price: None,
-            });
-        if rule.price == Some(price) {
-            return;
-        }
-        rule.price = Some(price);
-        if let Err(error) = self.save_watchlist() {
-            self.error = Some(format!("提醒价格保存失败：{error}"));
-        }
-    }
-
-    fn toggle_alert_condition(&mut self, key: &str) {
-        let rule = self
-            .watchlist
-            .alert_rules
-            .entry(key.to_owned())
-            .or_insert(PriceAlertRule {
-                condition: AlertCondition::Greater,
-                price: None,
-            });
-        rule.condition = match rule.condition {
-            AlertCondition::Greater => AlertCondition::Less,
-            AlertCondition::Less => AlertCondition::Greater,
-        };
-        if let Err(error) = self.save_watchlist() {
-            self.error = Some(format!("提醒条件保存失败：{error}"));
-        }
-    }
-
-    fn set_alert_interval(&mut self, value: &str) {
-        self.alert_interval_draft = Some(value.to_owned());
-        let Ok(minutes) = value.trim().parse::<u32>() else {
-            return;
-        };
-        if !(1..=10_080).contains(&minutes) || minutes == self.watchlist.alert_interval_minutes {
-            return;
-        }
-        self.watchlist.alert_interval_minutes = minutes;
-        if let Err(error) = self.save_watchlist() {
-            self.error = Some(format!("提醒间隔保存失败：{error}"));
         }
     }
 
@@ -397,12 +328,85 @@ impl RuntimeExtension for MarketExtension {
             true,
             10,
         );
-        ExtensionDescriptor::builtin(
+        let interval = SettingSchema::new(
+            SETTINGS_ALERT_INTERVAL,
+            SettingValue::Integer(i64::from(DEFAULT_ALERT_INTERVAL_MINUTES)),
+            "价格提醒间隔（分钟）",
+        )
+        .range(1.0, 10_080.0);
+        let mut rules = SettingSchema::new(
+            SETTINGS_ALERT_RULES,
+            SettingValue::String(String::new()),
+            "价格提醒规则",
+        );
+        rules.constraints.max_length = Some(8192);
+        let mut descriptor = ExtensionDescriptor::builtin(
             ID,
             "市场",
             "股票与加密资产行情自选表格",
             vec![widget, alerts],
-        )
+        );
+        descriptor.settings_version = 1;
+        descriptor.settings = vec![interval, rules];
+        descriptor
+    }
+
+    fn on_settings_changed(
+        &mut self,
+        _context: &ExtensionContext,
+        _id: &ExtensionId,
+        settings: &Settings,
+        _policy: ReloadPolicy,
+    ) -> ExtensionOutput {
+        if let Some(SettingValue::Integer(minutes)) = settings.get(SETTINGS_ALERT_INTERVAL) {
+            let minutes = (*minutes as u32).clamp(1, 10_080);
+            if self
+                .settings_interval_snapshot
+                .replace(minutes)
+                .is_none_or(|previous| previous != minutes)
+            {
+                self.watchlist.alert_interval_minutes = minutes;
+            }
+        }
+        if let Some(SettingValue::String(source)) = settings.get(SETTINGS_ALERT_RULES) {
+            if !source.trim().is_empty() {
+                if let Ok(rules) =
+                    serde_json::from_str::<HashMap<String, AlertSettingsRule>>(source)
+                {
+                    self.watchlist.alert_rules = rules
+                        .into_iter()
+                        .filter(|(key, _)| {
+                            self.watchlist
+                                .assets
+                                .iter()
+                                .any(|asset| asset.cache_key() == *key)
+                        })
+                        .map(|(key, rule)| {
+                            let price = rule
+                                .price
+                                .and_then(|value| value.trim().parse::<f64>().ok())
+                                .filter(|price| price.is_finite() && *price > 0.0);
+                            (
+                                key,
+                                PriceAlertRule {
+                                    condition: rule.condition,
+                                    price,
+                                },
+                            )
+                        })
+                        .collect();
+                }
+            }
+        }
+        if self.watchlist_path.is_some() {
+            if let Err(error) = self.save_watchlist() {
+                eprintln!("Unable to save market settings: {error}");
+            }
+        }
+        ExtensionOutput {
+            invalidated: vec![ExtensionId::builtin(WIDGET_ID)],
+            ..Default::default()
+        }
     }
 
     fn on_start(&mut self, context: &ExtensionContext) -> Result<(), String> {
@@ -481,15 +485,6 @@ impl RuntimeExtension for MarketExtension {
                 self.draft = value;
                 self.error = None;
             }
-            Action::SetText { key, value } if key == ALERT_INTERVAL_KEY => {
-                self.set_alert_interval(&value);
-            }
-            Action::SetText { key, value } if key.starts_with(ALERT_PRICE_PREFIX) => {
-                self.set_alert_price(&key[ALERT_PRICE_PREFIX.len()..], &value);
-            }
-            Action::Custom(value) if value.starts_with(ALERT_CONDITION_PREFIX) => {
-                self.toggle_alert_condition(&value[ALERT_CONDITION_PREFIX.len()..]);
-            }
             Action::Advance => {
                 self.refresh_requested = true;
                 self.error = None;
@@ -507,9 +502,6 @@ impl RuntimeExtension for MarketExtension {
             Action::Custom(value) if value == ADD_CANCEL_ACTION => {
                 self.error = None;
                 self.add_open = false;
-            }
-            Action::Custom(value) if value == SETTINGS_ACTION => {
-                self.settings_open = !self.settings_open;
             }
             Action::Custom(value) if value.starts_with(REMOVE_PREFIX) => {
                 let tail = &value[REMOVE_PREFIX.len()..];
