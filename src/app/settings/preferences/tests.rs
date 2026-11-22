@@ -33,7 +33,7 @@ fn widget_switches_round_trip_and_sort_only_enabled_widgets() {
     assert_eq!(active_after[0], ids[2]);
     assert_eq!(active_after[1], active_before[0]);
     assert!(!active_after.contains(&ids[1]));
-    let restored = CompactPreferences::parse(&prefs.encode());
+    let mut restored = CompactPreferences::parse(&prefs.encode());
     assert_eq!(restored.widget_disabled, prefs.widget_disabled);
     assert_eq!(restored.widget_order, prefs.widget_order);
     assert!(restored.set_widget_enabled(&ids[1], true));

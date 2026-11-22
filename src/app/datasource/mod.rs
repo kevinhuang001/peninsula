@@ -397,7 +397,7 @@ impl DataSourceWindow {
                             .auto_shrink([false; 2])
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                self.source_detail(ui, &selected, manager, preferences);
+                                self.source_detail(ui, &selected, manager);
                             });
                     } else {
                         ui.vertical_centered(|ui| {
@@ -490,7 +490,6 @@ impl DataSourceWindow {
         ui: &mut egui::Ui,
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
-        preferences: &mut CompactPreferences,
     ) {
         ui.horizontal(|ui| {
             if let Some(icon) = manager.icon_texture(&source.id) {
