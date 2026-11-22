@@ -479,7 +479,17 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
     let group = text_rect(&output, "市场");
     let item = text_rect(&output, "AAPL 价格提醒");
     assert!(item.top() > group.bottom());
-    assert!(item.left() > group.left());
+    // The asset settings are grouped inside their own bordered card;
+    // absolute text indents depend on font metrics and are not the hierarchy.
+    assert!(output.shapes.iter().any(|shape| match &shape.shape {
+        egui::Shape::Rect(rect) => {
+            rect.stroke.color == BORDER
+                && rect.rect.contains(item.center())
+                && rect.rect.top() > group.bottom()
+                && rect.rect.height() > 55.0
+        }
+        _ => false,
+    }));
     assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
         egui::Shape::Text(text) if text.galley.job.text.contains(
             "所有市场价格通知共用上述间隔"
