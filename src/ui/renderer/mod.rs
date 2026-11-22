@@ -72,6 +72,27 @@ pub fn content_width(ctx: &egui::Context, root: &ViewNode, limit: f32, icons: &I
         .min(limit)
 }
 
+/// Measure content without letting horizontal Fill/Stretch consume the limit.
+/// The original tree retains its flexible layout when it is painted.
+pub fn natural_content_width(
+    ctx: &egui::Context,
+    root: &ViewNode,
+    limit: f32,
+    icons: &Icons,
+) -> f32 {
+    let ui = Ui::new(
+        ctx.clone(),
+        Id::new("natural-width-measure"),
+        UiBuilder::new().sizing_pass(),
+    );
+    let mut renderer = Renderer::new(&ui, icons);
+    renderer.intrinsic_width = true;
+    renderer
+        .measure(&ui, root, vec2(point(limit), 0.0), [None; 2], 0)
+        .x
+        .min(limit)
+}
+
 pub fn content_height(ctx: &egui::Context, root: &ViewNode, width: f32, icons: &Icons) -> f32 {
     let ui = Ui::new(
         ctx.clone(),
@@ -124,6 +145,7 @@ pub fn show_compact(
 
 struct Renderer<'a> {
     icons: &'a Icons,
+    intrinsic_width: bool,
     measured: HashMap<MeasureKey, Vec2>,
     theme: Theme,
     action: Option<crate::extension::Action>,
@@ -187,6 +209,7 @@ impl<'a> Renderer<'a> {
     fn new(ui: &Ui, icons: &'a Icons) -> Self {
         Self {
             icons,
+            intrinsic_width: false,
             measured: HashMap::new(),
             theme: Theme::from_ui(ui),
             action: None,

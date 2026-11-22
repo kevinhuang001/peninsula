@@ -2,6 +2,9 @@
 use crate::extension::Action;
 use serde::{Deserialize, Serialize};
 
+/// Generous host width for content-fitted, single-line surfaces (egui points).
+pub const MAX_CONTENT_WIDTH: f32 = 4096.0;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WidgetView {
     pub root: ViewNode,

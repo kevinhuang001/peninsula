@@ -155,6 +155,7 @@ impl RuntimeExtension for DownloadExtension {
             visibility: Default::default(),
             min_width: 88.0,
             preferred_width: 88.0,
+            fit_width: false,
             priority: 1,
             tooltip: Some(download.filename()),
         }]

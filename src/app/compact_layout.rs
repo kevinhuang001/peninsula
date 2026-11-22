@@ -1,5 +1,7 @@
-use super::settings::CompactPreferences;
+use super::{icons::Icons, settings::CompactPreferences};
 use crate::extension::CompactView;
+use crate::ui::{declarative::MAX_CONTENT_WIDTH, renderer};
+use eframe::egui;
 
 pub(super) const CAPSULE_HEIGHT: f32 = 44.0;
 pub(super) const CHIP_HEIGHT: f32 = 28.0;
@@ -8,6 +10,34 @@ pub(super) const HORIZONTAL_PADDING: f32 = 16.0;
 
 const MIN_WIDTH: f32 = 64.0;
 const MAX_WIDTH: f32 = 600.0;
+
+/// Resolve font-dependent widths in the host, using the same renderer as paint.
+pub(super) fn measure_views(
+    context: &egui::Context,
+    available: &[&CompactView],
+    icons: &Icons,
+) -> Vec<CompactView> {
+    available
+        .iter()
+        .map(|view| {
+            let mut view = (*view).clone();
+            if view.fit_width {
+                // Include both three-point chip insets and round up to avoid
+                // fractional font metrics causing an ellipsis on the last glyph.
+                let width = (renderer::content_width(
+                    context,
+                    &view.content,
+                    MAX_CONTENT_WIDTH - 6.0,
+                    icons,
+                ) + 6.0)
+                    .ceil();
+                view.preferred_width = width.max(view.min_width);
+                view.min_width = view.preferred_width;
+            }
+            view
+        })
+        .collect()
+}
 
 pub(super) fn item_widths(
     preferences: &CompactPreferences,
@@ -29,10 +59,17 @@ pub(super) fn width(preferences: &CompactPreferences, available: &[&CompactView]
     if widths.is_empty() {
         return MIN_WIDTH;
     }
-    (widths.iter().sum::<f32>()
+    let required = widths.iter().sum::<f32>()
         + ITEM_GAP * widths.len().saturating_sub(1) as f32
-        + HORIZONTAL_PADDING)
-        .clamp(MIN_WIDTH, MAX_WIDTH)
+        + HORIZONTAL_PADDING;
+    let fits_content = available
+        .iter()
+        .any(|view| view.fit_width && preferences.is_enabled(&view.id));
+    if fits_content {
+        required.clamp(MIN_WIDTH, MAX_CONTENT_WIDTH)
+    } else {
+        required.clamp(MIN_WIDTH, MAX_WIDTH)
+    }
 }
 
 pub(super) fn fitted_widths(views: &[&CompactView], capsule_width: f32) -> Vec<f32> {
@@ -84,6 +121,7 @@ mod tests {
                 visibility: Default::default(),
                 min_width: descriptor.size_hint[0],
                 preferred_width: descriptor.size_hint[0],
+                fit_width: false,
                 priority: 0,
                 tooltip: None,
             })
@@ -125,6 +163,7 @@ mod tests {
             visibility: Default::default(),
             min_width: 88.0,
             preferred_width: 100.0,
+            fit_width: false,
             priority: 0,
             tooltip: None,
         });
@@ -175,5 +214,65 @@ mod tests {
                 176.0,
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod lyric_tests {
+    use super::*;
+    use crate::{extension::ExtensionId, ui::declarative::*};
+
+    #[test]
+    fn long_lyric_measures_with_fonts_and_exceeds_old_capsule_limit() {
+        let context = egui::Context::default();
+        super::super::fonts::install(&context);
+        let icons = Icons::load(&context);
+        let id = ExtensionId::builtin("builtin.music/lyrics");
+        let view = CompactView {
+            id: id.clone(),
+            source_extension_id: id.clone(),
+            content: ViewNode::row(
+                vec![
+                    ViewNode::icon("speaker-playing", 16.0),
+                    ViewNode::text(
+                        "♪把这一整句长长的歌词完整地显示出来，直到最后一个音符也不会省略♪"
+                            .repeat(3),
+                        TextStyle {
+                            font_size: FontSize::Custom(11.0),
+                            ..Default::default()
+                        },
+                    ),
+                ],
+                Flow {
+                    gap: Some(4.0),
+                    ..Default::default()
+                },
+            ),
+            visibility: Default::default(),
+            min_width: 84.0,
+            preferred_width: 176.0,
+            fit_width: true,
+            priority: 0,
+            tooltip: None,
+        };
+        let preferences = CompactPreferences::default();
+        let _ = context.run(egui::RawInput::default(), |context| {
+            let measured = measure_views(context, &[&view], &icons);
+            let references = [&measured[0]];
+            let capsule = width(&preferences, &references);
+            assert!(capsule > 600.0);
+            assert_eq!(
+                fitted_widths(&references, capsule)[0],
+                measured[0].preferred_width
+            );
+            let natural = renderer::content_width(context, &view.content, 16_384.0, &icons);
+            assert!(measured[0].preferred_width >= natural + 6.0);
+            let mut short = view.clone();
+            short.content = ViewNode::text("♪短句♪", Default::default());
+            assert!(
+                measure_views(context, &[&short], &icons)[0].preferred_width
+                    < measured[0].preferred_width
+            );
+        });
     }
 }
