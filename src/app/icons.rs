@@ -38,6 +38,7 @@ pub(crate) struct Icons {
     clock: TextureHandle,
     close: TextureHandle,
     widget_icons: HashMap<&'static str, TextureHandle>,
+    toolbar_icons: [TextureHandle; 5],
 }
 
 impl Icons {
@@ -114,6 +115,14 @@ impl Icons {
                 "lucide-close",
                 include_bytes!("../../assets/icons/lucide/x.svg"),
             ),
+            toolbar_icons: [
+                ("toolbar-database", include_bytes!("../../assets/icons/toolbar/database.svg").as_slice()),
+                ("toolbar-dashboard", include_bytes!("../../assets/icons/toolbar/dashboard.svg").as_slice()),
+                ("toolbar-pin", include_bytes!("../../assets/icons/toolbar/pin.svg").as_slice()),
+                ("toolbar-moon", include_bytes!("../../assets/icons/toolbar/moon.svg").as_slice()),
+                ("toolbar-settings", include_bytes!("../../assets/icons/toolbar/settings.svg").as_slice()),
+            ]
+            .map(|(name, source)| load(context, name, source)),
             widget_icons: [
                 (
                     "notifications",
@@ -280,7 +289,20 @@ impl Icons {
             icon,
             Icon::Database | Icon::Dashboard | Icon::Pin | Icon::Moon | Icon::Settings
         ) {
-            paint_toolbar_icon(painter, icon, rect, color.linear_multiply(opacity));
+            let index = match icon {
+                Icon::Database => 0,
+                Icon::Dashboard => 1,
+                Icon::Pin => 2,
+                Icon::Moon => 3,
+                Icon::Settings => 4,
+                _ => unreachable!(),
+            };
+            painter.image(
+                self.toolbar_icons[index].id(),
+                rect,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                color.linear_multiply(opacity),
+            );
             return;
         }
         if matches!(icon, Icon::Cpu) {
@@ -420,91 +442,6 @@ impl Icons {
             Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
             color.linear_multiply(opacity),
         );
-    }
-}
-
-fn paint_toolbar_icon(painter: &Painter, icon: Icon, rect: Rect, color: Color32) {
-    let unit = rect.width().min(rect.height()) / 24.0;
-    let at = |x: f32, y: f32| rect.center() + Vec2::new(x - 12.0, y - 12.0) * unit;
-    let stroke = Stroke::new(2.0 * unit, color);
-    let line = |a, b| painter.line_segment([a, b], stroke);
-    let frame = |min, max| {
-        painter.rect_stroke(
-            Rect::from_min_max(min, max),
-            3.0 * unit,
-            stroke,
-            egui::StrokeKind::Middle,
-        )
-    };
-
-    match icon {
-        Icon::Database => {
-            for y in [4.5, 13.5] {
-                frame(at(4.0, y), at(20.0, y + 6.0));
-                painter.circle_filled(at(7.5, y + 3.0), 0.95 * unit, color);
-            }
-        }
-        Icon::Dashboard => {
-            frame(at(4.0, 4.0), at(20.0, 20.0));
-            line(at(4.0, 9.0), at(20.0, 9.0));
-            line(at(10.0, 9.0), at(10.0, 20.0));
-        }
-        Icon::Pin => {
-            let angled =
-                |x: f32, y: f32| at(12.0 + 0.82 * x - 0.57 * y, 11.5 + 0.57 * x + 0.82 * y);
-            painter.add(egui::Shape::closed_line(
-                [
-                    (-3.5, -7.5),
-                    (3.5, -7.5),
-                    (2.5, -5.5),
-                    (2.5, -1.0),
-                    (5.0, 1.7),
-                    (-5.0, 1.7),
-                    (-2.5, -1.0),
-                    (-2.5, -5.5),
-                ]
-                .map(|(x, y)| angled(x, y))
-                .to_vec(),
-                stroke,
-            ));
-            line(angled(0.0, 1.7), angled(0.0, 9.0));
-        }
-        Icon::Moon => {
-            use egui::epaint::CubicBezierShape;
-            let top = at(12.2, 3.6);
-            let bottom = at(7.9, 19.1);
-            let tip = at(20.5, 13.4);
-            let curves = [
-                [top, at(4.9, 3.7), at(0.7, 13.8), bottom],
-                [bottom, at(13.1, 23.0), at(19.9, 19.5), tip],
-                [tip, at(12.9, 16.5), at(8.1, 10.3), top],
-            ];
-            let outline = curves
-                .into_iter()
-                .flat_map(|points| {
-                    let curve = CubicBezierShape::from_points_stroke(
-                        points,
-                        false,
-                        Color32::TRANSPARENT,
-                        stroke,
-                    );
-                    (0..12).map(move |i| curve.sample(i as f32 / 12.0))
-                })
-                .collect();
-            painter.add(egui::Shape::closed_line(outline, stroke));
-        }
-        Icon::Settings => {
-            for (x, y) in [(7.5, 9.0), (16.5, 15.0)] {
-                line(at(x, 3.8), at(x, y - 1.6));
-                line(at(x, y + 1.6), at(x, 20.2));
-                painter.rect_filled(
-                    Rect::from_min_max(at(x - 2.6, y - 1.6), at(x + 2.6, y + 1.6)),
-                    1.4 * unit,
-                    color,
-                );
-            }
-        }
-        _ => unreachable!("not a toolbar icon"),
     }
 }
 
