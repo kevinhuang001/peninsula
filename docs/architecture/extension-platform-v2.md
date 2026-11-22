@@ -79,3 +79,27 @@ Performance rankings aggregate all processes before selecting the top ten applic
 Music uses the declarative normalized Slider control for playback progress. Pointer dragging previews the target and dispatches one action on release; arrow keys adjust by one percent. The runtime clamps the position to track duration and gates it on the player's seek capability. Windows uses GSMTC playback-position commands; Linux uses MPRIS SetPosition with the current track object path. Unknown duration or unsupported seeking disables the control.
 
 SVG textures are cached by target physical dimensions as well as styling. Small icons render at four times their target size and downsample in premultiplied alpha to reduce jagged circles and hands at fractional DPI.
+
+
+## Accent theme tokens for Widget and Capsule
+
+Widgets, Capsule views and Prompt layers use the same declarative `ColorSpec`
+contract. An extension declares colors, never computes its own platform-specific
+`egui::Color32` from the user's selected accent. The renderer resolves these
+tokens from Core's `ThemeTokens` snapshot:
+
+- `ColorSpec::Accent`: primary actions, highlights and ordinary decorations.
+- `ColorSpec::OnAccent`: foreground on an `Accent` background.
+- `ColorSpec::AccentSubtle`: subdued selected rows, chips and card surfaces.
+- `ColorSpec::OnAccentSubtle`: readable foreground on `AccentSubtle`.
+- `ColorSpec::AccentShade(AccentShade::S50..S950)`: an explicit step from
+  the 11-stop perceptual scale; prefer semantic tokens in interactive controls.
+
+`Paint`, `IconStyle`, SVG fills/strokes and other declarative style fields
+accept the same `ColorSpec` values. The host generates all 11 shades from the
+one configured accent seed in OKLab, maps them into sRGB, and picks dark/light
+semantic tokens and readable foreground automatically. Extensions do not
+register extra settings to access theme colors. User theme changes immediately
+affect existing views without restarting their owner. Explicit `Rgba` remains
+available when a specific brand/category meaning is required. Keep
+`Success`, `Warning`, and `Danger` for operational meaning, not decoration.

@@ -766,7 +766,7 @@ mod live_indicator_tests {
         };
         let ctx = egui::Context::default();
         let icons = Icons::load(&ctx);
-        let draw = |time, playing, accent| {
+        let draw = |time, playing, accent: Color32| {
             crate::ui::palette::install_accent_tokens(
                 &ctx,
                 [accent.r(), accent.g(), accent.b()],

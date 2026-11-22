@@ -162,7 +162,7 @@ pub(super) fn show(
         let clicked = ui
             .add(
                 egui::Button::new(egui::RichText::new("退出灵动岛").color(egui::Color32::WHITE))
-                    .fill(ui.visuals().selection.bg_fill),
+                    .fill(crate::ui::palette::accent_tokens(ui.ctx(), ui.visuals().dark_mode).accent),
             )
             .clicked();
         if clicked {
