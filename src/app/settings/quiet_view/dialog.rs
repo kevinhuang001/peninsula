@@ -1,5 +1,5 @@
 use super::super::quiet_hours::{QuietHours, QuietPeriod};
-use super::super::theme::{ACCENT_SELECTED, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT};
+use super::super::theme::{accent_selected, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT};
 use super::DAYS;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
@@ -110,7 +110,7 @@ fn paint_day_picker(ui: &egui::Ui, popup: Rect, period: &mut QuietPeriod) {
         }
         let selected = period.includes(day as u8);
         ui.painter()
-            .rect_filled(rect, 5.0, if selected { ACCENT_SELECTED } else { ROW });
+            .rect_filled(rect, 5.0, if selected { accent_selected(ui) } else { ROW });
         ui.painter().text(
             rect.center(),
             Align2::CENTER_CENTER,

@@ -46,9 +46,9 @@ impl CapsuleSection {
         match self {
             Self::Motion => "动态效果",
             Self::Mascot => "Mascot",
-            Self::CapsuleStyle => "Capsule 样式",
-            Self::CapsuleSwitch => "Capsule 开关",
-            Self::CapsuleOrder => "Capsule 顺序",
+            Self::CapsuleStyle => "胶囊样式",
+            Self::CapsuleSwitch => "胶囊开关",
+            Self::CapsuleOrder => "胶囊顺序",
         }
     }
 }
@@ -1059,7 +1059,7 @@ fn general_accent(ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
         let selected = colors
             .iter()
             .find(|(_, color)| *color == prefs.accent_color)
-            .map_or("蓝色", |(name, _)| *name);
+            .map_or("自定义", |(name, _)| *name);
         egui::ComboBox::from_id_salt("accent-preset")
             .width(ui.available_width())
             .selected_text(selected)
@@ -1117,7 +1117,7 @@ fn capsule_options(
             });
         }
         CapsuleSection::CapsuleStyle => {
-            forms::section(ui, "Capsule 文字样式");
+            forms::section(ui, "胶囊文字样式");
             changed |= forms::input_row(ui, "字号", |ui| {
                 let mut changed = false;
                 egui::ComboBox::from_id_salt("capsule-font-size")
@@ -1155,7 +1155,7 @@ fn capsule_options(
         }
 
         CapsuleSection::CapsuleSwitch => {
-            forms::section(ui, "Capsule 开关");
+            forms::section(ui, "胶囊开关");
             for (group, entries) in contribution_groups(prefs, ContributionKind::Capsule) {
                 forms::section(ui, &group);
                 for entry in entries {
@@ -1169,12 +1169,12 @@ fn capsule_options(
             }
         }
         CapsuleSection::CapsuleOrder => {
-            forms::section(ui, "Capsule 顺序（仅已开启）");
+            forms::section(ui, "胶囊顺序（仅已开启）");
             let active: Vec<_> = prefs.ordered_capsule_items()
                 .into_iter().filter(|item| item.enabled)
                 .map(|item| item.id.clone()).collect();
             if active.is_empty() {
-                ui.label("没有已开启的 Capsule");
+                ui.label("没有已开启的胶囊");
             }
             for id in active {
                 let label = contribution_title(prefs, &id);

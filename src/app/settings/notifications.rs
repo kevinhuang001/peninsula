@@ -2,10 +2,10 @@
 //! This file must not check extension IDs, asset types or business field keys.
 use super::{
     forms,
-    theme::{ACCENT, BORDER, SECONDARY_TEXT, TEXT},
+    theme::{accent_color, BORDER, SECONDARY_TEXT, TEXT},
     AppPreferences,
 };
-use crate::extension::{ContributionDescriptor, ContributionKind, ExtensionId, SettingSchema, SettingValue};
+use crate::extension::{ContributionDescriptor, ContributionKind, ExtensionId, SettingSchema};
 use eframe::egui::{self, Color32, Sense, Stroke};
 use std::collections::HashMap;
 
@@ -30,7 +30,7 @@ pub(super) fn options(
         ui.add_space(10.0);
         ui.horizontal(|ui| {
             let (marker, _) = ui.allocate_exact_size(egui::vec2(3.0, 16.0), Sense::hover());
-            ui.painter().rect_filled(marker, 2.0, ACCENT);
+            ui.painter().rect_filled(marker, 2.0, accent_color(ui));
             ui.label(egui::RichText::new(&name).size(14.0).strong().color(TEXT));
         });
         ui.add_space(7.0);

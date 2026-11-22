@@ -314,13 +314,13 @@ fn capsule_switches_and_order_live_in_capsule_not_components() {
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for title in ["动态效果", "Mascot", "Capsule 样式", "Capsule 开关", "Capsule 顺序"] {
+    for title in ["动态效果", "Mascot", "胶囊样式", "胶囊开关", "胶囊顺序"] {
         assert!(text_rect(&output, title).width() > 0.0);
     }
-    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Capsule 顺序").center());
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "胶囊顺序").center());
     assert_eq!(view.capsule_section, CapsuleSection::CapsuleOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    assert!(text_rect(&output, "Capsule 顺序（仅已开启）").width() > 0.0);
+    assert!(text_rect(&output, "胶囊顺序（仅已开启）").width() > 0.0);
 
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件").center());
     assert_eq!(view.section, Section::Components);
@@ -329,8 +329,8 @@ fn capsule_switches_and_order_live_in_capsule_not_components() {
         assert!(text_rect(&output, title).width() > 0.0);
     }
     assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
-        egui::Shape::Text(text) if text.galley.job.text == "Capsule 开关"
-            || text.galley.job.text == "Capsule 顺序")));
+        egui::Shape::Text(text) if text.galley.job.text == "胶囊开关"
+            || text.galley.job.text == "胶囊顺序")));
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件顺序").center());
     assert_eq!(view.component_section, ComponentSection::WidgetOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
@@ -551,7 +551,7 @@ fn capsule_configuration_remains_in_capsule_and_widgets_remain_first_level() {
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for title in ["组件", "动态效果", "Capsule 样式", "Capsule 开关", "Capsule 顺序"] {
+    for title in ["组件", "动态效果", "胶囊样式", "胶囊开关", "胶囊顺序"] {
         assert!(text_rect(&output, title).width() > 0.0);
     }
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件").center());

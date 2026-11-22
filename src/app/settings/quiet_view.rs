@@ -1,7 +1,7 @@
 mod dialog;
 
 use super::quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS};
-use super::theme::{ACCENT, ROW, ROW_DISABLED, SECONDARY_TEXT, TEXT};
+use super::theme::{accent_color, ROW, ROW_DISABLED, SECONDARY_TEXT, TEXT};
 pub(super) use dialog::QuietDialog;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Vec2};
 const DAYS: [&str; 7] = ["一", "二", "三", "四", "五", "六", "日"];
@@ -98,7 +98,7 @@ fn period_row(
         Pos2::new(row.left() + 10.0, row.center().y),
         3.0,
         if period.enabled {
-            ACCENT
+            accent_color(ui)
         } else {
             SECONDARY_TEXT
         },

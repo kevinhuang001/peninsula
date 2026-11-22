@@ -110,7 +110,7 @@ impl AppPreferences {
                     }
                 }
                 "widget_accent" | "accent_color" => {
-                    if let Some(accent) = parse_preset_accent(value) {
+                    if let Some(accent) = parse_accent_color(value) {
                         settings.accent_color = accent;
                     }
                 }

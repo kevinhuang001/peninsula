@@ -689,3 +689,16 @@ impl ViewNode {
         self
     }
 }
+
+
+#[cfg(test)]
+mod accent_contract_tests {
+    use super::*;
+    #[test]
+    fn shade_serialization_is_stable() {
+        let color = ColorSpec::AccentShade(AccentShade::S700);
+        let json = serde_json::to_string(&color).unwrap();
+        assert_eq!(serde_json::from_str::<ColorSpec>(&json).unwrap(), color);
+        assert!(serde_json::from_str::<ColorSpec>(r#"{"AccentShade":"S999"}"#).is_err());
+    }
+}
