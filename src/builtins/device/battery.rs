@@ -1,14 +1,13 @@
-pub(crate) mod power;
 use crate::{
     core::{mascot::MascotExpression, worker::Worker},
     extension::*,
     ui::declarative::*,
 };
-use power::PowerSnapshot;
-const ID: &str = "builtin.battery/status";
-const PROMPT_ID: &str = "builtin.battery/prompt";
+use super::power::PowerSnapshot;
+const ID: &str = "builtin.device/battery";
+const PROMPT_ID: &str = "builtin.device/power-prompt";
 #[derive(Default)]
-pub struct BatteryExtension {
+pub(super) struct BatteryExtension {
     updates: Option<Worker<PowerSnapshot>>,
     snapshot: PowerSnapshot,
     sampled: bool,
@@ -17,7 +16,7 @@ impl NotificationPresentationProvider for BatteryExtension {}
 impl RuntimeExtension for BatteryExtension {
     fn descriptor(&self) -> ExtensionDescriptor {
         ExtensionDescriptor::builtin(
-            "builtin.battery",
+            "builtin.device",
             "电池",
             "电量、充电状态和电源动画",
             vec![
@@ -59,7 +58,7 @@ impl RuntimeExtension for BatteryExtension {
                 self.sampled = true;
                 let prompts = if was_sampled && !was_connected && connected {
                     vec![crate::extension::Prompt::new(
-                        ExtensionId::builtin("builtin.battery"),
+                        ExtensionId::builtin("builtin.device"),
                         ExtensionId::builtin(PROMPT_ID),
                         battery_prompt(&self.snapshot),
                         std::time::Duration::from_secs(3),
@@ -82,7 +81,7 @@ impl RuntimeExtension for BatteryExtension {
     fn compact_views(&self) -> Vec<CompactView> {
         vec![CompactView {
             id: ExtensionId::builtin(ID),
-            source_extension_id: ExtensionId::builtin("builtin.battery"),
+            source_extension_id: ExtensionId::builtin("builtin.device"),
             content: battery_compact(&self.snapshot),
             visibility: Default::default(),
             min_width: 64.0,

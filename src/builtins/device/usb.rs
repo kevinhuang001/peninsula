@@ -15,12 +15,12 @@ use crate::{
 use std::path::Path;
 use std::{collections::BTreeMap, time::Duration};
 
-const ID: &str = "builtin.usb";
-const PROMPT_ID: &str = "builtin.usb/prompt";
+const ID: &str = "builtin.device";
+const PROMPT_ID: &str = "builtin.device/usb-prompt";
 type Devices = BTreeMap<String, String>;
 
 #[derive(Default)]
-pub struct UsbExtension {
+pub(super) struct UsbExtension {
     updates: Option<Worker<Option<Devices>>>,
     previous: Option<Devices>,
 }

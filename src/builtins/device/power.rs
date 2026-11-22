@@ -130,7 +130,7 @@ fn decode_mac_power(text: &str) -> Option<bool> {
 }
 
 #[cfg(target_os = "windows")]
-fn windows_battery_status() -> Option<crate::builtins::battery::power::PowerSnapshot> {
+fn windows_battery_status() -> Option<crate::builtins::device::power::PowerSnapshot> {
     use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
     let mut status = SYSTEM_POWER_STATUS::default();
     unsafe { GetSystemPowerStatus(&mut status) }.ok()?;
@@ -146,8 +146,8 @@ fn decode_windows_battery_status(
     ac_line: u8,
     flags: u8,
     percent: u8,
-) -> crate::builtins::battery::power::PowerSnapshot {
-    use crate::builtins::battery::power::PowerSnapshot;
+) -> crate::builtins::device::power::PowerSnapshot {
+    use crate::builtins::device::power::PowerSnapshot;
     let external = match ac_line {
         0 => Some(false),
         1 => Some(true),
@@ -170,7 +170,7 @@ fn decode_windows_battery_status(
 mod tests {
     #[test]
     fn windows_distinguishes_charging_full_charge_limit_and_unknown_data() {
-        use crate::builtins::battery::power::PowerSnapshot as Power;
+        use crate::builtins::device::power::PowerSnapshot as Power;
         let decode = super::decode_windows_battery_status;
         assert_eq!(
             decode(1, 8, 60),
