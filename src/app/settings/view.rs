@@ -1040,7 +1040,6 @@ fn notification_options(
                 egui::vec2(3.0, 16.0), Sense::hover(),
             );
             ui.painter().rect_filled(marker, 2.0, ACCENT);
-            ui.add_space(5.0);
             ui.label(egui::RichText::new(&name).size(14.0).strong().color(TEXT));
         });
         ui.add_space(7.0);
