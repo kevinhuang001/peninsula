@@ -352,7 +352,7 @@ impl RuntimeExtension for MarketExtension {
         _policy: ReloadPolicy,
     ) -> ExtensionOutput {
         if let Some(SettingValue::Integer(minutes)) = settings.get(SETTINGS_ALERT_INTERVAL) {
-            let minutes = (*minutes as u32).clamp(1, 10_080);
+            let minutes = (*minutes).clamp(1, 10_080) as u32;
             self.alert_interval_minutes = minutes;
         }
         if let Some(SettingValue::String(source)) = settings.get(SETTINGS_ALERT_RULES) {

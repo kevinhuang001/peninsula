@@ -1170,18 +1170,22 @@ fn capsule_options(
         return changed;
     }
     forms::section(ui, "显示开关（按扩展分组）");
-    for page in &prefs.pages.clone() {
-        let widgets: Vec<_> = page
-            .descriptor
-            .contributions
-            .iter()
-            .filter(|contribution| contribution.kind == ContributionKind::Widget)
-            .map(|contribution| (contribution.id.clone(), contribution.title.clone()))
-            .collect();
-        if widgets.is_empty() {
-            continue;
-        }
-        forms::section(ui, &page.descriptor.name);
+    let widget_groups: Vec<_> = prefs
+        .pages
+        .iter()
+        .filter_map(|page| {
+            let widgets: Vec<_> = page
+                .descriptor
+                .contributions
+                .iter()
+                .filter(|contribution| contribution.kind == ContributionKind::Widget)
+                .map(|contribution| (contribution.id.clone(), contribution.title.clone()))
+                .collect();
+            (!widgets.is_empty()).then(|| (page.descriptor.name.clone(), widgets))
+        })
+        .collect();
+    for (group, widgets) in widget_groups {
+        forms::section(ui, &group);
         for (id, name) in widgets {
             let mut enabled = prefs.widget_enabled(&id);
             ui.push_id(("widget-toggle", &id), |ui| {
