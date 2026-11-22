@@ -83,6 +83,7 @@ pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
     let locale = &calendar.settings;
     let today = locale.today();
     let shown = calendar.month.unwrap_or_else(|| model::start_month(today));
+    let selected = calendar.selected.unwrap_or(today);
     let month_label = if locale.country == "CN" {
         format!("{} 年  {} 月", shown.year(), shown.month())
     } else {
