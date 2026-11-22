@@ -1,5 +1,6 @@
 mod forms;
 mod model;
+mod notifications;
 mod preferences;
 pub(super) mod quiet_hours;
 mod quiet_view;

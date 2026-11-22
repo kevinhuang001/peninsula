@@ -1,7 +1,9 @@
 use super::theme::{BORDER, ROW, SECONDARY_TEXT, TEXT};
-use crate::extension::{SearchOption, SettingSchema, SettingValue};
+use crate::extension::{
+    DurationDisplay, EditorHint, ExtensionId, SearchOption, SettingSchema, SettingValue,
+};
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke, Vec2};
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
 pub(super) const SWITCH_ON: Color32 = Color32::from_rgb(24, 62, 105);
 pub(super) const SWITCH_OFF: Color32 = Color32::from_rgb(75, 81, 92);
@@ -254,21 +256,29 @@ pub(super) fn setting_control(
                 toggle(ui, v, &field.description);
             }
             SettingValue::Integer(v) => {
-                ui.add(egui::DragValue::new(v).range(
-                    field.constraints.min.unwrap_or(i32::MIN as f64) as i64
-                        ..=field.constraints.max.unwrap_or(i32::MAX as f64) as i64,
-                ));
+                ui.add(egui::DragValue::new(v)
+                    .range(field.constraints.min.unwrap_or(i32::MIN as f64) as i64
+                        ..=field.constraints.max.unwrap_or(i32::MAX as f64) as i64)
+                    .suffix(field.presentation.unit.as_deref().unwrap_or("")));
             }
             SettingValue::Float(v) => {
-                ui.add(egui::DragValue::new(v).speed(0.1).range(
-                    field.constraints.min.unwrap_or(-1e9)..=field.constraints.max.unwrap_or(1e9),
-                ));
+                ui.add(egui::DragValue::new(v).speed(0.1)
+                    .range(field.constraints.min.unwrap_or(-1e9)
+                        ..=field.constraints.max.unwrap_or(1e9))
+                    .suffix(field.presentation.unit.as_deref().unwrap_or("")));
             }
             SettingValue::Duration(v) => {
-                ui.add(egui::DragValue::new(v).suffix(" ms").range(
-                    field.constraints.min.unwrap_or(0.0) as u64
-                        ..=field.constraints.max.unwrap_or(u32::MAX as f64) as u64,
-                ));
+                let (scale, suffix) = match field.presentation.duration_display {
+                    DurationDisplay::Milliseconds => (1_u64, " ms"),
+                    DurationDisplay::Minutes => (60_000_u64, " 分钟"),
+                };
+                let mut display = v.div_ceil(scale);
+                let lower = (field.constraints.min.unwrap_or(0.0) as u64).div_ceil(scale);
+                let upper = (field.constraints.max.unwrap_or(u32::MAX as f64) as u64) / scale;
+                if ui.add(egui::DragValue::new(&mut display)
+                    .suffix(suffix).range(lower..=upper)).changed() {
+                    *v = display.saturating_mul(scale);
+                }
             }
             SettingValue::String(v) => {
                 ui.add_sized(
@@ -304,6 +314,65 @@ pub(super) fn setting_control(
         return false;
     }
     *value != old
+}
+
+/// Keep incomplete text edits in the UI, separate from the validated stored value.
+/// Every numeric text editor uses this path; no business-specific parser is needed.
+pub(super) fn parse_number_text(field: &SettingSchema, draft: &str) -> Option<SettingValue> {
+    let input = draft.trim();
+    let value = match field.value_type {
+        crate::extension::ValueType::Float => {
+            SettingValue::Float(if input.is_empty() { 0.0 } else { input.parse().ok()? })
+        }
+        crate::extension::ValueType::Integer => {
+            SettingValue::Integer(if input.is_empty() { 0 } else { input.parse().ok()? })
+        }
+        _ => return None,
+    };
+    field.validate(&value).ok().map(|_| value)
+}
+
+pub(super) fn setting_control_with_draft(
+    ui: &mut egui::Ui,
+    field: &SettingSchema,
+    value: &mut SettingValue,
+    owner: &ExtensionId,
+    drafts: &mut HashMap<(ExtensionId, String), String>,
+) -> bool {
+    if field.presentation.editor != EditorHint::NumberText {
+        return setting_control(ui, field, value);
+    }
+    let draft = drafts.entry((owner.clone(), field.key.clone())).or_insert_with(|| {
+        match value {
+            SettingValue::Float(n) if *n == 0.0 => String::new(),
+            SettingValue::Integer(0) => String::new(),
+            SettingValue::Float(n) => n.to_string(),
+            SettingValue::Integer(n) => n.to_string(),
+            _ => String::new(),
+        }
+    });
+    let mut changed = false;
+    input_row(ui, &field.description, |ui| {
+        let response = ui.add_sized(
+            [ui.available_width().max(24.0), 25.0],
+            egui::TextEdit::singleline(draft)
+                .hint_text(field.presentation.placeholder.as_deref().unwrap_or("")),
+        );
+        if response.changed() {
+            if let Some(parsed) = parse_number_text(field, draft) {
+                if parsed != *value {
+                    *value = parsed;
+                    changed = true;
+                }
+            }
+        }
+        false
+    });
+    if parse_number_text(field, draft).is_none() {
+        ui.label(egui::RichText::new("请输入有效范围内的数字")
+            .size(10.5).color(SECONDARY_TEXT));
+    }
+    changed
 }
 
 pub(super) fn search_setting(

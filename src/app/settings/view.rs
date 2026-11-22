@@ -3,6 +3,7 @@ use super::{
     model::Section,
     quiet_view::{self, QuietDialog},
     theme::{WidgetTheme, ACCENT, ACCENT_SELECTED, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT},
+    notifications,
     CompactPreferences,
 };
 use crate::extension::{ContributionDescriptor, ContributionKind, ExtensionId};
@@ -80,9 +81,8 @@ pub struct SettingsView {
     component_section: ComponentSection,
     quiet_dialog: Option<QuietDialog>,
     searches: HashMap<(ExtensionId, String), forms::SearchFieldState>,
-    /// Edits in progress must survive frames even when the price is not yet
-    /// parsable (e.g. an empty string or a decimal point).
-    notification_price_drafts: HashMap<ExtensionId, String>,
+    /// Incomplete typed edits belong to UI drafts, not persisted extension settings.
+    number_drafts: HashMap<(ExtensionId, String), String>,
     secret_store: Option<SecretStore>,
     secret_keys: Vec<String>,
     secret_key: String,
@@ -274,7 +274,7 @@ impl SettingsView {
             Section::Components => component_options(ui, prefs, self.component_section),
             Section::Extensions => self.extension_form(ui, prefs),
             Section::Notifications => {
-                notification_options(ui, prefs, &mut self.notification_price_drafts)
+                notifications::options(ui, prefs, &mut self.number_drafts)
             },
             Section::Secrets => self.secrets(ui),
             Section::About => {
@@ -874,7 +874,9 @@ impl SettingsView {
                             .or_default();
                         changed |= forms::search_setting(ui, field, value, state);
                     } else {
-                        changed |= forms::setting_control(ui, field, value);
+                        changed |= forms::setting_control_with_draft(
+                            ui, field, value, &extension_id, &mut self.number_drafts,
+                        );
                     }
                 });
             }
@@ -1025,176 +1027,6 @@ fn contribution_groups(
             (!entries.is_empty()).then(|| (page.descriptor.name.clone(), entries))
         })
         .collect()
-}
-
-fn notification_options(
-    ui: &mut egui::Ui,
-    prefs: &mut CompactPreferences,
-    price_drafts: &mut HashMap<ExtensionId, String>,
-) -> bool {
-    let mut changed = false;
-    for (name, entries) in contribution_groups(prefs, ContributionKind::Notification) {
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            let (marker, _) = ui.allocate_exact_size(
-                egui::vec2(3.0, 16.0), Sense::hover(),
-            );
-            ui.painter().rect_filled(marker, 2.0, ACCENT);
-            ui.label(egui::RichText::new(&name).size(14.0).strong().color(TEXT));
-        });
-        ui.add_space(7.0);
-        let is_market = entries.iter().any(|entry| {
-            entry.id.as_str().starts_with("builtin.market/assets/")
-                && entry.id.as_str().ends_with("/price-alert")
-        });
-        if is_market {
-            if let Some(page) = prefs.pages.iter_mut()
-                .find(|page| page.descriptor.id.as_str() == "builtin.market")
-            {
-                if let Some(crate::extension::SettingValue::Integer(minutes)) =
-                    page.values.get_mut("alert_interval_minutes")
-                {
-                    changed |= forms::input_row(ui, "统一最短提醒间隔", |ui| {
-                        ui.add(
-                            egui::DragValue::new(minutes)
-                                .range(1..=10_080)
-                                .speed(1.0)
-                                .suffix(" 分钟"),
-                        ).changed()
-                    });
-                }
-            }
-        }
-        for entry in entries {
-            let mut show_entry = |ui: &mut egui::Ui| {
-                ui.push_id(&entry.id, |ui| {
-                    if is_market {
-                        ui.add_space(2.0);
-                        ui.label(
-                            egui::RichText::new(&entry.title)
-                                .size(12.0)
-                                .strong()
-                                .color(SECONDARY_TEXT),
-                        );
-                        ui.add_space(6.0);
-                    }
-                let mut enabled = prefs.contribution_enabled(&entry);
-                if forms::boolean(ui, if is_market { "启用提醒" } else { &entry.title }, &mut enabled) {
-                    prefs.set_contribution_enabled(entry.id.clone(), enabled);
-                    changed = true;
-                }
-                if is_market && enabled {
-                    let ready = prefs.contribution_values.get(&entry.id)
-                        .and_then(|values| values.get("threshold"))
-                        .is_some_and(|value| matches!(value, crate::extension::SettingValue::Float(price) if price.is_finite() && *price > 0.0));
-                    if !ready {
-                        ui.label(
-                            egui::RichText::new("待配置：请填写大于 0 的目标价格，提醒才能启动")
-                                .size(10.5)
-                                .color(SECONDARY_TEXT),
-                        );
-                    }
-                }
-                if !entry.settings.is_empty() {
-                    // Always render the typed configuration for dynamically
-                    // registered notifications, including before first save.
-                    let values = prefs.contribution_values
-                        .entry(entry.id.clone())
-                        .or_insert_with(|| crate::core::settings::SettingsStore::defaults(&entry));
-                    for field in &entry.settings {
-                        values.entry(field.key.clone())
-                            .or_insert_with(|| field.default.clone().expect("validated setting schema"));
-                        if let Some(value) = values.get_mut(&field.key) {
-                            ui.push_id(&field.key, |ui| {
-                                if is_market && field.key == "threshold" {
-                                    if let crate::extension::SettingValue::Float(price) = value {
-                                        let draft = price_drafts
-                                            .entry(entry.id.clone())
-                                            .or_insert_with(|| {
-                                                if *price > 0.0 { format!("{price}") }
-                                                else { String::new() }
-                                            });
-                                        changed |= forms::input_row(ui, "目标价格", |ui| {
-                                            let response = ui.add_sized(
-                                                [(ui.available_width() - 3.0).max(24.0), 25.0],
-                                                egui::TextEdit::singleline(draft)
-                                                    .hint_text("例如 150.50"),
-                                            );
-                                            if !response.changed() {
-                                                return false;
-                                            }
-                                            match parse_target_price(draft) {
-                                                Some(new_price) if new_price != *price => {
-                                                    *price = new_price;
-                                                    true
-                                                }
-                                                _ => false,
-                                            }
-                                        });
-                                        if parse_target_price(draft).is_none() {
-                                            ui.label(
-                                                egui::RichText::new("请输入非负的有效价格")
-                                                    .size(10.5)
-                                                    .color(SECONDARY_TEXT),
-                                            );
-                                        }
-                                    }
-                                } else if field.key == "cooldown" {
-                                    if let crate::extension::SettingValue::Duration(ms) = value {
-                                        changed |= forms::input_row(ui, "最短提醒间隔", |ui| {
-                                            let mut minutes = ms.div_ceil(60_000).clamp(1, 43_200);
-                                            let updated = ui.add(
-                                                egui::DragValue::new(&mut minutes)
-                                                    .range(1..=43_200)
-                                                    .speed(1)
-                                                    .suffix(" 分钟"),
-                                            ).changed();
-                                            if updated {
-                                                *ms = minutes * 60_000;
-                                            }
-                                            updated
-                                        });
-                                    } else {
-                                        changed |= forms::setting_control(ui, field, value);
-                                    }
-                                } else {
-                                    changed |= forms::setting_control(ui, field, value);
-                                }
-                            });
-                        }
-                    }
-                }
-                });
-            };
-            if is_market {
-                ui.add_space(9.0);
-                egui::Frame::new()
-                    .fill(Color32::from_rgb(30, 33, 39))
-                    .stroke(Stroke::new(1.0, BORDER))
-                    .corner_radius(10.0)
-                    .inner_margin(egui::Margin::symmetric(10, 10))
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        show_entry(ui);
-                    });
-            } else {
-                show_entry(ui);
-            }
-        }
-    }
-    changed
-}
-
-/// Zero clears the threshold and marks the notification as pending setup.
-fn parse_target_price(draft: &str) -> Option<f64> {
-    let input = draft.trim();
-    if input.is_empty() {
-        return Some(0.0);
-    }
-    input
-        .parse::<f64>()
-        .ok()
-        .filter(|value| value.is_finite() && *value >= 0.0)
 }
 
 fn general(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
