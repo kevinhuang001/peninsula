@@ -7,7 +7,7 @@ use crate::{
         Action, CompactView, ContributionDescriptor, ContributionKind, ExecutionPolicy,
         ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionOutput, Notification,
         NotificationAlertView, NotificationCenterItemView, NotificationPresentationProvider,
-        NotificationPriority, RuntimeExtension, SettingSchema, SettingValue, Settings,
+        NotificationPriority, ReloadPolicy, RuntimeExtension, SettingSchema, SettingValue, Settings,
     },
     ui::declarative::{Overflow, ScrollAxes, WidgetBounds},
 };
@@ -27,7 +27,6 @@ const LEGACY_ALERT_ID: &str = "builtin.market/price-alerts";
 const SERVICE_ID: &str = "builtin.market/service.quotes";
 const CONDITION: &str = "condition";
 const THRESHOLD: &str = "threshold";
-const COOLDOWN: &str = "cooldown";
 const ADD_KEY: &str = "market-symbol";
 const ADD_ACTION: &str = "market:add";
 const ADD_OPEN_ACTION: &str = "market:add-open";
@@ -45,8 +44,6 @@ struct Watchlist {
     assets: Vec<Asset>,
     #[serde(default)]
     alert_rules: HashMap<String, PriceAlertRule>,
-    #[serde(default = "default_alert_interval")]
-    alert_interval_minutes: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -68,16 +65,11 @@ struct AlertSettingsRule {
     price: Option<String>,
 }
 
-fn default_alert_interval() -> u32 {
-    DEFAULT_ALERT_INTERVAL_MINUTES
-}
-
 impl Default for Watchlist {
     fn default() -> Self {
         Self {
             assets: default_assets(),
             alert_rules: HashMap::new(),
-            alert_interval_minutes: DEFAULT_ALERT_INTERVAL_MINUTES,
         }
     }
 }
@@ -107,6 +99,7 @@ pub struct MarketExtension {
     pending: Option<Receiver<Vec<MarketQuote>>>,
     watchlist_path: Option<PathBuf>,
     legacy_settings: Settings,
+    alert_interval_minutes: u32,
     active: BTreeMap<ExtensionId, Settings>,
     next_refresh: Instant,
     refresh_requested: bool,
@@ -128,6 +121,7 @@ impl MarketExtension {
             pending: None,
             watchlist_path: None,
             legacy_settings: Settings::new(),
+            alert_interval_minutes: DEFAULT_ALERT_INTERVAL_MINUTES,
             active: BTreeMap::new(),
             next_refresh: Instant::now(),
             refresh_requested: false,
@@ -207,10 +201,9 @@ impl MarketExtension {
                         } else {
                             AlertCondition::Greater
                         };
-                        let cooldown = match settings.get(COOLDOWN) {
-                            Some(SettingValue::Duration(ms)) => Duration::from_millis(*ms),
-                            _ => Duration::from_secs(30 * 60),
-                        };
+                        let cooldown = Duration::from_secs(
+                            u64::from(self.alert_interval_minutes) * 60,
+                        );
                         let triggered = match condition {
                             AlertCondition::Greater => current > threshold,
                             AlertCondition::Less => current < threshold,
@@ -386,7 +379,27 @@ impl RuntimeExtension for MarketExtension {
             vec![widget.with_dependency(service_id), service],
         );
         descriptor.execution_policy = ExecutionPolicy::EventDriven;
+        descriptor.settings = vec![
+            SettingSchema::new(
+                SETTINGS_ALERT_INTERVAL,
+                SettingValue::Integer(i64::from(DEFAULT_ALERT_INTERVAL_MINUTES)),
+                "最短提醒间隔（分钟）",
+            ).range(1.0, 10_080.0),
+        ];
         descriptor
+    }
+
+    fn on_settings_changed(
+        &mut self,
+        _: &ExtensionContext,
+        _: &ExtensionId,
+        values: &Settings,
+        _: ReloadPolicy,
+    ) -> ExtensionOutput {
+        if let Some(SettingValue::Integer(minutes)) = values.get(SETTINGS_ALERT_INTERVAL) {
+            self.alert_interval_minutes = (*minutes).clamp(1, 10_080) as u32;
+        }
+        ExtensionOutput::default()
     }
 
     fn import_legacy_settings(&mut self, settings: &Settings) {
@@ -444,7 +457,7 @@ impl RuntimeExtension for MarketExtension {
         if let Some(SettingValue::Integer(minutes)) =
             self.legacy_settings.get(SETTINGS_ALERT_INTERVAL)
         {
-            self.watchlist.alert_interval_minutes = (*minutes).clamp(1, 10_080) as u32;
+            self.alert_interval_minutes = (*minutes).clamp(1, 10_080) as u32;
         }
         if let Some(SettingValue::String(source)) = self.legacy_settings.get(SETTINGS_ALERT_RULES) {
             if let Ok(rules) = serde_json::from_str::<HashMap<String, AlertSettingsRule>>(source) {
@@ -578,16 +591,6 @@ impl RuntimeExtension for MarketExtension {
                                     "目标价格",
                                 )
                             },
-                            SettingSchema::new(
-                                COOLDOWN,
-                                SettingValue::Duration(
-                                    u64::from(self.watchlist.alert_interval_minutes)
-                                        .clamp(1, 10080)
-                                        * 60_000,
-                                ),
-                                "最短提醒间隔",
-                            )
-                            .range(60_000.0, 604_800_000.0),
                         ],
                     );
                     [compact, notification]
