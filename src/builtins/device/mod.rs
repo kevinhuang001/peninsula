@@ -7,16 +7,33 @@ mod usb;
 use crate::{
     core::mascot::MascotExpression,
     extension::{
-        CompactView, ExtensionContext, ExtensionDescriptor, ExtensionOutput,
-        NotificationPresentationProvider, RuntimeExtension,
+        CompactView, ExtensionContext, ExtensionDescriptor, ExtensionOutput, ExtensionId,
+        NotificationPresentationProvider, ReloadPolicy, RuntimeExtension,
+        SettingSchema, SettingValue, Settings,
     },
 };
 use std::time::Instant;
 
-#[derive(Default)]
 pub struct DeviceExtension {
     battery: battery::BatteryExtension,
     usb: usb::UsbExtension,
+    power_prompt_enabled: bool,
+    usb_prompt_enabled: bool,
+    usb_started: bool,
+    running: bool,
+}
+
+impl Default for DeviceExtension {
+    fn default() -> Self {
+        Self {
+            battery: battery::BatteryExtension::default(),
+            usb: usb::UsbExtension::default(),
+            power_prompt_enabled: true,
+            usb_prompt_enabled: true,
+            usb_started: false,
+            running: false,
+        }
+    }
 }
 
 impl NotificationPresentationProvider for DeviceExtension {}
@@ -35,19 +52,39 @@ impl RuntimeExtension for DeviceExtension {
         // a dormant extension; the lifecycle host owns start/stop.
         descriptor.execution_policy =
             crate::extension::ExecutionPolicy::Interval(std::time::Duration::from_millis(250));
+        // Consolidation must not make the two independent prompts inseparable.
+        // The battery Compact remains managed by the Components page.
+        descriptor.settings = vec![
+            SettingSchema::new(
+                "power_prompt_enabled",
+                SettingValue::Boolean(true),
+                "电源连接提示",
+            ),
+            SettingSchema::new(
+                "usb_prompt_enabled",
+                SettingValue::Boolean(true),
+                "USB 插拔提示",
+            ),
+        ];
         descriptor
     }
 
     fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
         self.battery.on_start(ctx)?;
-        if let Err(error) = self.usb.on_start(ctx) {
-            let _ = self.battery.on_stop(ctx);
-            return Err(error);
+        if self.usb_prompt_enabled {
+            if let Err(error) = self.usb.on_start(ctx) {
+                let _ = self.battery.on_stop(ctx);
+                return Err(error);
+            }
+            self.usb_started = true;
         }
+        self.running = true;
         Ok(())
     }
 
     fn on_stop(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
+        self.running = false;
+        self.usb_started = false;
         let usb = self.usb.on_stop(ctx);
         let battery = self.battery.on_stop(ctx);
         usb.and(battery)
@@ -55,7 +92,14 @@ impl RuntimeExtension for DeviceExtension {
 
     fn update(&mut self, now: Instant) -> ExtensionOutput {
         let mut power = self.battery.update(now);
-        let usb = self.usb.update(now);
+        if !self.power_prompt_enabled {
+            power.prompts.clear();
+        }
+        let usb = if self.usb_started {
+            self.usb.update(now)
+        } else {
+            ExtensionOutput::default()
+        };
         power.invalidated.extend(usb.invalidated);
         power.prompts.extend(usb.prompts);
         power.events.extend(usb.events);
@@ -65,6 +109,32 @@ impl RuntimeExtension for DeviceExtension {
         power.cancel_tasks.extend(usb.cancel_tasks);
         power.mascot_events.extend(usb.mascot_events);
         power
+    }
+
+    fn on_settings_changed(
+        &mut self,
+        ctx: &ExtensionContext,
+        _: &ExtensionId,
+        settings: &Settings,
+        _: ReloadPolicy,
+    ) -> ExtensionOutput {
+        self.power_prompt_enabled = settings.get("power_prompt_enabled")
+            != Some(&SettingValue::Boolean(false));
+        self.usb_prompt_enabled = settings.get("usb_prompt_enabled")
+            != Some(&SettingValue::Boolean(false));
+        if self.running && self.usb_prompt_enabled != self.usb_started {
+            if self.usb_prompt_enabled {
+                match self.usb.on_start(ctx) {
+                    Ok(()) => self.usb_started = true,
+                    Err(error) => ctx.log(&ExtensionId::builtin("builtin.device"),
+                        &format!("USB 监测启动失败: {error}")),
+                }
+            } else {
+                let _ = self.usb.on_stop(ctx);
+                self.usb_started = false;
+            }
+        }
+        ExtensionOutput::default()
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
@@ -99,11 +169,31 @@ mod tests {
         assert!(compact.iter().any(|c| c.id.as_str() == "builtin.device/battery"));
         assert!(prompts.iter().any(|c| c.id.as_str() == "builtin.device/power-prompt"));
         assert!(prompts.iter().any(|c| c.id.as_str() == "builtin.device/usb-prompt"));
+        assert_eq!(descriptor.settings.len(), 2);
         let registry = super::super::registry();
         assert!(registry.extensions().iter().any(|d| d.id == descriptor.id));
         assert!(!registry.extensions().iter().any(|d| {
             d.id.as_str() == "builtin.battery" || d.id.as_str() == "builtin.usb"
         }));
+    }
+
+    #[test]
+    fn changing_device_prompt_settings_keeps_battery_compact_independent() {
+        let ctx = ExtensionContext::new(std::path::PathBuf::new(), std::path::PathBuf::new());
+        let mut device = DeviceExtension::default();
+        let settings = [
+            ("power_prompt_enabled".into(), SettingValue::Boolean(false)),
+            ("usb_prompt_enabled".into(), SettingValue::Boolean(false)),
+        ].into();
+        device.on_settings_changed(
+            &ctx,
+            &ExtensionId::builtin("builtin.device"),
+            &settings,
+            ReloadPolicy::Live,
+        );
+        assert!(!device.power_prompt_enabled);
+        assert!(!device.usb_prompt_enabled);
+        assert_eq!(device.compact_views().len(), 1);
     }
 
     #[test]
