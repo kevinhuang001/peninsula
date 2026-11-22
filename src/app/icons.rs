@@ -50,6 +50,10 @@ impl Icons {
                 include_str!("../../assets/icons/lucide/clock.svg"),
             ),
             (
+                "calendar",
+                include_str!("../../assets/icons/lucide/calendar-days.svg"),
+            ),
+            (
                 "lucide/arrow-down",
                 include_str!("../../assets/icons/lucide/arrow-down.svg"),
             ),
@@ -124,6 +128,11 @@ impl Icons {
             ]
             .map(|(name, source)| load(context, name, source)),
             widget_icons: [
+                (
+                    "calendar",
+                    "calendar-days",
+                    include_bytes!("../../assets/icons/lucide/calendar-days.svg").as_slice(),
+                ),
                 (
                     "notifications",
                     "bell",

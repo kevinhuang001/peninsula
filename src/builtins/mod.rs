@@ -1,4 +1,5 @@
 mod battery;
+mod calendar;
 pub mod bilibili;
 mod clock;
 pub mod download;
@@ -66,6 +67,7 @@ pub fn runtimes() -> Vec<Box<dyn RuntimeExtension>> {
         Box::new(rss::RssExtension::default()),
         Box::new(mail::MailExtension::default()),
         Box::new(market::MarketExtension::new()),
+        Box::new(calendar::CalendarExtension::default()),
         Box::new(bilibili::BilibiliExtension::default()),
         Box::new(kuaidi::KuaidiExtension::default()),
         Box::new(weather::WeatherExtension::new(
