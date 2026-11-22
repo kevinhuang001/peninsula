@@ -122,10 +122,14 @@ impl SettingsStore {
         updates: Settings,
     ) -> Result<Vec<(String, ReloadPolicy)>, String> {
         let descriptor = descriptor.into();
-        let record = self
-            .records
-            .get(descriptor.id.as_str())
-            .ok_or_else(|| "settings have not been initialized".to_owned())?;
+        // A newly registered dynamic contribution may have no record yet.
+        // Atomically seed its defaults together with the first user edit,
+        // rather than rejecting the input as uninitialized.
+        let initial = Record {
+            version: descriptor.version,
+            values: Self::default_values(&descriptor),
+        };
+        let record = self.records.get(descriptor.id.as_str()).unwrap_or(&initial);
         if record.version != descriptor.version {
             return Err("settings version does not match".into());
         }
@@ -333,4 +337,42 @@ mod tests {
         descriptor.settings[0].default = Some(V::Float(f64::NAN));
         assert!(ExtensionRegistry::default().register(descriptor).is_err());
     }
+    #[test]
+    fn first_dynamic_contribution_edit_seeds_a_valid_record_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("contribution-settings.json");
+        let entry = crate::extension::ContributionDescriptor::builtin(
+            "test.market/assets/stock/TEST/price-alert",
+            ContributionKind::Notification,
+            "TEST Price Alert",
+            "bell",
+            false,
+            0,
+        ).with_settings(1, vec![
+            SettingSchema::new("threshold", V::Float(0.0), "Target"),
+            SettingSchema::new("condition", V::Enum("above".into()), "Condition"),
+        ]);
+        let mut store = SettingsStore::open(path.clone());
+        // A schema-invalid edit must not leave a half-initialized record.
+        assert!(store.update(&entry, [
+            ("unknown".into(), V::Boolean(true)),
+        ].into()).is_err());
+        assert!(store.values(&entry.id).is_none());
+        assert!(!path.exists());
+
+        store.update(&entry, [
+            ("threshold".into(), V::Float(150.5)),
+        ].into()).unwrap();
+        assert_eq!(
+            store.values(&entry.id).unwrap().get("threshold"),
+            Some(&V::Float(150.5)),
+        );
+        assert_eq!(
+            store.values(&entry.id).unwrap().get("condition"),
+            Some(&V::Enum("above".into())),
+        );
+        let stored = SettingsStore::open(path).load(&entry).unwrap();
+        assert_eq!(stored["threshold"], V::Float(150.5));
+    }
+
 }
