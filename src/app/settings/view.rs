@@ -27,28 +27,31 @@ enum CapsuleSection {
     #[default]
     Motion,
     Mascot,
-    Compact,
-    Widgets,
-    Switches,
-    Order,
+    CompactStyle,
+    CompactSwitch,
+    CompactOrder,
+    WidgetSwitch,
+    WidgetOrder,
 }
 impl CapsuleSection {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::Motion,
         Self::Mascot,
-        Self::Compact,
-        Self::Widgets,
-        Self::Switches,
-        Self::Order,
+        Self::CompactStyle,
+        Self::CompactSwitch,
+        Self::CompactOrder,
+        Self::WidgetSwitch,
+        Self::WidgetOrder,
     ];
     fn label(self) -> &'static str {
         match self {
             Self::Motion => "动态效果",
             Self::Mascot => "Mascot",
-            Self::Compact => "Compact",
-            Self::Widgets => "Widget",
-            Self::Switches => "开关",
-            Self::Order => "顺序",
+            Self::CompactStyle => "Compact 样式",
+            Self::CompactSwitch => "Compact 开关",
+            Self::CompactOrder => "Compact 顺序",
+            Self::WidgetSwitch => "Widget 开关",
+            Self::WidgetOrder => "Widget 顺序",
         }
     }
 }
@@ -1150,7 +1153,7 @@ fn capsule_options(
                 prefs.mascot_motion != before
             });
         }
-        CapsuleSection::Compact => {
+        CapsuleSection::CompactStyle => {
             forms::section(ui, "Compact 文字样式");
             changed |= forms::row(ui, "字号", |ui| {
                 ui.add(
@@ -1167,58 +1170,32 @@ fn capsule_options(
                     prefs.compact_text_color = (!follow_theme).then_some([245, 248, 255]);
                 }
                 if let Some(color) = &mut prefs.compact_text_color {
-                    changed |= ui
-                        .color_edit_button_srgb(color)
+                    changed |= ui.color_edit_button_srgb(color)
                         .on_hover_text("显示时会自动调整颜色，确保文字与背景有足够对比度")
                         .changed();
                 }
                 changed
             });
         }
-        CapsuleSection::Widgets => {
-            forms::section(ui, "Widget 外观");
-            ui.label(
-                egui::RichText::new("Widget 继承全局主题与强调色，此处与通用设置同步")
-                    .size(10.5)
-                    .color(SECONDARY_TEXT),
-            );
-            changed |= general_theme(ui, prefs);
-            changed |= general_accent(ui, prefs);
-        }
-        CapsuleSection::Switches => {
+        CapsuleSection::CompactSwitch => {
             forms::section(ui, "Compact 开关");
-            for (group, items) in contribution_groups(prefs, ContributionKind::Compact) {
+            for (group, entries) in contribution_groups(prefs, ContributionKind::Compact) {
                 forms::section(ui, &group);
-                for item in items {
-                    let mut enabled = prefs.is_enabled(&item.id);
-                    ui.push_id(("compact-switch", &item.id), |ui| {
-                        if forms::boolean(ui, &item.title, &mut enabled) {
-                            changed |= prefs.set_compact_item_enabled(&item.id, enabled);
-                        }
-                    });
-                }
-            }
-            forms::section(ui, "Widget 开关");
-            for (group, items) in contribution_groups(prefs, ContributionKind::Widget) {
-                forms::section(ui, &group);
-                for item in items {
-                    let mut enabled = prefs.contribution_enabled(&item);
-                    ui.push_id(("widget-switch", &item.id), |ui| {
-                        if forms::boolean(ui, &item.title, &mut enabled) {
-                            prefs.set_contribution_enabled(item.id.clone(), enabled);
-                            changed = true;
+                for entry in entries {
+                    let mut enabled = prefs.is_enabled(&entry.id);
+                    ui.push_id(("compact-switch", &entry.id), |ui| {
+                        if forms::boolean(ui, &entry.title, &mut enabled) {
+                            changed |= prefs.set_compact_item_enabled(&entry.id, enabled);
                         }
                     });
                 }
             }
         }
-        CapsuleSection::Order => {
+        CapsuleSection::CompactOrder => {
             forms::section(ui, "Compact 顺序（仅已开启）");
             let active: Vec<_> = prefs.ordered_compact_items()
-                .into_iter()
-                .filter(|item| item.enabled)
-                .map(|item| item.id.clone())
-                .collect();
+                .into_iter().filter(|item| item.enabled)
+                .map(|item| item.id.clone()).collect();
             if active.is_empty() {
                 ui.label("没有已开启的 Compact");
             }
@@ -1235,6 +1212,27 @@ fn capsule_options(
                     changed |= prefs.move_compact_item(&id, direction as isize);
                 }
             }
+        }
+        CapsuleSection::WidgetSwitch => {
+            forms::section(ui, "Widget 开关");
+            ui.label(
+                egui::RichText::new("通知中心始终开启并固定第一位")
+                    .size(10.5).color(SECONDARY_TEXT),
+            );
+            for (group, entries) in contribution_groups(prefs, ContributionKind::Widget) {
+                forms::section(ui, &group);
+                for entry in entries {
+                    let mut enabled = prefs.contribution_enabled(&entry);
+                    ui.push_id(("widget-switch", &entry.id), |ui| {
+                        if forms::boolean(ui, &entry.title, &mut enabled) {
+                            prefs.set_contribution_enabled(entry.id.clone(), enabled);
+                            changed = true;
+                        }
+                    });
+                }
+            }
+        }
+        CapsuleSection::WidgetOrder => {
             forms::section(ui, "Widget 顺序（仅已开启，通知中心固定第一位）");
             let active = prefs.ordered_enabled_widgets();
             if active.is_empty() {
