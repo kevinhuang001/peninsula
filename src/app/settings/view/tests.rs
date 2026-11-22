@@ -431,6 +431,7 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
             false,
             100,
         )
+        .with_group(vec!["股票".into()])
         .with_settings(
             1,
             vec![
@@ -446,7 +447,9 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
                     "threshold",
                     SettingValue::Float(0.0),
                     "目标价格",
-                ),
+                ).range(0.0, 1_000_000.0)
+                    .number_text("例如 150.50")
+                    .activation_positive(),
             ],
         ),
     );
@@ -462,13 +465,14 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
         },
         |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                notification_options(ui, &mut prefs, &mut HashMap::new());
+                notifications::options(ui, &mut prefs, &mut HashMap::new());
             });
         },
     );
     for label in [
         "市场",
         "统一最短提醒间隔",
+        "股票",
         "AAPL 价格提醒",
         "启用提醒",
         "触发条件",
@@ -502,16 +506,40 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
 }
 
 #[test]
-fn market_price_entry_accepts_decimals_and_rejects_invalid_values() {
-    assert_eq!(parse_target_price("  150.25  "), Some(150.25));
-    assert_eq!(parse_target_price("0.001"), Some(0.001));
-    assert_eq!(parse_target_price(""), Some(0.0));
-    assert_eq!(parse_target_price("0"), Some(0.0));
-    assert_eq!(parse_target_price("-5"), None);
-    assert_eq!(parse_target_price("NaN"), None);
-    assert_eq!(parse_target_price("inf"), None);
-    assert_eq!(parse_target_price("abc"), None);
-    assert_eq!(parse_target_price("10.3.2"), None);
+fn generic_number_text_accepts_decimals_and_rejects_invalid_values() {
+    use crate::extension::SettingSchema;
+    let schema = SettingSchema::new("value", SettingValue::Float(0.0), "数值")
+        .range(0.0, 1_000_000.0).number_text("例如 150.50");
+    for (input, value) in [
+        ("  150.25  ", 150.25), ("0.001", 0.001), ("", 0.0), ("0", 0.0),
+    ] {
+        assert_eq!(forms::parse_number_text(&schema, input), Some(SettingValue::Float(value)));
+    }
+    for invalid in ["-5", "NaN", "inf", "abc", "10.3.2"] {
+        assert_eq!(forms::parse_number_text(&schema, invalid), None);
+    }
+}
+
+#[test]
+fn notification_renderer_is_generic_for_calendar_contributions() {
+    let ctx = egui::Context::default();
+    let mut prefs = CompactPreferences::default();
+    let output = ctx.run(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO, egui::vec2(900.0, 1400.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                notifications::options(ui, &mut prefs, &mut HashMap::new());
+            });
+        },
+    );
+    for label in ["日历与时间", "节日提醒", "提醒时间", "小时（24 小时制）"] {
+        assert!(text_rect(&output, label).width() > 0.0, "{label}");
+    }
 }
 
 #[test]

@@ -383,8 +383,11 @@ impl RuntimeExtension for MarketExtension {
             SettingSchema::new(
                 SETTINGS_ALERT_INTERVAL,
                 SettingValue::Integer(i64::from(DEFAULT_ALERT_INTERVAL_MINUTES)),
-                "最短提醒间隔（分钟）",
-            ).range(1.0, 10_080.0),
+                "统一最短提醒间隔",
+            )
+            .range(1.0, 10_080.0)
+            .with_unit("分钟")
+            .in_notifications(),
         ];
         descriptor
     }
@@ -404,10 +407,6 @@ impl RuntimeExtension for MarketExtension {
 
     fn import_legacy_settings(&mut self, settings: &Settings) {
         self.legacy_settings.clone_from(settings);
-    }
-
-    fn contribution_setup_complete(&self, id: &ExtensionId, settings: &Settings) -> bool {
-        id.as_str().ends_with("/price-alert") && threshold(settings) > 0.0
     }
 
     fn on_contribution_state(
@@ -568,6 +567,10 @@ impl RuntimeExtension for MarketExtension {
                         100,
                     )
                     .with_dependency(service.clone())
+                    .with_group(vec![match asset.kind {
+                        MarketKind::Stock => "股票".into(),
+                        MarketKind::Crypto => "加密货币".into(),
+                    }])
                     .with_setup(true)
                     .with_settings(
                         1,
@@ -590,6 +593,8 @@ impl RuntimeExtension for MarketExtension {
                                     SettingValue::Float(price),
                                     "目标价格",
                                 )
+                                .number_text("例如 150.50")
+                                .activation_positive()
                             },
                         ],
                     );

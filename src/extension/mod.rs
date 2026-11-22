@@ -26,6 +26,7 @@ pub use view::{
 pub use crate::ui::declarative::{ViewNode, WidgetView};
 
 pub use schema::{
-    validate_schema, Constraints, ReloadPolicy, SearchOption, SearchSchema, SearchSelection,
+    validate_schema, ActivationRule, Constraints, DurationDisplay, EditorHint, ReloadPolicy,
+    SearchOption, SearchSchema, SearchSelection, SettingPresentation,
     SettingSchema, SettingValue, Settings, ValueType,
 };
