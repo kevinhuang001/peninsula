@@ -357,12 +357,23 @@ impl ExtensionManager {
                     && !self.settings_errors.contains_key(&entry.id)
                     && !self.contribution_failures.contains_key(&entry.id)
                     && (!entry.requires_setup
-                        || self.extensions[owner].contribution_setup_complete(
-                            &entry.id,
-                            self.contribution_settings
-                                .values(&entry.id)
-                                .unwrap_or(&Settings::new()),
-                        ))
+                        || {
+                        let values = self.contribution_settings.values(&entry.id);
+                        if entry.settings.iter().any(|field| field.activation.is_some()) {
+                            entry.settings.iter().all(|field| {
+                                field.activation.is_none()
+                                    || values
+                                        .and_then(|settings| settings.get(&field.key))
+                                        .or(field.default.as_ref())
+                                        .is_some_and(|value| field.activation_ready(value))
+                            })
+                        } else {
+                            self.extensions[owner].contribution_setup_complete(
+                                &entry.id,
+                                values.unwrap_or(&Settings::new()),
+                            )
+                        }
+                    })
             }) {
                 consumers.insert(entry.id.clone(), entry.dependencies.clone());
                 resources.extend(entry.dependencies.iter().cloned());

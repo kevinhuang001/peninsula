@@ -90,6 +90,9 @@ pub struct ContributionDescriptor {
     pub title: String,
     #[serde(default)]
     pub description: String,
+    /// Presentation hierarchy within the owning extension, independent of settings UI.
+    #[serde(default)]
+    pub group_path: Vec<String>,
     pub icon: String,
     pub default_enabled: bool,
     pub default_order: u32,
@@ -144,6 +147,7 @@ impl ContributionDescriptor {
             kind,
             title: title.into(),
             description: String::new(),
+            group_path: vec![],
             icon: icon.into(),
             default_enabled,
             default_order,
@@ -169,6 +173,11 @@ impl ContributionDescriptor {
             dependencies: vec![],
             events: vec![],
         }
+    }
+
+    pub fn with_group(mut self, path: Vec<String>) -> Self {
+        self.group_path = path;
+        self
     }
 
     pub fn with_size_hint(mut self, width: f32, height: f32) -> Self {
@@ -257,6 +266,7 @@ impl ExtensionDescriptor {
                 kind,
                 title: name.into(),
                 description: String::new(),
+                group_path: vec![],
                 icon: self.icon.clone(),
                 default_enabled: true,
                 default_order: 0,

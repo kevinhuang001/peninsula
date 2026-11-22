@@ -402,7 +402,8 @@ impl DataSourceManager {
                                     SettingValue::Duration(source.config.min_alert_interval_ms),
                                     "最短提醒间隔",
                                 )
-                                .range(MIN_ALERT_INTERVAL_MS as f64, MAX_ALERT_INTERVAL_MS as f64)],
+                                .range(MIN_ALERT_INTERVAL_MS as f64, MAX_ALERT_INTERVAL_MS as f64)
+                                .duration_minutes()],
                             ),
                         );
                     }

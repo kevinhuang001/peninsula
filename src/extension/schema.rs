@@ -73,6 +73,36 @@ pub enum ReloadPolicy {
     Restart,
 }
 
+/// Core-owned hints for a generic settings renderer; never contain UI callbacks.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum EditorHint {
+    #[default]
+    Auto,
+    NumberText,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum DurationDisplay {
+    #[default]
+    Milliseconds,
+    Minutes,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ActivationRule {
+    Positive,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SettingPresentation {
+    pub editor: EditorHint,
+    pub duration_display: DurationDisplay,
+    /// Show this same owner-level key in Notifications, without duplicating storage.
+    pub in_notifications: bool,
+    pub placeholder: Option<String>,
+    pub unit: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SettingSchema {
     pub key: String,
@@ -85,6 +115,10 @@ pub struct SettingSchema {
     pub reload_policy: ReloadPolicy,
     #[serde(default)]
     pub search: Option<SearchSchema>,
+    #[serde(default)]
+    pub presentation: SettingPresentation,
+    #[serde(default)]
+    pub activation: Option<ActivationRule>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -108,6 +142,8 @@ impl SettingSchema {
             required: true,
             reload_policy: ReloadPolicy::Live,
             search: None,
+            presentation: SettingPresentation::default(),
+            activation: None,
         }
     }
 
@@ -133,6 +169,44 @@ impl SettingSchema {
         self.constraints.min = Some(min);
         self.constraints.max = Some(max);
         self
+    }
+
+    pub fn number_text(mut self, placeholder: &str) -> Self {
+        self.presentation.editor = EditorHint::NumberText;
+        self.presentation.placeholder = Some(placeholder.into());
+        self
+    }
+
+    pub fn duration_minutes(mut self) -> Self {
+        self.presentation.duration_display = DurationDisplay::Minutes;
+        self
+    }
+
+    pub fn in_notifications(mut self) -> Self {
+        self.presentation.in_notifications = true;
+        self
+    }
+
+    pub fn with_unit(mut self, unit: &str) -> Self {
+        self.presentation.unit = Some(unit.into());
+        self
+    }
+
+    pub fn activation_positive(mut self) -> Self {
+        self.activation = Some(ActivationRule::Positive);
+        self
+    }
+
+    pub fn activation_ready(&self, value: &SettingValue) -> bool {
+        match self.activation {
+            None => true,
+            Some(ActivationRule::Positive) => match value {
+                SettingValue::Float(v) => v.is_finite() && *v > 0.0,
+                SettingValue::Integer(v) => *v > 0,
+                SettingValue::Duration(v) => *v > 0,
+                _ => false,
+            },
+        }
     }
 
     pub fn validate(&self, value: &SettingValue) -> Result<(), String> {
@@ -228,6 +302,12 @@ pub fn validate_schema(schema: &[SettingSchema]) -> Result<(), String> {
                         || search.min_query_chars == 0
                 }))
             || (field.value_type != ValueType::Search && field.search.is_some())
+            || (field.presentation.editor == EditorHint::NumberText
+                && !matches!(field.value_type, ValueType::Float | ValueType::Integer))
+            || (field.presentation.duration_display == DurationDisplay::Minutes
+                && field.value_type != ValueType::Duration)
+            || (field.activation == Some(ActivationRule::Positive)
+                && !matches!(field.value_type, ValueType::Float | ValueType::Integer | ValueType::Duration))
         {
             return Err(invalid());
         }
@@ -282,5 +362,20 @@ mod tests {
             .is_err());
         assert!(duration.validate(&SettingValue::Duration(999)).is_err());
         assert!(validate_schema(&[color.clone(), color]).is_err());
+    }
+
+    #[test]
+    fn presentation_is_declarative_and_activation_is_independent_of_storage_validation() {
+        let price = SettingSchema::new("threshold", SettingValue::Float(0.0), "目标价格")
+            .range(0.0, 1_000_000.0)
+            .number_text("例如 150.50")
+            .activation_positive();
+        assert!(validate_schema(&[price.clone()]).is_ok());
+        assert!(price.validate(&SettingValue::Float(0.0)).is_ok());
+        assert!(!price.activation_ready(&SettingValue::Float(0.0)));
+        assert!(price.activation_ready(&SettingValue::Float(150.5)));
+        let bad = SettingSchema::new("name", SettingValue::String("".into()), "name")
+            .duration_minutes();
+        assert!(validate_schema(&[bad]).is_err());
     }
 }
