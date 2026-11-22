@@ -240,11 +240,11 @@ fn settings_height_grows_with_content_before_host_applies_the_screen_limit() {
     let general = view.extra_height(&ctx, &prefs);
     view.section = Section::Extensions;
     let extensions = view.extra_height(&ctx, &prefs);
-    view.section = Section::Components;
-    view.component_section = ComponentSection::CompactSwitch;
-    let components = view.extra_height(&ctx, &prefs);
+    view.section = Section::Capsule;
+    view.capsule_section = CapsuleSection::CompactSwitch;
+    let capsule = view.extra_height(&ctx, &prefs);
     assert!(extensions > general);
-    assert!(components > general);
+    assert!(capsule > general);
     assert!(general < 300.0);
 }
 
