@@ -228,7 +228,7 @@ fn download_notification(download: super::monitor::Download, sequence: u64) -> N
 fn open_file(path: &Path, reveal: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let mut command = std::process::Command::new("open");
+        let mut command = crate::core::external::process::command("open");
         if reveal {
             command.arg("-R");
         }
@@ -246,7 +246,7 @@ fn open_file(path: &Path, reveal: bool) -> Result<(), String> {
         } else {
             path
         };
-        std::process::Command::new("xdg-open")
+        crate::core::external::process::command("xdg-open")
             .arg(target)
             .spawn()
             .map(|_| ())
@@ -254,7 +254,7 @@ fn open_file(path: &Path, reveal: bool) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        let mut command = std::process::Command::new("explorer.exe");
+        let mut command = crate::core::external::process::command("explorer.exe");
         if reveal {
             let mut argument = std::ffi::OsString::from("/select,");
             argument.push(path);

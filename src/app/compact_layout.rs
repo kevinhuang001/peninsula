@@ -227,7 +227,9 @@ mod lyric_tests {
         let context = egui::Context::default();
         super::super::fonts::install(&context);
         let icons = Icons::load(&context);
-        let id = ExtensionId::builtin("builtin.music/lyrics");
+        // Exercise host layout with a Compact ID registered on every platform;
+        // the music extension itself is intentionally unavailable on macOS.
+        let id = ExtensionId::builtin("builtin.clock/time");
         let view = CompactView {
             id: id.clone(),
             source_extension_id: id.clone(),
@@ -255,7 +257,8 @@ mod lyric_tests {
             priority: 0,
             tooltip: None,
         };
-        let preferences = CompactPreferences::default();
+        let mut preferences = CompactPreferences::default();
+        preferences.set_enabled(&id, true);
         let _ = context.run(egui::RawInput::default(), |context| {
             let measured = measure_views(context, &[&view], &icons);
             let references = [&measured[0]];

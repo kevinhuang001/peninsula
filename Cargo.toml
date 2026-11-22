@@ -38,6 +38,9 @@ objc2-foundation = { version = "0.2.2", default-features = false, features = ["N
 plist = "1"
 raw-window-handle = "0.6"
 
+[dev-dependencies]
+base64 = "0.22"
+
 [profile.release]
 opt-level = 3
 lto = true

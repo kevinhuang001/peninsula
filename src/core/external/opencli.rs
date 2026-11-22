@@ -1,9 +1,9 @@
 use std::{
     env,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     io::Read,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     sync::{mpsc, Mutex, OnceLock},
     thread,
     time::{Duration, Instant},
@@ -40,8 +40,7 @@ impl OpenCli {
             candidates.push(PathBuf::from(path));
         }
         if let Some(paths) = env::var_os("PATH") {
-            candidates
-                .extend(env::split_paths(&paths).map(|dir| dir.join(executable_name("opencli"))));
+            candidates.extend(path_candidates(&paths));
         }
         for path in common_paths() {
             candidates.push(path);
@@ -85,7 +84,7 @@ impl OpenCli {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .map_err(|_| "OpenCLI execution lock poisoned".to_owned())?;
-        let mut command = Command::new(&self.executable);
+        let mut command = super::process::command(&self.executable);
         // Finder does not load NVM's shell initialization. Its OpenCLI script
         // uses /usr/bin/env node, so make the sibling Node runtime discoverable.
         if let Some(parent) = self
@@ -193,19 +192,40 @@ fn command_error(command: &str, output: &CommandOutput) -> String {
     )
 }
 
-fn executable_name(name: &str) -> OsString {
+fn executable_names(name: &str) -> Vec<OsString> {
     #[cfg(target_os = "windows")]
     {
-        format!("{name}.exe").into()
+        ["exe", "cmd", "bat"]
+            .map(|extension| format!("{name}.{extension}").into())
+            .to_vec()
     }
     #[cfg(not(target_os = "windows"))]
     {
-        name.into()
+        vec![name.into()]
     }
+}
+
+fn path_candidates(paths: &OsStr) -> Vec<PathBuf> {
+    env::split_paths(paths)
+        .flat_map(|dir| {
+            executable_names("opencli")
+                .into_iter()
+                .map(move |name| dir.join(name))
+        })
+        .collect()
 }
 
 fn common_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
+    #[cfg(target_os = "windows")]
+    if let Some(appdata) = env::var_os("APPDATA") {
+        let npm = PathBuf::from(appdata).join("npm");
+        paths.extend(
+            executable_names("opencli")
+                .into_iter()
+                .map(|name| npm.join(name)),
+        );
+    }
     #[cfg(target_os = "macos")]
     paths.extend(
         [
@@ -224,13 +244,14 @@ fn common_paths() -> Vec<PathBuf> {
         ]
         .map(PathBuf::from),
     );
-    if let Some(home) = env::var_os("HOME") {
+    if let Some(home) = env::var_os("HOME").or_else(|| env::var_os("USERPROFILE")) {
         let home = PathBuf::from(home);
         paths.extend([
             home.join(".local/bin/opencli"),
             home.join(".npm-global/bin/opencli"),
             home.join(".nvm/current/bin/opencli"),
-            home.join(".volta/bin/opencli"),
+            home.join(".volta/bin")
+                .join(&executable_names("opencli")[0]),
             home.join(".fnm/current/bin/opencli"),
         ]);
         if let Ok(versions) = std::fs::read_dir(home.join(".nvm/versions/node")) {
@@ -255,6 +276,54 @@ pub fn parse_json(output: &CommandOutput) -> Result<serde_json::Value, String> {
 #[cfg(test)]
 mod tests {
     use super::{parse_json, CommandOutput};
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_npm_cmd_and_its_console_child_have_no_visible_console() {
+        let root = tempfile::Builder::new()
+            .prefix("npm shim ")
+            .tempdir()
+            .unwrap();
+        let shim = root.path().join("opencli.cmd");
+        use base64::Engine as _;
+        // Passively check window visibility in a real console child. Opening
+        // the CON device can itself allocate a console and is not a popup test.
+        let script: Vec<_> = super::super::process::CONSOLE_VISIBILITY_PROBE
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(script);
+        std::fs::write(&shim, format!(
+            "@echo off\r\npowershell.exe -NoProfile -NonInteractive -EncodedCommand {encoded}\r\nexit /b %errorlevel%\r\n"
+        )).unwrap();
+        let paths = std::env::join_paths([root.path()]).unwrap();
+        let executable = super::path_candidates(&paths)
+            .into_iter()
+            .find(|path| path.is_file())
+            .unwrap();
+        assert_eq!(executable, shim);
+        let cli = super::OpenCli::resolve(Some(&executable)).unwrap();
+        let output = cli.run(&[], std::time::Duration::from_secs(10)).unwrap();
+        assert_eq!(output.status, 0, "{}", output.stderr);
+        assert_eq!(output.stdout.trim(), "hidden");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_batch_stdout_stderr_and_exit_status_are_preserved() {
+        let root = tempfile::tempdir().unwrap();
+        let shim = root.path().join("opencli.cmd");
+        std::fs::write(
+            &shim,
+            "@echo off\r\necho stdout-ready\r\necho stderr-ready 1>&2\r\nexit /b 7\r\n",
+        )
+        .unwrap();
+        let cli = super::OpenCli::resolve(Some(&shim)).unwrap();
+        let output = cli.run(&[], std::time::Duration::from_secs(10)).unwrap();
+        assert_eq!(output.status, 7);
+        assert_eq!(output.stdout.trim(), "stdout-ready");
+        assert_eq!(output.stderr.trim(), "stderr-ready");
+    }
 
     #[test]
     fn command_json_parser_rejects_failed_commands_and_malformed_output() {
