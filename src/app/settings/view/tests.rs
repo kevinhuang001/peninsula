@@ -536,3 +536,51 @@ fn compact_configuration_remains_in_capsule_and_widgets_remain_first_level() {
     assert_eq!(view.component_section, ComponentSection::WidgetSwitch);
     assert!(panels.form.left() > panels.plugins.unwrap().right());
 }
+
+#[test]
+fn compact_font_size_is_a_dropdown_and_not_a_numeric_drag_field() {
+    let ctx = egui::Context::default();
+    let mut prefs = CompactPreferences::default();
+    let mut view = SettingsView {
+        section: Section::Capsule,
+        capsule_section: CapsuleSection::CompactStyle,
+        ..Default::default()
+    };
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    assert!(text_rect(&output, "字号").width() > 0.0);
+    assert!(text_rect(&output, "pt").width() > 0.0
+        || output.shapes.iter().any(|shape| matches!(&shape.shape,
+            egui::Shape::Text(text) if text.galley.job.text.contains(" pt"))));
+}
+
+#[test]
+fn settings_input_rows_do_not_draw_a_second_outer_frame() {
+    let ctx = egui::Context::default();
+    let mut input_rect = Rect::NOTHING;
+    let mut toggle_rect = Rect::NOTHING;
+    let mut text = String::from("example");
+    let mut flag = false;
+    let output = ctx.run(RawInput {
+        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 300.0))),
+        ..Default::default()
+    }, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            input_rect = ui.available_rect_before_wrap();
+            forms::input_row(ui, "输入", |ui| {
+                ui.add_sized([100.0, 22.0], egui::TextEdit::singleline(&mut text)).changed()
+            });
+            toggle_rect = ui.available_rect_before_wrap();
+            forms::boolean(ui, "开关", &mut flag);
+        });
+    });
+    let row_border = |r: Rect| output.shapes.iter().any(|shape| {
+        matches!(&shape.shape, egui::Shape::Rect(rect)
+            if rect.stroke.color == BORDER
+                && rect.rect.left() <= r.left() + 2.0
+                && rect.rect.width() > 250.0
+                && rect.rect.top() >= r.top() - 0.5
+                && rect.rect.top() <= r.top() + 48.0)
+    });
+    assert!(!row_border(input_rect));
+    assert!(row_border(toggle_rect));
+}

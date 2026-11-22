@@ -43,6 +43,26 @@ pub(super) fn row(
     label: &str,
     control: impl FnOnce(&mut egui::Ui) -> bool,
 ) -> bool {
+    row_impl(ui, label, true, control)
+}
+
+/// Editable inputs have a single visible outline: the control's own.
+/// Do not draw a second framed settings row around TextEdit, ComboBox,
+/// DragValue or other editable fields.
+pub(super) fn input_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    control: impl FnOnce(&mut egui::Ui) -> bool,
+) -> bool {
+    row_impl(ui, label, false, control)
+}
+
+fn row_impl(
+    ui: &mut egui::Ui,
+    label: &str,
+    framed: bool,
+    control: impl FnOnce(&mut egui::Ui) -> bool,
+) -> bool {
     let width = if ui.is_sizing_pass() {
         let label_width = ui
             .painter()
@@ -63,13 +83,15 @@ pub(super) fn row(
         .layout(label.into(), FontId::proportional(11.5), TEXT, label_width);
     let height = (galley.size().y + 16.0).max(36.0);
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
-    ui.painter().rect_filled(rect, 7.0, ROW);
-    ui.painter().rect_stroke(
-        rect,
-        7.0,
-        Stroke::new(1.0_f32, BORDER),
-        egui::StrokeKind::Inside,
-    );
+    if framed {
+        ui.painter().rect_filled(rect, 7.0, ROW);
+        ui.painter().rect_stroke(
+            rect,
+            7.0,
+            Stroke::new(1.0_f32, BORDER),
+            egui::StrokeKind::Inside,
+        );
+    }
     ui.painter().galley(
         egui::pos2(rect.left() + 10.0, rect.center().y - galley.size().y * 0.5),
         galley,
@@ -225,7 +247,7 @@ pub(super) fn setting_control(
     value: &mut SettingValue,
 ) -> bool {
     let old = value.clone();
-    row(ui, &field.description, |ui| {
+    let render = |ui: &mut egui::Ui| {
         match value {
             SettingValue::Boolean(v) => {
                 toggle(ui, v, &field.description);
@@ -270,7 +292,12 @@ pub(super) fn setting_control(
             SettingValue::Search(_) => {}
         }
         false
-    });
+    };
+    if matches!(value, SettingValue::Boolean(_)) {
+        row(ui, &field.description, render);
+    } else {
+        input_row(ui, &field.description, render);
+    }
     if field.validate(value).is_err() {
         *value = old;
         return false;

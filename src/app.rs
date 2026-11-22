@@ -621,7 +621,18 @@ impl eframe::App for IslandApp {
             self.extensions.widget_view(&self.active_widget, now)
         };
         let widths = widget_layout::width_range(self.screen_size().x);
-        widget_limit[0] = widget_limit[0].min(widths[1]);
+        // Month calendars have seven parallel date columns. Honor their
+        // content-derived preferred width rather than the compact default
+        // widget cap, while retaining the platform/screen width limit.
+        let width_cap = if self.active_widget.as_str() == "builtin.calendar/month" {
+            widget_view.as_ref()
+                .map(|view| view.preferred_size[0].max(widths[1]))
+                .unwrap_or(widths[1])
+                .min(1050.0)
+        } else {
+            widths[1]
+        };
+        widget_limit[0] = widget_limit[0].min(width_cap);
         let mut minimum = minimum_widget_size(self.screen_size());
         minimum.x = widths[0];
         // Retain the source Arc so pointer identity cannot be recycled. Measure

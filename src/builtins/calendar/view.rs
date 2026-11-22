@@ -35,6 +35,34 @@ fn festival_lines(names: &[String]) -> String {
         .join("\n")
 }
 
+/// Each word is kept intact whenever the display can accommodate the
+/// requested calendar width. On a genuinely narrow monitor, the renderer
+/// may still wrap instead of clipping the user's holiday text.
+const MIN_DAY_COLUMN_WIDTH: f32 = 96.0;
+const HOLIDAY_CHAR_WIDTH: f32 = 7.0;
+const DAY_PADDING_WIDTH: f32 = 26.0;
+const CALENDAR_GAP: f32 = 6.0;
+const CALENDAR_SIDE_PADDING: f32 = 24.0;
+const CAPSULE_SIDES: f32 = 44.0;
+
+fn preferred_calendar_width(month: NaiveDate, settings: &CalendarSettings) -> f32 {
+    let longest_word = model::visible_grid_dates(month)
+        .into_iter()
+        .filter(|(_, active)| *active)
+        .flat_map(|(date, _)| holiday::festivals(date, settings))
+        .flat_map(|festival| {
+            festival.split_whitespace()
+                .map(|word| word.chars().count())
+                .collect::<Vec<_>>()
+        })
+        .max()
+        .unwrap_or(0) as f32;
+    let col_width = MIN_DAY_COLUMN_WIDTH
+        .max(longest_word * HOLIDAY_CHAR_WIDTH + DAY_PADDING_WIDTH);
+    (col_width * 7.0 + CALENDAR_GAP * 6.0
+        + CALENDAR_SIDE_PADDING + CAPSULE_SIDES).ceil()
+}
+
 fn wrapped_festival(name: String, color: ColorSpec) -> ViewNode {
     ViewNode::text(name, TextStyle {
         font_size: FontSize::Custom(9.0),
@@ -194,10 +222,11 @@ pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
 
     let mut root = column(vec![header, weekday_grid, calendar_grid], 9.0);
     root.style.padding = [12.0, 12.0, 12.0, 12.0];
-    let mut widget = WidgetView::new(root, [550.0, 450.0]);
+    let requested_width = preferred_calendar_width(shown, locale);
+    let mut widget = WidgetView::new(root, [requested_width, 450.0]);
     widget.bounds = WidgetBounds {
         min: [420.0, 380.0],
-        max: [Some(900.0), None],
+        max: [Some(1050.0), None],
         resizable: true,
         fit_height: true,
         overflow: Overflow::Scroll(ScrollAxes::Vertical),
@@ -221,6 +250,22 @@ mod tests {
             "Veterans\nDay\nObservance"
         );
         assert_eq!(festival_lines(&["春节".into()]), "春节");
+    }
+
+    #[test]
+    fn a_long_english_festival_increases_month_width() {
+        let mut settings = CalendarSettings::default();
+        settings.country = "US".into();
+        settings.region = "US-NY".into();
+        let nov = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
+        let width = preferred_calendar_width(nov, &settings);
+        assert!(width >= 830.0, "Thanksgiving must fit without splitting its word");
+        let mut ext = CalendarExtension::default();
+        ext.settings = settings;
+        ext.month = Some(nov);
+        let view = build(&ext);
+        assert_eq!(view.preferred_size[0], width);
+        assert!(view.bounds.resizable);
     }
 
     #[test]

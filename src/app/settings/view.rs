@@ -1054,7 +1054,7 @@ fn notification_options(
                 if let Some(crate::extension::SettingValue::Integer(minutes)) =
                     page.values.get_mut("alert_interval_minutes")
                 {
-                    changed |= forms::row(ui, "统一最短提醒间隔", |ui| {
+                    changed |= forms::input_row(ui, "统一最短提醒间隔", |ui| {
                         ui.add(
                             egui::DragValue::new(minutes)
                                 .range(1..=10_080)
@@ -1114,7 +1114,7 @@ fn notification_options(
                                                 if *price > 0.0 { format!("{price}") }
                                                 else { String::new() }
                                             });
-                                        changed |= forms::row(ui, "目标价格", |ui| {
+                                        changed |= forms::input_row(ui, "目标价格", |ui| {
                                             let response = ui.add_sized(
                                                 [(ui.available_width() - 3.0).max(24.0), 25.0],
                                                 egui::TextEdit::singleline(draft)
@@ -1141,7 +1141,7 @@ fn notification_options(
                                     }
                                 } else if field.key == "cooldown" {
                                     if let crate::extension::SettingValue::Duration(ms) = value {
-                                        changed |= forms::row(ui, "最短提醒间隔", |ui| {
+                                        changed |= forms::input_row(ui, "最短提醒间隔", |ui| {
                                             let mut minutes = ms.div_ceil(60_000).clamp(1, 43_200);
                                             let updated = ui.add(
                                                 egui::DragValue::new(&mut minutes)
@@ -1204,7 +1204,7 @@ fn general(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
 }
 
 fn general_theme(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
-    forms::row(ui, "主题", |ui| {
+    forms::input_row(ui, "主题", |ui| {
         let mut changed = false;
         egui::ComboBox::from_id_salt("global-theme")
             .width(ui.available_width())
@@ -1221,7 +1221,7 @@ fn general_theme(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
 }
 
 fn general_accent(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
-    forms::row(ui, "强调色", |ui| {
+    forms::input_row(ui, "强调色", |ui| {
         let mut changed = false;
         let colors = super::theme::ACCENT_PRESETS;
         let selected = colors
@@ -1286,13 +1286,26 @@ fn capsule_options(
         }
         CapsuleSection::CompactStyle => {
             forms::section(ui, "Compact 文字样式");
-            changed |= forms::row(ui, "字号", |ui| {
-                ui.add(
-                    egui::DragValue::new(&mut prefs.compact_text_size)
-                        .speed(0.25)
-                        .range(8.0..=18.0)
-                        .suffix(" pt"),
-                ).changed()
+            changed |= forms::input_row(ui, "字号", |ui| {
+                let mut changed = false;
+                egui::ComboBox::from_id_salt("compact-font-size")
+                    .width(ui.available_width())
+                    .selected_text(format!("{} pt", prefs.compact_text_size))
+                    .show_ui(ui, |ui| {
+                        for size in [
+                            8.0, 9.0, 10.0, 11.0, 12.0, 13.0,
+                            14.0, 15.0, 16.0, 17.0, 18.0,
+                        ] {
+                            changed |= ui
+                                .selectable_value(
+                                    &mut prefs.compact_text_size,
+                                    size,
+                                    format!("{size} pt"),
+                                )
+                                .changed();
+                        }
+                    });
+                changed
             });
             changed |= forms::row(ui, "文字颜色", |ui| {
                 let mut follow_theme = prefs.compact_text_color.is_none();
