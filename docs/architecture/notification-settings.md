@@ -33,15 +33,20 @@ Other notifications may use their own contribution-specific fields, but the host
 
 An inactive contribution does not remain subscribed to events or schedule work as a separate consumer. Background resources needed by multiple enabled contributions are shared and are stopped once no running contribution depends on them. Enabling a notification with missing configuration does not start a background resource solely for that incomplete notification. Settings changes are validated by their declared schema, persisted atomically by the host, and reconciled with active contributions.
 
-## Capsule secondary menus
+## Capsule and Components navigation
 
-The Capsule configuration keeps its Motion, Mascot, and Compact 样式 entries. Four additional secondary menu items are **Compact 开关**, **Compact 顺序**, **Widget 开关**, and **Widget 顺序**; these are four distinct, selectable navigation entries.
+**胶囊 (Capsule)** keeps Motion, Mascot and Compact 样式, and owns two more secondary menus:
 
-- Compact 开关: Compact switches grouped by owning extension. Switching visibility does not change order.
-- Compact 顺序: sorting list containing **enabled Compact** entries only.
-- Widget 开关: Widget switches grouped by owning extension; Notification Center is not switchable.
-- Widget 顺序: sorting list containing **enabled Widget** entries only, with Notification Center permanently first.
-- Compact 样式: independent Compact typography configuration. Global widget theme remains in General settings.
+- **Compact 开关**: switches grouped by owning extension; switching does not change order.
+- **Compact 顺序**: sorting contains **enabled Compact** entries only.
+- **Compact 样式**: independent Compact typography configuration.
+
+**组件 (Components)** remains a first-level settings page, but owns **only Widget** secondary menus:
+
+- **Widget 开关**: switches grouped by owning extension; Notification Center cannot be disabled.
+- **Widget 顺序**: sorting contains **enabled Widget** entries only; Notification Center stays first.
+
+Widget theme and accent configuration remain in General settings.
 
 Disabled contributions retain their saved position, but do not appear in order lists.
 

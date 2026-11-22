@@ -28,43 +28,44 @@ enum CapsuleSection {
     Motion,
     Mascot,
     CompactStyle,
+    CompactSwitch,
+    CompactOrder,
 }
 
 impl CapsuleSection {
-    const ALL: [Self; 3] = [Self::Motion, Self::Mascot, Self::CompactStyle];
+    const ALL: [Self; 5] = [
+        Self::Motion,
+        Self::Mascot,
+        Self::CompactStyle,
+        Self::CompactSwitch,
+        Self::CompactOrder,
+    ];
 
     fn label(self) -> &'static str {
         match self {
             Self::Motion => "动态效果",
             Self::Mascot => "Mascot",
             Self::CompactStyle => "Compact 样式",
+            Self::CompactSwitch => "Compact 开关",
+            Self::CompactOrder => "Compact 顺序",
         }
     }
 }
 
-/// Compact and Widget visibility/ordering live in the first-level 组件 menu,
-/// separate from appearance and Mascot controls in 胶囊.
+/// Widget switches and ordering remain under the first-level 组件 menu.
+/// Compact controls and typography belong in 胶囊.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 enum ComponentSection {
     #[default]
-    CompactSwitch,
-    CompactOrder,
     WidgetSwitch,
     WidgetOrder,
 }
 
 impl ComponentSection {
-    const ALL: [Self; 4] = [
-        Self::CompactSwitch,
-        Self::CompactOrder,
-        Self::WidgetSwitch,
-        Self::WidgetOrder,
-    ];
+    const ALL: [Self; 2] = [Self::WidgetSwitch, Self::WidgetOrder];
 
     fn label(self) -> &'static str {
         match self {
-            Self::CompactSwitch => "Compact 开关",
-            Self::CompactOrder => "Compact 顺序",
             Self::WidgetSwitch => "Widget 开关",
             Self::WidgetOrder => "Widget 顺序",
         }
@@ -1275,18 +1276,7 @@ fn capsule_options(
             });
         }
 
-    }
-    changed
-}
-
-fn component_options(
-    ui: &mut egui::Ui,
-    prefs: &mut CompactPreferences,
-    section: ComponentSection,
-) -> bool {
-    let mut changed = false;
-    match section {
-        ComponentSection::CompactSwitch => {
+        CapsuleSection::CompactSwitch => {
             forms::section(ui, "Compact 开关");
             for (group, entries) in contribution_groups(prefs, ContributionKind::Compact) {
                 forms::section(ui, &group);
@@ -1300,7 +1290,7 @@ fn component_options(
                 }
             }
         }
-        ComponentSection::CompactOrder => {
+        CapsuleSection::CompactOrder => {
             forms::section(ui, "Compact 顺序（仅已开启）");
             let active: Vec<_> = prefs.ordered_compact_items()
                 .into_iter().filter(|item| item.enabled)
@@ -1322,6 +1312,17 @@ fn component_options(
                 }
             }
         }
+    }
+    changed
+}
+
+fn component_options(
+    ui: &mut egui::Ui,
+    prefs: &mut CompactPreferences,
+    section: ComponentSection,
+) -> bool {
+    let mut changed = false;
+    match section {
         ComponentSection::WidgetSwitch => {
             forms::section(ui, "Widget 开关");
             ui.label(
