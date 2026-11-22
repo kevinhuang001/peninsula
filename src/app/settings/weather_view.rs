@@ -215,7 +215,7 @@ pub(super) fn show(
             Align2::LEFT_CENTER,
             truncate(error, 38),
             FontId::proportional(9.5),
-            Color32::from_rgb(255, 118, 128),
+            crate::ui::palette::TextPalette::DARK.danger,
         );
     } else if search.searched && search.results.is_empty() {
         ui.painter().text(
