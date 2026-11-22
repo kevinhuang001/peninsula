@@ -1,8 +1,8 @@
 # 日历扩展 / Calendar (内置)
 
 ## 设置规约
-- 扩展 ID：`builtin.calendar`；三类贡献：`month` Widget、`today` Compact、`holidays` Notification。
-- 设置使用宿主声明式表单，`country` 按 ISO 3166-1 两位代码保存；`region` 使用 `CN-BJ` / `CN-SH` / `CN-HK` / `CN-TW` / `US-NY` / `US-CA` / `CA-ON` / `AU-NSW` 等地区代码；地区选择影响 IANA 时区，节日库按国家级规则提供公共假日。国家与地区不匹配时采用对应国家的默认时区。
+- 扩展 ID：`builtin.calendar`；四类贡献：`month` Widget、`time` Compact、`today` Compact、`holidays` Notification。
+- 时间日期与日历合并为一个扩展（`builtin.calendar`），包含独立的时间 Compact、日期 Compact、月历 Widget、节日提醒。国家、地区输入框已删除：`iana-time-zone` 读取系统时区，自动识别当地日期与节日。
 - 中国地区可选显示农历，使用 `lunar-lite` 阳历转农历；非中国地区默认只显示公历。公历日期始终显示在大号行。
 - 节日第一优先级：月历格子在任何有节日的日期显示节日名，**不显示农历日期**。普通日期在开启农历时显示“初十、十六”等农历信息。
 - 中国传统节日含春节、除夕、元宵节、端午节、七夕节、中秋节、重阳节、腊八节等，由现成农历库计算日期后匹配节日规则。其它支持国家由 `holidays-rs` 提供法定公共假日的日期与名称。

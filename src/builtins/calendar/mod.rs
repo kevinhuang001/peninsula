@@ -1,3 +1,4 @@
+mod clock;
 mod holiday;
 mod model;
 mod view;
@@ -50,6 +51,8 @@ pub struct CalendarExtension {
     month: Option<NaiveDate>,
     selected: Option<NaiveDate>,
     last_view_day: Option<NaiveDate>,
+    twelve_hour: bool,
+    show_date: bool,
     reminder_settings: Settings,
     reminder_context: Option<ExtensionContext>,
     sent: SentHistory,
@@ -141,10 +144,10 @@ impl RuntimeExtension for CalendarExtension {
         let widget = ContributionDescriptor::builtin(
             WIDGET_ID, ContributionKind::Widget, "日历", "calendar", true, 4,
         )
-        .with_size_hint(550.0, 550.0)
+        .with_size_hint(550.0, 465.0)
         .with_widget_bounds(crate::ui::declarative::WidgetBounds {
-            min: [420.0, 460.0],
-            max: [Some(800.0), Some(780.0)],
+            min: [420.0, 390.0],
+            max: [Some(900.0), None],
             fit_height: true, resizable: true,
             ..Default::default()
         });
@@ -161,19 +164,30 @@ impl RuntimeExtension for CalendarExtension {
             SettingSchema::new("minute", SettingValue::Integer(0), "分钟").range(0.0, 59.0),
         ]);
         let mut descriptor = ExtensionDescriptor::builtin(
-            ID, "日历", "公历、农历、国际节日与节日提醒",
-            vec![widget, compact, reminders],
+            ID, "日历与时间", "本地时间、公历、农历、节日与提醒",
+            vec![widget, compact, clock::clock_descriptor(), reminders],
         );
         descriptor.execution_policy = ExecutionPolicy::EventDriven;
+        descriptor.settings_version = 2;
         descriptor.settings = vec![
-            enum_field("country", "国家（ISO 3166）", "CN", &["CN", "US", "GB", "DE", "FR", "CA", "AU", "ID"]),
-            enum_field("region", "地区／时区", "CN-BJ", &[
-                "默认", "CN-BJ", "CN-SH", "CN-HK", "CN-TW",
-                "US-NY", "US-CA", "CA-ON", "AU-NSW",
-            ]),
             SettingSchema::new("show_lunar", SettingValue::Boolean(true), "中国地区显示农历"),
+            SettingSchema::new("twelve_hour", SettingValue::Boolean(false), "12 小时制"),
+            SettingSchema::new("show_date", SettingValue::Boolean(false), "时间旁显示日期"),
         ];
         descriptor
+    }
+
+    fn migrate_settings(
+        &self, id: &ExtensionId, old_version: u32, mut values: Settings,
+    ) -> Result<Settings, String> {
+        // Removing the country/region fields must not strand an existing
+        // calendar installation with an invalid saved settings record.
+        if id.as_str() == ID && old_version == 1 {
+            values.remove("country");
+            values.remove("region");
+            return Ok(values);
+        }
+        Err(format!("Unsupported settings version {old_version}"))
     }
 
     fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
@@ -201,7 +215,7 @@ impl RuntimeExtension for CalendarExtension {
     }
 
     fn compact_refresh_interval(&self) -> Option<Duration> {
-        Some(Duration::from_secs(60))
+        Some(Duration::from_secs(1))
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
@@ -209,7 +223,7 @@ impl RuntimeExtension for CalendarExtension {
         let label = holiday::day_subtitle(today, &self.settings);
         let text = label.map_or_else(|| today.format("%m/%d").to_string(),
             |event| format!("{}/{}  {event}", today.month(), today.day()));
-        vec![CompactView {
+        let date = CompactView {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(COMPACT_ID),
             content: ViewNode::compact(
@@ -223,7 +237,8 @@ impl RuntimeExtension for CalendarExtension {
             fit_width: true,
             priority: 0,
             tooltip: Some(format!("{} · {}", today, self.settings.country_label())),
-        }]
+        };
+        vec![clock::compact_view(self.twelve_hour, self.show_date), date]
     }
 
     fn on_action(&mut self, action: Action, _: Instant) -> ExtensionOutput {
@@ -257,11 +272,14 @@ impl RuntimeExtension for CalendarExtension {
     fn on_settings_changed(&mut self, _: &ExtensionContext, _: &ExtensionId,
         values: &Settings, _: ReloadPolicy) -> ExtensionOutput {
         self.settings.apply(values);
+        self.twelve_hour = matches!(values.get("twelve_hour"), Some(SettingValue::Boolean(true)));
+        self.show_date = matches!(values.get("show_date"), Some(SettingValue::Boolean(true)));
         if let Some(context) = &self.reminder_context {
             context.schedule_at(TICK, Instant::now());
         }
         ExtensionOutput { invalidated: vec![
-            ExtensionId::builtin(WIDGET_ID), ExtensionId::builtin(COMPACT_ID)
+            ExtensionId::builtin(WIDGET_ID), ExtensionId::builtin(COMPACT_ID),
+            ExtensionId::builtin(clock::CLOCK_ID)
         ], ..Default::default() }
     }
 
@@ -324,11 +342,14 @@ mod tests {
     #[test]
     fn descriptor_has_independent_widget_compact_and_notification_controls() {
         let d = CalendarExtension::default().descriptor();
-        assert_eq!(d.contributions.len(), 3);
-        assert_eq!(d.contributions[2].kind, ContributionKind::Notification);
-        assert_eq!(d.contributions[2].settings.len(), 3);
-        assert!(d.settings.iter().any(|field| field.key == "country"));
-        assert!(d.settings.iter().any(|field| field.key == "region"));
+        assert_eq!(d.contributions.len(), 4);
+        assert!(d.contributions.iter().any(|entry|
+            entry.id.as_str() == "builtin.calendar/time"
+            && entry.kind == ContributionKind::Compact));
+        assert_eq!(d.contributions[3].kind, ContributionKind::Notification);
+        assert_eq!(d.contributions[3].settings.len(), 3);
+        assert_eq!(d.settings.len(), 3);
+        assert!(d.settings.iter().all(|field| field.key != "country" && field.key != "region"));
     }
     #[test]
     fn festival_reminder_fires_on_local_clock_the_day_before_and_deduplicates() {
@@ -337,6 +358,7 @@ mod tests {
         calendar.reminder_settings.insert("when".into(), SettingValue::Enum("前一天".into()));
         calendar.reminder_settings.insert("hour".into(), SettingValue::Integer(18));
         calendar.reminder_settings.insert("minute".into(), SettingValue::Integer(30));
+        calendar.settings = CalendarSettings::for_timezone("Asia/Shanghai");
         // 2026-02-16 10:30 UTC is 18:30 in China, one day before 春节.
         let now = Utc.with_ymd_and_hms(2026, 2, 16, 10, 30, 0).single().unwrap();
         let alerts = calendar.check_due(now);

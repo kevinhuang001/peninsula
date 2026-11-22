@@ -1,7 +1,6 @@
 mod calendar;
 mod device;
 pub mod bilibili;
-mod clock;
 pub mod download;
 mod health;
 pub mod kuaidi;
@@ -74,7 +73,6 @@ pub fn runtimes() -> Vec<Box<dyn RuntimeExtension>> {
         )),
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         Box::new(music::MusicExtension::default()),
-        Box::new(clock::ClockExtension::default()),
         Box::new(device::DeviceExtension::default()),
         Box::new(crate::core::datasource::DataSourceCatalog),
     ]

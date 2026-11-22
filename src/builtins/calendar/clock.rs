@@ -1,11 +1,11 @@
 use crate::extension::{
-    CompactView, ContributionDescriptor, ContributionKind, ExtensionId, RuntimeExtension,
+    CompactView, ContributionDescriptor, ContributionKind, ExtensionId,
 };
 use crate::ui::declarative::{ColorSpec, CompactLayout, ViewNode};
 
-const CLOCK_ID: &str = "builtin.clock/time";
+pub(super) const CLOCK_ID: &str = "builtin.calendar/time";
 
-fn clock_descriptor() -> ContributionDescriptor {
+pub(super) fn clock_descriptor() -> ContributionDescriptor {
     ContributionDescriptor::builtin(
         CLOCK_ID,
         ContributionKind::Compact,
@@ -17,77 +17,26 @@ fn clock_descriptor() -> ContributionDescriptor {
     .with_size_hint(64.0, 28.0)
 }
 
-#[derive(Default)]
-pub struct ClockExtension {
-    twelve_hour: bool,
-    show_date: bool,
-}
 
-impl crate::extension::NotificationPresentationProvider for ClockExtension {}
-
-impl RuntimeExtension for ClockExtension {
-    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
-        let mut d = crate::extension::ExtensionDescriptor::builtin(
-            "builtin.clock",
-            "时间和日期",
-            "本地时间与日期",
-            vec![clock_descriptor()],
-        );
-        d.execution_policy = crate::extension::ExecutionPolicy::EventDriven;
-        d.settings = vec![
-            crate::extension::SettingSchema::new(
-                "twelve_hour",
-                crate::extension::SettingValue::Boolean(false),
-                "12 小时制",
-            ),
-            crate::extension::SettingSchema::new(
-                "show_date",
-                crate::extension::SettingValue::Boolean(false),
-                "显示日期",
-            ),
-        ];
-        d
-    }
-    fn on_settings_changed(
-        &mut self,
-        _: &crate::extension::ExtensionContext,
-        _: &ExtensionId,
-        settings: &crate::extension::Settings,
-        _: crate::extension::ReloadPolicy,
-    ) -> crate::extension::ExtensionOutput {
-        self.twelve_hour =
-            settings.get("twelve_hour") == Some(&crate::extension::SettingValue::Boolean(true));
-        self.show_date =
-            settings.get("show_date") == Some(&crate::extension::SettingValue::Boolean(true));
-        crate::extension::ExtensionOutput {
-            invalidated: vec![ExtensionId::builtin(CLOCK_ID)],
-            ..Default::default()
-        }
-    }
-
-    fn compact_refresh_interval(&self) -> Option<std::time::Duration> {
-        Some(std::time::Duration::from_secs(1))
-    }
-
-    fn compact_views(&self) -> Vec<CompactView> {
+pub(super) fn compact_view(twelve_hour: bool, show_date: bool) -> CompactView {
         let time =
             time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-        vec![CompactView {
+        CompactView {
             id: ExtensionId::builtin(CLOCK_ID),
             source_extension_id: ExtensionId::builtin(CLOCK_ID),
             content: ViewNode::compact(
                 ViewNode::svg(clock_svg(time.hour(), time.minute()), 18.0)
                     .color(ColorSpec::Warning),
-                super::compact_value(
+                super::super::compact_value(
                     format!(
                         "{:02}:{:02}{}{}",
-                        if self.twelve_hour {
+                        if twelve_hour {
                             (time.hour() + 11) % 12 + 1
                         } else {
                             time.hour()
                         },
                         time.minute(),
-                        if self.twelve_hour {
+                        if twelve_hour {
                             if time.hour() >= 12 {
                                 " PM"
                             } else {
@@ -96,7 +45,7 @@ impl RuntimeExtension for ClockExtension {
                         } else {
                             ""
                         },
-                        if self.show_date {
+                        if show_date {
                             format!("  {:02}-{:02}", u8::from(time.month()), time.day())
                         } else {
                             String::new()
@@ -116,10 +65,8 @@ impl RuntimeExtension for ClockExtension {
             fit_width: true,
             priority: 0,
             tooltip: None,
-        }]
+        }
     }
-}
-
 fn clock_angles(hour: u8, minute: u8) -> [f32; 2] {
     let turn = std::f32::consts::TAU;
     let noon = -std::f32::consts::FRAC_PI_2;
