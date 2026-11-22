@@ -1,0 +1,320 @@
+mod holiday;
+mod model;
+mod view;
+
+use chrono::{Datelike, NaiveDate, Timelike, Utc};
+use crate::{
+    extension::{
+        Action, Capability, CompactView, ContributionDescriptor, ContributionKind, Event,
+        ExecutionPolicy, ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionOutput,
+        Notification, NotificationPresentationProvider, NotificationPriority, ReloadPolicy,
+        RuntimeExtension, SettingSchema, SettingValue, Settings, WidgetView,
+    },
+    ui::declarative::{ColorSpec, CompactLayout, ViewNode},
+};
+use model::CalendarSettings;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs, io::Write,
+    path::PathBuf,
+    time::{Duration, Instant, SystemTime},
+};
+
+const ID: &str = "builtin.calendar";
+const WIDGET_ID: &str = "builtin.calendar/month";
+const COMPACT_ID: &str = "builtin.calendar/today";
+const NOTIFICATION_ID: &str = "builtin.calendar/holidays";
+const TICK: &str = "calendar-reminder-check";
+
+fn enum_field(key: &str, label: &str, default: &str, choices: &[&str]) -> SettingSchema {
+    let mut field = SettingSchema::new(
+        key, SettingValue::Enum(default.to_owned()), label,
+    );
+    field.options = choices.iter().map(|choice| (*choice).into()).collect();
+    field
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct SentHistory {
+    #[serde(default)]
+    sent: BTreeSet<String>,
+}
+
+/// One extension owns all date views and the optional holiday reminder.
+/// No timer or background service remains active when its contribution stops.
+#[derive(Default)]
+pub struct CalendarExtension {
+    settings: CalendarSettings,
+    month: Option<NaiveDate>,
+    selected: Option<NaiveDate>,
+    reminder_settings: Settings,
+    reminder_context: Option<ExtensionContext>,
+    sent: SentHistory,
+    store: Option<PathBuf>,
+}
+
+impl CalendarExtension {
+    fn persist(&self) -> Result<(), String> {
+        let Some(path) = &self.store else { return Ok(()); };
+        let parent = path.parent().ok_or("invalid calendar data path")?;
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+        serde_json::to_writer(&mut temp, &self.sent).map_err(|e| e.to_string())?;
+        temp.flush().map_err(|e| e.to_string())?;
+        temp.as_file().sync_all().map_err(|e| e.to_string())?;
+        temp.persist(path).map_err(|e| e.error.to_string())?;
+        Ok(())
+    }
+
+    fn remind_mode(&self) -> bool {
+        matches!(self.reminder_settings.get("when"),
+            Some(SettingValue::Enum(value)) if value == "前一天")
+    }
+
+    fn reminder_hour_minute(&self) -> (u32, u32) {
+        let hour = match self.reminder_settings.get("hour") {
+            Some(SettingValue::Integer(value)) => (*value).clamp(0, 23) as u32,
+            _ => 9,
+        };
+        let minute = match self.reminder_settings.get("minute") {
+            Some(SettingValue::Integer(value)) => (*value).clamp(0, 59) as u32,
+            _ => 0,
+        };
+        (hour, minute)
+    }
+
+    fn check_due(&mut self, now: chrono::DateTime<chrono::Utc>) -> Vec<Notification> {
+        let civil = now.with_timezone(&self.settings.timezone());
+        let (hour, minute) = self.reminder_hour_minute();
+        if civil.hour() != hour || civil.minute() != minute {
+            return vec![];
+        }
+        let advance = self.remind_mode();
+        let target = civil.date_naive() + chrono::Duration::days(if advance { 1 } else { 0 });
+        let festivals = holiday::festivals(target, &self.settings);
+        let mut emitted = vec![];
+        for name in festivals {
+            let key = format!("{}:{}:{}", target, if advance { "eve" } else { "day" }, name);
+            if !self.sent.sent.insert(key.clone()) {
+                continue;
+            }
+            emitted.push(Notification {
+                source_id: ExtensionId::builtin(NOTIFICATION_ID),
+                id: key,
+                title: if advance { format!("明天是{name}") } else { format!("今天是{name}") },
+                body: format!("{} · {}。祝你节日快乐！", target, self.settings.country_label()),
+                icon: Some("calendar".into()),
+                priority: NotificationPriority::Normal,
+                actions: vec![],
+                created_at: SystemTime::now(),
+            });
+        }
+        // Keep one year of de-duplication keys, including over app restarts.
+        let cutoff = (target - chrono::Duration::days(370)).format("%Y-%m-%d").to_string();
+        self.sent.sent.retain(|key| key.as_str() >= cutoff.as_str());
+        if !emitted.is_empty() {
+            if let Err(error) = self.persist() {
+                eprintln!("calendar reminder history not saved: {error}");
+            }
+        }
+        emitted
+    }
+
+    fn schedule_next(context: &ExtensionContext) {
+        // Twenty seconds safely catches a target minute despite scheduling
+        // jitter and survives a daylight-saving offset transition.
+        context.schedule_at(TICK, Instant::now() + Duration::from_secs(20));
+    }
+}
+
+impl NotificationPresentationProvider for CalendarExtension {
+    fn handles_notification(&self, id: &ExtensionId) -> bool {
+        id.as_str() == NOTIFICATION_ID
+    }
+}
+
+impl RuntimeExtension for CalendarExtension {
+    fn descriptor(&self) -> ExtensionDescriptor {
+        let widget = ContributionDescriptor::builtin(
+            WIDGET_ID, ContributionKind::Widget, "日历", "calendar", true, 4,
+        )
+        .with_size_hint(550.0, 550.0)
+        .with_widget_bounds(crate::ui::declarative::WidgetBounds {
+            min: [420.0, 460.0],
+            max: [Some(800.0), Some(780.0)],
+            fit_height: true, resizable: true,
+            ..Default::default()
+        });
+        let compact = ContributionDescriptor::builtin(
+            COMPACT_ID, ContributionKind::Compact, "日期", "calendar", false, 9,
+        ).with_size_hint(105.0, 28.0);
+        let reminders = ContributionDescriptor::builtin(
+            NOTIFICATION_ID, ContributionKind::Notification, "节日提醒", "calendar", false, 9,
+        )
+        .with_capabilities(vec![Capability::Event, Capability::Schedule])
+        .with_settings(1, vec![
+            enum_field("when", "提醒时间", "当天", &["前一天", "当天"]),
+            SettingSchema::new("hour", SettingValue::Integer(9), "小时（24 小时制）").range(0.0, 23.0),
+            SettingSchema::new("minute", SettingValue::Integer(0), "分钟").range(0.0, 59.0),
+        ]);
+        let mut descriptor = ExtensionDescriptor::builtin(
+            ID, "日历", "公历、农历、国际节日与节日提醒",
+            vec![widget, compact, reminders],
+        );
+        descriptor.execution_policy = ExecutionPolicy::EventDriven;
+        descriptor.settings = vec![
+            enum_field("country", "国家（ISO 3166）", "CN", &["CN", "US", "GB", "DE", "FR", "CA", "AU", "ID"]),
+            enum_field("region", "地区／时区", "CN-BJ", &[
+                "默认", "CN-BJ", "CN-SH", "CN-HK", "CN-TW",
+                "US-NY", "US-CA", "CA-ON", "AU-NSW",
+            ]),
+            SettingSchema::new("show_lunar", SettingValue::Boolean(true), "中国地区显示农历"),
+        ];
+        descriptor
+    }
+
+    fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
+        let path = ctx.extension_data_dir(&ExtensionId::builtin(ID)).join("calendar-reminders.json");
+        match fs::read(&path) {
+            Ok(bytes) => {
+                self.sent = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+        self.store = Some(path);
+        Ok(())
+    }
+
+    fn on_stop(&mut self, _: &ExtensionContext) -> Result<(), String> {
+        let saved = self.persist();
+        self.reminder_context = None;
+        self.store = None;
+        saved
+    }
+
+    fn widget_view(&self, id: &ExtensionId) -> Option<WidgetView> {
+        (id.as_str() == WIDGET_ID).then(|| view::build(self))
+    }
+
+    fn compact_refresh_interval(&self) -> Option<Duration> {
+        Some(Duration::from_secs(60))
+    }
+
+    fn compact_views(&self) -> Vec<CompactView> {
+        let today = self.settings.today();
+        let label = holiday::day_subtitle(today, &self.settings);
+        let text = label.map_or_else(|| today.format("%m/%d").to_string(),
+            |event| format!("{}/{}  {event}", today.month(), today.day()));
+        vec![CompactView {
+            id: ExtensionId::builtin(COMPACT_ID),
+            source_extension_id: ExtensionId::builtin(COMPACT_ID),
+            content: ViewNode::compact(
+                ViewNode::icon("calendar", 17.0).color(ColorSpec::Accent),
+                super::compact_value(text, false),
+                CompactLayout { leading_size: [18.0, 20.0], gap: 5.0, ..Default::default() },
+            ),
+            visibility: Default::default(),
+            min_width: 80.0,
+            preferred_width: 122.0,
+            fit_width: true,
+            priority: 0,
+            tooltip: Some(format!("{} · {}", today, self.settings.country_label())),
+        }]
+    }
+
+    fn on_action(&mut self, action: Action, _: Instant) -> ExtensionOutput {
+        let today = self.settings.today();
+        let current = self.month.unwrap_or_else(|| model::start_month(today));
+        match action {
+            Action::Custom(ref s) if s == "calendar:previous" => {
+                self.month = Some(model::shift_month(current, -1));
+            }
+            Action::Custom(ref s) if s == "calendar:next" => {
+                self.month = Some(model::shift_month(current, 1));
+            }
+            Action::Custom(ref s) if s == "calendar:today" => {
+                self.month = Some(model::start_month(today));
+                self.selected = Some(today);
+            }
+            Action::Custom(ref s) if s.starts_with("calendar:select:") => {
+                if let Ok(date) = NaiveDate::parse_from_str(&s["calendar:select:".len()..], "%Y-%m-%d") {
+                    self.selected = Some(date);
+                }
+            }
+            _ => return ExtensionOutput::default(),
+        }
+        ExtensionOutput { invalidated: vec![ExtensionId::builtin(WIDGET_ID)], ..Default::default() }
+    }
+
+    fn on_settings_changed(&mut self, _: &ExtensionContext, _: &ExtensionId,
+        values: &Settings, _: ReloadPolicy) -> ExtensionOutput {
+        self.settings.apply(values);
+        if let Some(context) = &self.reminder_context {
+            context.schedule_at(TICK, Instant::now());
+        }
+        ExtensionOutput { invalidated: vec![
+            ExtensionId::builtin(WIDGET_ID), ExtensionId::builtin(COMPACT_ID)
+        ], ..Default::default() }
+    }
+
+    fn on_contribution_start(&mut self, ctx: &ExtensionContext, id: &ExtensionId) -> Result<(), String> {
+        if id.as_str() == NOTIFICATION_ID {
+            self.reminder_context = Some(ctx.clone());
+            ctx.schedule_at(TICK, Instant::now());
+        }
+        Ok(())
+    }
+
+    fn on_contribution_stop(&mut self, ctx: &ExtensionContext, id: &ExtensionId) -> Result<(), String> {
+        if id.as_str() == NOTIFICATION_ID {
+            ctx.cancel_task(TICK);
+            self.reminder_context = None;
+        }
+        Ok(())
+    }
+
+    fn on_contribution_state(&mut self, _: &ExtensionContext,
+        active: &BTreeMap<ExtensionId, Settings>) {
+        let id = ExtensionId::builtin(NOTIFICATION_ID);
+        self.reminder_settings = active.get(&id).cloned().unwrap_or_default();
+        if let Some(ctx) = &self.reminder_context {
+            ctx.schedule_at(TICK, Instant::now());
+        }
+    }
+
+    fn on_contribution_event(&mut self, ctx: &ExtensionContext,
+        id: &ExtensionId, event: &Event, _: Instant) -> ExtensionOutput {
+        if id.as_str() != NOTIFICATION_ID || event != &Event::Custom(TICK.to_owned()) {
+            return ExtensionOutput::default();
+        }
+        let notifications = self.check_due(Utc::now());
+        Self::schedule_next(ctx);
+        ExtensionOutput { notifications, ..Default::default() }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn descriptor_has_independent_widget_compact_and_notification_controls() {
+        let d = CalendarExtension::default().descriptor();
+        assert_eq!(d.contributions.len(), 3);
+        assert_eq!(d.contributions[2].kind, ContributionKind::Notification);
+        assert_eq!(d.contributions[2].settings.len(), 3);
+        assert!(d.settings.iter().any(|field| field.key == "country"));
+        assert!(d.settings.iter().any(|field| field.key == "region"));
+    }
+    #[test]
+    fn mode_and_time_are_independent_of_calendar_navigation() {
+        let mut calendar = CalendarExtension::default();
+        calendar.reminder_settings.insert("when".into(), SettingValue::Enum("前一天".into()));
+        calendar.reminder_settings.insert("hour".into(), SettingValue::Integer(18));
+        calendar.reminder_settings.insert("minute".into(), SettingValue::Integer(30));
+        calendar.on_action(Action::Custom("calendar:next".into()), Instant::now());
+        assert!(calendar.remind_mode());
+        assert_eq!(calendar.reminder_hour_minute(), (18, 30));
+    }
+}
