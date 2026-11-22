@@ -249,7 +249,12 @@ impl DurationUnit {
 }
 
 impl DataSourceWindow {
-    pub fn show(&mut self, context: &egui::Context, manager: &mut DataSourceManager) {
+    pub fn show(
+        &mut self,
+        context: &egui::Context,
+        manager: &mut DataSourceManager,
+        preferences: &mut super::settings::CompactPreferences,
+    ) {
         let requested = context
             .data_mut(|data| data.remove_temp::<bool>(egui::Id::new(OPEN_REQUEST_ID)))
             .unwrap_or(false);
@@ -282,14 +287,14 @@ impl DataSourceWindow {
                         .collapsible(false)
                         .default_size(Vec2::new(900.0, 640.0))
                         .show(context, |ui| {
-                            self.content(ui, manager);
+                            self.content(ui, manager, preferences);
                         });
                     !open
                 } else {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::central_panel(&context.style()).inner_margin(16.0))
                         .show(context, |ui| {
-                            self.content(ui, manager);
+                            self.content(ui, manager, preferences);
                         });
                     false
                 }
@@ -300,7 +305,12 @@ impl DataSourceWindow {
         }
     }
 
-    fn content(&mut self, ui: &mut egui::Ui, manager: &mut DataSourceManager) {
+    fn content(
+        &mut self,
+        ui: &mut egui::Ui,
+        manager: &mut DataSourceManager,
+        preferences: &mut super::settings::CompactPreferences,
+    ) {
         if ui.visuals().dark_mode {
             let visuals = ui.visuals_mut();
             visuals.extreme_bg_color = Color32::from_rgb(31, 37, 46);
@@ -378,7 +388,7 @@ impl DataSourceWindow {
                             .auto_shrink([false; 2])
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                self.source_detail(ui, &selected, manager);
+                                self.source_detail(ui, &selected, manager, preferences);
                             });
                     } else {
                         ui.vertical_centered(|ui| {
@@ -470,6 +480,7 @@ impl DataSourceWindow {
         ui: &mut egui::Ui,
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
+        preferences: &mut super::settings::CompactPreferences,
     ) {
         ui.horizontal(|ui| {
             if let Some(icon) = manager.icon_texture(&source.id) {
@@ -523,7 +534,7 @@ impl DataSourceWindow {
         ui.add_space(12.0);
         self.inputs_form(ui, source, manager);
         ui.add_space(12.0);
-        self.runtime_settings(ui, source, manager);
+        self.runtime_settings(ui, source, manager, preferences);
         ui.add_space(12.0);
         if let Some(error) = &source.last_error {
             ui.colored_label(egui::Color32::from_rgb(239, 132, 112), error);
@@ -710,6 +721,7 @@ impl DataSourceWindow {
         ui: &mut egui::Ui,
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
+        preferences: &mut super::settings::CompactPreferences,
     ) {
         section_title(ui, "运行设置", "");
         egui::Grid::new(("datasource-runtime-settings", &source.id))
@@ -727,6 +739,29 @@ impl DataSourceWindow {
                     Duration::from_secs(24 * 60 * 60),
                 );
                 ui.end_row();
+                if let Ok(id) = crate::extension::ExtensionId::new(
+                    format!("datasource/{}/notification", source.id),
+                ) {
+                    if let Some(crate::extension::SettingValue::Duration(ms)) =
+                        preferences.contribution_values.get_mut(&id)
+                            .and_then(|values| values.get_mut("cooldown"))
+                    {
+                        form_surface(ui).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("最短提醒间隔");
+                                let mut minutes = (*ms).div_ceil(60_000).clamp(1, 43_200);
+                                if ui.add(
+                                    egui::DragValue::new(&mut minutes)
+                                        .range(1..=43_200)
+                                        .suffix(" 分钟"),
+                                ).changed() {
+                                    *ms = minutes * 60_000;
+                                }
+                            });
+                        });
+                        ui.end_row();
+                    }
+                }
             });
     }
 

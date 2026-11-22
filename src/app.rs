@@ -1001,7 +1001,18 @@ impl eframe::App for IslandApp {
             }
         }
 
-        self.datasource_window.show(context, &mut self.datasources);
+        self.datasource_window
+            .show(context, &mut self.datasources, &mut self.preferences);
+        // The datasource detail and Notifications screens edit one settings
+        // record. Propagate detail edits to the running contribution host.
+        for (id, values) in self.preferences.contribution_values.clone() {
+            if self.extensions.configured_contribution_settings(&id) != Some(&values) {
+                if let Err(error) = self.extensions.update_contribution_settings(&id, values) {
+                    eprintln!("Unable to update contribution settings: {error}");
+                }
+            }
+        }
+        self.datasources.apply_contributions(&self.extensions);
 
         if self.settings_open {
             for request in self.settings_view.take_due_searches(&self.preferences, now) {
