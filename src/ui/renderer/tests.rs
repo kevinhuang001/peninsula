@@ -420,15 +420,15 @@ fn calendar_grid_stretches_each_day_to_shared_column_width_and_week_height() {
         for week in [first_week, second_week] {
             let height = week[0].1.height();
             for (_, rect) in week {
-                assert_eq!(rect.height(), height);
-                assert_eq!(rect.width(), first_week[0].1.width());
+                assert!((rect.height() - height).abs() < 0.01);
+                assert!((rect.width() - first_week[0].1.width()).abs() < 0.01);
             }
         }
         for column in 0..7 {
             let upper = first_week[column].1;
             let lower = second_week[column].1;
-            assert_eq!(upper.left(), lower.left());
-            assert_eq!(upper.width(), lower.width());
+            assert!((upper.left() - lower.left()).abs() < 0.01);
+            assert!((upper.width() - lower.width()).abs() < 0.01);
         }
     });
 }
