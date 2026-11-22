@@ -27,17 +27,25 @@ enum CapsuleSection {
     #[default]
     Motion,
     Mascot,
-    Compact,
-    Widgets,
+    CompactStyle,
+    Switches,
+    Order,
 }
 impl CapsuleSection {
-    const ALL: [Self; 4] = [Self::Motion, Self::Mascot, Self::Compact, Self::Widgets];
+    const ALL: [Self; 5] = [
+        Self::Motion,
+        Self::Mascot,
+        Self::CompactStyle,
+        Self::Switches,
+        Self::Order,
+    ];
     fn label(self) -> &'static str {
         match self {
             Self::Motion => "动态效果",
             Self::Mascot => "Mascot",
-            Self::Compact => "Compact",
-            Self::Widgets => "Widget",
+            Self::CompactStyle => "Compact 样式",
+            Self::Switches => "开关",
+            Self::Order => "顺序",
         }
     }
 }
@@ -979,7 +987,27 @@ fn notification_options(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bo
                     for field in &entry.settings {
                         if let Some(value) = values.get_mut(&field.key) {
                             ui.push_id(&field.key, |ui| {
-                                changed |= forms::setting_control(ui, field, value);
+                                if field.key == "cooldown" {
+                                    if let crate::extension::SettingValue::Duration(ms) = value {
+                                        changed |= forms::row(ui, "最短提醒间隔", |ui| {
+                                            let mut minutes = ms.div_ceil(60_000).clamp(1, 43_200);
+                                            let updated = ui.add(
+                                                egui::DragValue::new(&mut minutes)
+                                                    .range(1..=43_200)
+                                                    .speed(1)
+                                                    .suffix(" 分钟"),
+                                            ).changed();
+                                            if updated {
+                                                *ms = minutes * 60_000;
+                                            }
+                                            updated
+                                        });
+                                    } else {
+                                        changed |= forms::setting_control(ui, field, value);
+                                    }
+                                } else {
+                                    changed |= forms::setting_control(ui, field, value);
+                                }
                             });
                         }
                     }
@@ -1050,131 +1078,140 @@ fn capsule_options(
     section: CapsuleSection,
 ) -> bool {
     let mut changed = false;
-    if section == CapsuleSection::Motion {
-        changed |= forms::row(ui, "全局动态效果", |ui| {
-            let before = (prefs.reduced_motion, prefs.motion_off);
-            let mut motion = if prefs.motion_off {
-                "Off"
-            } else if prefs.reduced_motion {
-                "Reduced"
-            } else {
-                "Full"
-            };
-            motion_picker(ui, "global-motion", &mut motion);
-            prefs.reduced_motion = motion == "Reduced";
-            prefs.motion_off = motion == "Off";
-            before != (prefs.reduced_motion, prefs.motion_off)
-        });
-        return changed;
-    }
-    if section == CapsuleSection::Mascot {
-        changed |= forms::boolean(ui, "显示 Mascot", &mut prefs.mascot_enabled);
-        changed |= forms::row(ui, "Mascot 动画", |ui| {
-            let before = prefs.mascot_motion.clone();
-            let mut value = prefs.mascot_motion.as_str();
-            motion_picker(ui, "mascot-motion", &mut value);
-            let value = value.to_owned();
-            prefs.mascot_motion = value;
-            prefs.mascot_motion != before
-        });
-        return changed;
-    }
-    if section == CapsuleSection::Compact {
-        forms::section(ui, "Compact 文字样式");
-        changed |= forms::row(ui, "字号", |ui| {
-            ui.add(
-                egui::DragValue::new(&mut prefs.compact_text_size)
-                    .speed(0.25)
-                    .range(8.0..=18.0)
-                    .suffix(" pt"),
-            )
-            .changed()
-        });
-        changed |= forms::row(ui, "文字颜色", |ui| {
-            let mut follow_theme = prefs.compact_text_color.is_none();
-            let mut changed = forms::toggle(ui, &mut follow_theme, "跟随主题");
-            if changed {
-                prefs.compact_text_color = (!follow_theme).then_some([245, 248, 255]);
+    match section {
+        CapsuleSection::Motion => {
+            changed |= forms::row(ui, "全局动态效果", |ui| {
+                let before = (prefs.reduced_motion, prefs.motion_off);
+                let mut motion = if prefs.motion_off {
+                    "Off"
+                } else if prefs.reduced_motion {
+                    "Reduced"
+                } else {
+                    "Full"
+                };
+                motion_picker(ui, "global-motion", &mut motion);
+                prefs.reduced_motion = motion == "Reduced";
+                prefs.motion_off = motion == "Off";
+                before != (prefs.reduced_motion, prefs.motion_off)
+            });
+        }
+        CapsuleSection::Mascot => {
+            changed |= forms::boolean(ui, "显示 Mascot", &mut prefs.mascot_enabled);
+            changed |= forms::row(ui, "Mascot 动画", |ui| {
+                let before = prefs.mascot_motion.clone();
+                let mut value = prefs.mascot_motion.as_str();
+                motion_picker(ui, "mascot-motion", &mut value);
+                prefs.mascot_motion = value.to_owned();
+                prefs.mascot_motion != before
+            });
+        }
+        CapsuleSection::CompactStyle => {
+            forms::section(ui, "Compact 文字样式");
+            changed |= forms::row(ui, "字号", |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut prefs.compact_text_size)
+                        .speed(0.25)
+                        .range(8.0..=18.0)
+                        .suffix(" pt"),
+                ).changed()
+            });
+            changed |= forms::row(ui, "文字颜色", |ui| {
+                let mut follow_theme = prefs.compact_text_color.is_none();
+                let mut changed = forms::toggle(ui, &mut follow_theme, "跟随主题");
+                if changed {
+                    prefs.compact_text_color = (!follow_theme).then_some([245, 248, 255]);
+                }
+                if let Some(color) = &mut prefs.compact_text_color {
+                    changed |= ui
+                        .color_edit_button_srgb(color)
+                        .on_hover_text("显示时会自动调整颜色，确保文字与背景有足够对比度")
+                        .changed();
+                }
+                changed
+            });
+        }
+        CapsuleSection::Switches => {
+            forms::section(ui, "Compact 开关");
+            for (group, items) in contribution_groups(prefs, ContributionKind::Compact) {
+                forms::section(ui, &group);
+                for item in items {
+                    let mut enabled = prefs.is_enabled(&item.id);
+                    ui.push_id(("compact-switch", &item.id), |ui| {
+                        if forms::boolean(ui, &item.title, &mut enabled) {
+                            changed |= prefs.set_compact_item_enabled(&item.id, enabled);
+                        }
+                    });
+                }
             }
-            if let Some(color) = &mut prefs.compact_text_color {
-                changed |= ui
-                    .color_edit_button_srgb(color)
-                    .on_hover_text("显示时会自动调整颜色，确保文字与背景有足够对比度")
-                    .changed();
-            }
-            changed
-        });
-        let order: Vec<_> = prefs
-            .ordered_compact_items()
-            .into_iter()
-            .map(|item| item.id.clone())
-            .collect();
-        for (group, mut entries) in contribution_groups(prefs, ContributionKind::Compact) {
-            forms::section(ui, &group);
-            entries.sort_by_key(|entry| order.iter().position(|id| id == &entry.id));
-            for (index, entry) in entries.iter().enumerate() {
-                let mut direction = 0;
-                let mut enabled = prefs.is_enabled(&entry.id);
-                ui.push_id(&entry.id, |ui| {
-                    if forms::row(ui, &entry.title, |ui| {
-                        let toggled = forms::toggle(ui, &mut enabled, &entry.title);
-                        direction = forms::reorder(ui);
-                        toggled
-                    }) {
-                        changed |= prefs.set_compact_item_enabled(&entry.id, enabled);
-                    }
-                });
-                if let Some(target) = index
-                    .checked_add_signed(direction as isize)
-                    .and_then(|index| entries.get(index))
-                {
-                    if let (Some(from), Some(to)) = (
-                        order.iter().position(|id| id == &entry.id),
-                        order.iter().position(|id| id == &target.id),
-                    ) {
-                        changed |= prefs.move_compact_item(&entry.id, to as isize - from as isize);
-                    }
+            forms::section(ui, "Widget 开关");
+            for (group, items) in contribution_groups(prefs, ContributionKind::Widget) {
+                forms::section(ui, &group);
+                for item in items {
+                    let mut enabled = prefs.contribution_enabled(&item);
+                    ui.push_id(("widget-switch", &item.id), |ui| {
+                        if forms::boolean(ui, &item.title, &mut enabled) {
+                            prefs.set_contribution_enabled(item.id.clone(), enabled);
+                            changed = true;
+                        }
+                    });
                 }
             }
         }
-        return changed;
-    }
-    forms::section(ui, "通知中心固定第一位");
-    let order = prefs.widget_order.clone();
-    for (group, mut entries) in contribution_groups(prefs, ContributionKind::Widget) {
-        forms::section(ui, &group);
-        entries.sort_by_key(|entry| order.iter().position(|id| id == &entry.id));
-        for (index, entry) in entries.iter().enumerate() {
-            let mut direction = 0;
-            let mut enabled = prefs.contribution_enabled(entry);
-            ui.push_id(&entry.id, |ui| {
-                if forms::row(ui, &entry.title, |ui| {
-                    let toggled = forms::toggle(ui, &mut enabled, &entry.title);
-                    direction = forms::reorder(ui);
-                    toggled
-                }) {
-                    prefs.set_contribution_enabled(entry.id.clone(), enabled);
-                    changed = true;
+        CapsuleSection::Order => {
+            forms::section(ui, "Compact 顺序（仅已开启）");
+            let active: Vec<_> = prefs.ordered_compact_items()
+                .into_iter()
+                .filter(|item| item.enabled)
+                .map(|item| item.id.clone())
+                .collect();
+            if active.is_empty() {
+                ui.label("没有已开启的 Compact");
+            }
+            for id in active {
+                let label = contribution_title(prefs, &id);
+                let mut direction = 0;
+                ui.push_id(("compact-order", &id), |ui| {
+                    forms::row(ui, &label, |ui| {
+                        direction = forms::reorder(ui);
+                        false
+                    });
+                });
+                if direction != 0 {
+                    changed |= prefs.move_compact_item(&id, direction as isize);
                 }
-            });
-            if let Some(target) = index
-                .checked_add_signed(direction as isize)
-                .and_then(|index| entries.get(index))
-            {
-                if let (Some(from), Some(to)) = (
-                    order.iter().position(|id| id == &entry.id),
-                    order.iter().position(|id| id == &target.id),
-                ) {
-                    if from != to {
-                        prefs.widget_order.swap(from, to);
-                        changed = true;
-                    }
+            }
+            forms::section(ui, "Widget 顺序（仅已开启，通知中心固定第一位）");
+            let active = prefs.ordered_enabled_widgets();
+            if active.is_empty() {
+                ui.label("没有已开启的 Widget");
+            }
+            for id in active {
+                let label = contribution_title(prefs, &id);
+                let mut direction = 0;
+                ui.push_id(("widget-order", &id), |ui| {
+                    forms::row(ui, &label, |ui| {
+                        direction = forms::reorder(ui);
+                        false
+                    });
+                });
+                if direction != 0 {
+                    changed |= prefs.move_widget(&id, direction as isize);
                 }
             }
         }
     }
     changed
 }
+
+fn contribution_title(prefs: &CompactPreferences, id: &ExtensionId) -> String {
+    prefs
+        .pages
+        .iter()
+        .flat_map(|page| &page.descriptor.contributions)
+        .find(|entry| &entry.id == id)
+        .map_or_else(|| id.to_string(), |entry| entry.title.clone())
+}
+
 fn motion_picker(ui: &mut egui::Ui, id: &str, value: &mut &str) {
     let label = |mode| match mode {
         "Reduced" => "减少",
