@@ -63,6 +63,9 @@ pub struct SettingsView {
     capsule_section: CapsuleSection,
     quiet_dialog: Option<QuietDialog>,
     searches: HashMap<(ExtensionId, String), forms::SearchFieldState>,
+    /// Edits in progress must survive frames even when the price is not yet
+    /// parsable (e.g. an empty string or a decimal point).
+    notification_price_drafts: HashMap<ExtensionId, String>,
     secret_store: Option<SecretStore>,
     secret_keys: Vec<String>,
     secret_key: String,
@@ -248,7 +251,9 @@ impl SettingsView {
             Section::General => self.general(ui, prefs),
             Section::Capsule => capsule_options(ui, prefs, self.capsule_section),
             Section::Extensions => self.extension_form(ui, prefs),
-            Section::Notifications => notification_options(ui, prefs),
+            Section::Notifications => {
+                notification_options(ui, prefs, &mut self.notification_price_drafts)
+            },
             Section::Secrets => self.secrets(ui),
             Section::About => {
                 about(ui);
@@ -978,7 +983,11 @@ fn contribution_groups(
         .collect()
 }
 
-fn notification_options(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
+fn notification_options(
+    ui: &mut egui::Ui,
+    prefs: &mut CompactPreferences,
+    price_drafts: &mut HashMap<ExtensionId, String>,
+) -> bool {
     let mut changed = false;
     for (name, entries) in contribution_groups(prefs, ContributionKind::Notification) {
         forms::section(ui, &name);
@@ -1035,7 +1044,40 @@ fn notification_options(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bo
                     for field in &entry.settings {
                         if let Some(value) = values.get_mut(&field.key) {
                             ui.push_id(&field.key, |ui| {
-                                if field.key == "cooldown" {
+                                if is_market && field.key == "threshold" {
+                                    if let crate::extension::SettingValue::Float(price) = value {
+                                        let draft = price_drafts
+                                            .entry(entry.id.clone())
+                                            .or_insert_with(|| {
+                                                if *price > 0.0 { format!("{price}") }
+                                                else { String::new() }
+                                            });
+                                        changed |= forms::row(ui, "目标价格", |ui| {
+                                            let response = ui.add_sized(
+                                                [(ui.available_width() - 3.0).max(24.0), 25.0],
+                                                egui::TextEdit::singleline(draft)
+                                                    .hint_text("例如 150.50"),
+                                            );
+                                            if !response.changed() {
+                                                return false;
+                                            }
+                                            match parse_target_price(draft) {
+                                                Some(new_price) if new_price != *price => {
+                                                    *price = new_price;
+                                                    true
+                                                }
+                                                _ => false,
+                                            }
+                                        });
+                                        if parse_target_price(draft).is_none() {
+                                            ui.label(
+                                                egui::RichText::new("请输入非负的有效价格")
+                                                    .size(10.5)
+                                                    .color(SECONDARY_TEXT),
+                                            );
+                                        }
+                                    }
+                                } else if field.key == "cooldown" {
                                     if let crate::extension::SettingValue::Duration(ms) = value {
                                         changed |= forms::row(ui, "最短提醒间隔", |ui| {
                                             let mut minutes = ms.div_ceil(60_000).clamp(1, 43_200);
@@ -1064,6 +1106,18 @@ fn notification_options(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bo
         }
     }
     changed
+}
+
+/// Zero clears the threshold and marks the notification as pending setup.
+fn parse_target_price(draft: &str) -> Option<f64> {
+    let input = draft.trim();
+    if input.is_empty() {
+        return Some(0.0);
+    }
+    input
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite() && *value >= 0.0)
 }
 
 fn general(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
