@@ -66,6 +66,42 @@ pub(super) fn gpu_utilization() -> Option<f32> {
     None
 }
 
+#[cfg(target_os = "windows")]
+pub(super) fn windows_battery_status() -> Option<(Option<u8>, bool)> {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+
+    let mut status = SYSTEM_POWER_STATUS::default();
+    // Windows fills the structure on success.
+    unsafe { GetSystemPowerStatus(&mut status) }.ok()?;
+    decode_windows_battery_status(
+        status.ACLineStatus,
+        status.BatteryFlag,
+        status.BatteryLifePercent,
+    )
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn decode_windows_battery_status(
+    ac_line: u8,
+    battery_flags: u8,
+    percent: u8,
+) -> Option<(Option<u8>, bool)> {
+    const AC_ONLINE: u8 = 1;
+    const CHARGING: u8 = 8;
+    const NO_BATTERY: u8 = 128;
+    const UNKNOWN: u8 = 255;
+
+    let flags = (battery_flags != UNKNOWN)
+        .then_some(battery_flags)
+        .unwrap_or_default();
+    if flags & NO_BATTERY != 0 {
+        return Some((None, false));
+    }
+    // Let the per-battery sampler handle an unavailable aggregate percentage.
+    let percent = (percent <= 100).then_some(percent)?;
+    Some((Some(percent), ac_line == AC_ONLINE || flags & CHARGING != 0))
+}
+
 #[cfg(any(target_os = "windows", test))]
 fn parse_percent(text: &str) -> Option<f32> {
     let value = text.trim().parse::<f32>().ok()?;
@@ -76,6 +112,18 @@ fn parse_percent(text: &str) -> Option<f32> {
 mod tests {
     #[cfg(target_os = "macos")]
     use super::parse_gpu_utilization;
+
+    #[test]
+    fn windows_reports_charging_or_external_power_without_marking_desktops() {
+        let decode = super::decode_windows_battery_status;
+        assert_eq!(decode(1, 0, 60), Some((Some(60), true)));
+        assert_eq!(decode(1, 1, 100), Some((Some(100), true)));
+        assert_eq!(decode(255, 8 | 1, 92), Some((Some(92), true)));
+        assert_eq!(decode(0, 0, 60), Some((Some(60), false)));
+        assert_eq!(decode(0, 255, 60), Some((Some(60), false)));
+        assert_eq!(decode(1, 128, 255), Some((None, false)));
+        assert_eq!(decode(255, 255, 255), None);
+    }
 
     #[test]
     #[cfg(target_os = "macos")]

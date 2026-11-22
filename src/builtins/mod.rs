@@ -25,6 +25,7 @@ use std::{
 };
 
 mod extras;
+pub(crate) use extras::mascot::register_assets as register_mascot_assets;
 
 fn compact_text(text: impl Into<String>) -> ViewNode {
     use crate::ui::declarative::*;
@@ -35,6 +36,48 @@ fn compact_text(text: impl Into<String>) -> ViewNode {
             ..Default::default()
         },
     )
+}
+
+fn compact_value(text: impl Into<String>, monospace: bool) -> ViewNode {
+    use crate::ui::declarative::*;
+    ViewNode::text(
+        text,
+        TextStyle {
+            font_size: FontSize::Custom(11.0),
+            font_weight: FontWeight::Bold,
+            align: Align::Start,
+            monospace,
+            ..Default::default()
+        },
+    )
+}
+
+fn compact_detail(text: impl Into<String>) -> ViewNode {
+    use crate::ui::declarative::*;
+    ViewNode::text(
+        text,
+        TextStyle {
+            font_size: FontSize::Custom(10.0),
+            align: Align::Start,
+            ..Default::default()
+        },
+    )
+    .color(ColorSpec::SecondaryText)
+}
+
+fn refresh_button(refreshing: bool) -> ViewNode {
+    use crate::ui::declarative::{Node, Size};
+    let label = if refreshing {
+        "刷新中…"
+    } else {
+        "立即刷新"
+    };
+    let mut button =
+        ViewNode::subtle_button(label, Action::Advance).sized(Size::Fixed(66.0), Size::Fixed(22.0));
+    if let Node::Control { enabled, .. } = &mut button.kind {
+        *enabled = !refreshing;
+    }
+    button
 }
 
 fn icon_text(
@@ -89,7 +132,7 @@ pub struct BuiltinExtensions {
     effective_settings: HashMap<ExtensionId, Settings>,
     startup_output: Vec<ExtensionOutput>,
     widget_cache: ViewCache<ExtensionId, Option<Arc<WidgetView>>>,
-    compact_cache: ViewCache<usize, Vec<crate::extension::CompactView>>,
+    compact_cache: ViewCache<usize, Vec<Arc<crate::extension::CompactView>>>,
 }
 
 impl BuiltinExtensions {
@@ -109,6 +152,7 @@ impl BuiltinExtensions {
                 #[cfg(any(target_os = "linux", target_os = "windows"))]
                 Box::new(music::MusicExtension::default()),
                 Box::new(extras::CompactExtras),
+                Box::new(extras::mascot::Mascot::default()),
             ],
             lifecycle: LifecycleManager::load(Some(lifecycle_path())),
             settings: SettingsStore::open(context.config_dir().join("extension-settings.json")),
@@ -370,13 +414,17 @@ impl BuiltinExtensions {
             .clone()
     }
 
-    pub fn compact_views(&mut self, now: Instant) -> Vec<&crate::extension::CompactView> {
+    pub fn compact_views(&mut self, now: Instant) -> Vec<Arc<crate::extension::CompactView>> {
         // Build only stale sources, then borrow the resulting snapshots for this frame.
         // The cache borrows cannot overlap insertion, so do this in two passes.
         for (index, extension) in self.extensions.iter().enumerate() {
             self.compact_cache.get_or_build(index, now, || {
                 (
-                    extension.compact_views(),
+                    extension
+                        .compact_views()
+                        .into_iter()
+                        .map(Arc::new)
+                        .collect(),
                     extension.compact_refresh_interval(),
                 )
             });
@@ -391,6 +439,7 @@ impl BuiltinExtensions {
                     .get(&view.id)
                     .is_some_and(|d| d.kind == ExtensionKind::Compact)
             })
+            .cloned()
             .collect()
     }
 

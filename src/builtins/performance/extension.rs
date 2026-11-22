@@ -7,6 +7,8 @@ use crate::ui::declarative::*;
 use std::sync::mpsc::Receiver;
 
 pub const ID: &str = "builtin.system-monitor/overview";
+const BATTERY_WIDTH: f32 = 64.0;
+const NETWORK_WIDTH: f32 = 88.0;
 
 pub fn descriptors() -> Vec<ExtensionDescriptor> {
     vec![
@@ -42,7 +44,7 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
             "battery",
             true,
             1,
-            54.0,
+            BATTERY_WIDTH,
         ),
         compact_descriptor("builtin.system-monitor/cpu", "CPU", "cpu", false, 2, 56.0),
         compact_descriptor("builtin.system-monitor/gpu", "GPU", "gpu", false, 3, 56.0),
@@ -52,7 +54,7 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
             "network",
             false,
             4,
-            80.0,
+            NETWORK_WIDTH,
         ),
     ]
 }
@@ -193,61 +195,79 @@ impl RuntimeExtension for PerformanceExtension {
     }
 
     fn compact_views(&self) -> Vec<CompactView> {
-        use super::super::icon_text;
         let metrics = &self.snapshot;
-        vec![
+        let mut views = vec![
             compact_view(
                 "builtin.system-monitor/battery",
-                icon_text(
-                    if metrics.charging {
-                        "battery-charging"
-                    } else {
-                        "battery"
-                    },
-                    battery_label(metrics),
-                    battery_color(metrics),
-                    16.0,
-                ),
-                54.0,
+                battery_compact(metrics),
+                BATTERY_WIDTH,
             ),
             compact_view(
                 "builtin.system-monitor/cpu",
-                icon_text(
-                    "cpu",
-                    format!("{:.0}%", metrics.cpu_percent),
-                    ColorSpec::Success,
-                    16.0,
-                ),
+                processor_compact("cpu", Some(metrics.cpu_percent), ColorSpec::Success),
                 56.0,
             ),
             compact_view(
                 "builtin.system-monitor/gpu",
-                icon_text(
-                    "gpu",
-                    metrics
-                        .gpu_percent
-                        .map_or_else(|| "--".into(), |v| format!("{v:.0}%")),
-                    ColorSpec::Info,
-                    16.0,
-                ),
+                processor_compact("gpu", metrics.gpu_percent, ColorSpec::Info),
                 56.0,
             ),
-        ]
-        .into_iter()
-        .chain((self.show_download || self.show_upload).then(|| {
-            compact_view(
+        ];
+        if self.show_download || self.show_upload {
+            let rates = [
+                (self.show_download, "↓", metrics.download_bytes_per_second),
+                (self.show_upload, "↑", metrics.upload_bytes_per_second),
+            ];
+            let mut transmitting = 0.0_f64;
+            let mut lines = Vec::new();
+            for (visible, arrow, speed) in rates {
+                if visible {
+                    transmitting = transmitting.max(speed);
+                    lines.push(
+                        super::super::compact_detail(format!("{arrow} {}", format_speed(speed)))
+                            .color(ColorSpec::PrimaryText),
+                    );
+                }
+            }
+            let mut pulse = MotionTrack::new(
+                MotionProperty::Opacity,
+                &[(0, 1.0), (300, 0.45), (600, 1.0)],
+            );
+            pulse.amplitude = Some(ValueMapping {
+                value: transmitting as f32,
+                input: [0.0, 1024.0 * 128.0],
+                output: [0.25, 1.0],
+            });
+            let icon = ViewNode::svg("compact/network", 16.0)
+                .color(ColorSpec::Info)
+                .motion(Motion {
+                    trigger: Trigger::While(transmitting > 0.0),
+                    duration_ms: 600,
+                    repeat: Repeat::Infinite,
+                    tracks: vec![pulse],
+                    ..Default::default()
+                });
+            views.push(compact_view(
                 "builtin.system-monitor/network",
-                ViewNode::column(
-                    self.network_rows(ColorSpec::Info),
-                    Flow {
-                        gap: Some(0.0),
+                ViewNode::compact(
+                    icon,
+                    ViewNode::column(
+                        lines,
+                        Flow {
+                            gap: Some(0.0),
+                            align: Align::Start,
+                            ..Default::default()
+                        },
+                    ),
+                    CompactLayout {
+                        leading_size: [18.0, 22.0],
                         ..Default::default()
                     },
                 ),
-                80.0,
-            )
-        }))
-        .collect()
+                NETWORK_WIDTH,
+            ));
+        }
+        views
     }
 
     fn on_settings_changed(
@@ -283,6 +303,92 @@ impl PerformanceExtension {
         .map(|(_, icon, speed)| icon_text(icon, format_speed(speed), color, 12.0))
         .collect()
     }
+}
+
+fn processor_compact(icon: &str, percent: Option<f32>, color: ColorSpec) -> ViewNode {
+    let mut pulse = MotionTrack::new(MotionProperty::Scale, &[(0, 1.0), (400, 1.14), (800, 1.0)]);
+    pulse.amplitude = Some(ValueMapping {
+        value: percent.unwrap_or_default(),
+        input: [25.0, 100.0],
+        output: [0.0, 1.0],
+    });
+    let leading = ViewNode::icon(icon, 14.0).color(color).motion(Motion {
+        trigger: Trigger::While(percent.is_some_and(|value| value > 25.0)),
+        duration_ms: 800,
+        repeat: Repeat::Infinite,
+        easing: Easing::EaseInOut,
+        tracks: vec![pulse],
+        ..Default::default()
+    });
+    ViewNode::compact(
+        leading,
+        super::super::compact_value(
+            percent.map_or_else(|| "—".into(), |value| format!("{value:.0}%")),
+            true,
+        ),
+        CompactLayout {
+            leading_size: [18.0, 22.0],
+            gap: 3.0,
+            ..Default::default()
+        },
+    )
+}
+
+fn battery_compact(metrics: &Snapshot) -> ViewNode {
+    let level = f32::from(metrics.battery_percent.unwrap_or(0)) / 100.0;
+    let color = battery_color(metrics);
+    let indicator = |segments, fraction, width, inactive, color| {
+        ViewNode::new(Node::SegmentedIndicator {
+            segments,
+            fraction,
+            gap: 0.9,
+            direction: FillDirection::LeftToRight,
+            inactive,
+        })
+        .sized(Size::Fixed(width), Size::Fixed(5.0))
+        .color(color)
+    };
+    let leading = ViewNode::new(Node::Stack(
+        [Align::Center; 2],
+        vec![
+            ViewNode::svg("compact/battery", 24.0).color(color),
+            indicator(5, level, 17.0, ColorSpec::Border, color)
+                .motion(Motion::progress(level, 200)),
+            indicator(1, 1.0, 1.8, ColorSpec::Transparent, ColorSpec::OnAccent)
+                .styled(Style {
+                    normal: Paint {
+                        foreground: Some(ColorSpec::OnAccent),
+                        opacity: Some(if metrics.charging { 0.55 } else { 0.0 }),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+                .motion(Motion {
+                    trigger: Trigger::While(metrics.charging),
+                    duration_ms: 900,
+                    gap_ms: 150,
+                    repeat: Repeat::Infinite,
+                    tracks: vec![
+                        MotionTrack::new(MotionProperty::TranslateX, &[(0, -8.0), (900, 8.0)]),
+                        MotionTrack::new(
+                            MotionProperty::Opacity,
+                            &[(0, 0.0), (150, 1.0), (750, 1.0), (900, 0.0)],
+                        ),
+                    ],
+                    ..Default::default()
+                }),
+        ],
+    ))
+    .sized(Size::Fixed(25.0), Size::Fixed(24.0));
+    ViewNode::compact(
+        leading,
+        super::super::compact_value(battery_label(metrics), true).color(color),
+        CompactLayout {
+            leading_size: [25.0, 24.0],
+            gap: 4.0,
+            ..Default::default()
+        },
+    )
 }
 
 fn battery_label(metrics: &Snapshot) -> String {

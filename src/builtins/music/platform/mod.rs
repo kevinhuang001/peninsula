@@ -50,6 +50,8 @@ pub(super) struct Playback {
     pub session: String,
     pub track: Track,
     pub playing: bool,
+    /// Optional normalized speaker amplitude supplied by a playback backend.
+    pub audio_level: Option<f32>,
     pub controls: Controls,
     pub position: f64,
     pub rate: f64,

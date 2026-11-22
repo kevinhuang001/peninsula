@@ -1,5 +1,11 @@
+mod animation;
+mod assets;
+mod compact;
 mod layout;
 mod paint;
+
+pub(crate) use animation::set_reduced_motion;
+pub(crate) use assets::{register_png, register_svg};
 
 use crate::{
     app::icons::Icons,
@@ -14,7 +20,7 @@ const MAX_EXTENT: f32 = 16_384.0;
 type MeasureKey = (*const ViewNode, u32, u32, [Option<u32>; 2], usize);
 
 pub(crate) fn register_image(context: &egui::Context, asset: &str, texture: egui::TextureHandle) {
-    context.data_mut(|data| data.insert_temp(paint::image_id(asset), texture));
+    context.data_mut(|data| data.insert_temp(assets::image_id(asset), texture));
 }
 
 pub fn show_widget(
@@ -60,6 +66,7 @@ pub fn show_widget_with_overflow(
     })
 }
 
+#[cfg(test)]
 pub fn content_width(ctx: &egui::Context, root: &ViewNode, limit: f32, icons: &Icons) -> f32 {
     let ui = Ui::new(
         ctx.clone(),
@@ -127,19 +134,26 @@ pub fn show_compact(
     icons: &Icons,
     opacity: f32,
 ) -> Option<crate::extension::Action> {
+    if !rect.is_positive() || opacity <= 0.0 || !ui.is_rect_visible(rect) {
+        return None;
+    }
     let mut renderer = Renderer::new(ui, icons);
     let mut surface = ui.new_child(UiBuilder::new().id_salt(("compact", id)).max_rect(rect));
     surface.set_clip_rect(ui.clip_rect().intersect(rect));
-    let size = renderer.in_cell(&surface, node, rect.size(), [Align::Start; 2], 0);
-    let rect = Rect::from_min_size(
-        rect.min
-            + vec2(
-                layout::offset(Align::Center, rect.width() - size.x),
-                layout::offset(Align::Center, rect.height() - size.y),
-            ),
-        size,
+    // The chip keeps its allocation while shorter content sits in its center.
+    let measured = renderer.in_cell(&surface, node, rect.size(), [Align::Start; 2], 0);
+    let size = vec2(measured.x.ceil(), measured.y).min(rect.size());
+    let rect = Rect::from_center_size(rect.center(), size);
+    let root_id = surface.id().with(node.key.as_deref());
+    renderer.paint(
+        &mut surface,
+        node,
+        rect,
+        root_id,
+        Color32::PLACEHOLDER,
+        opacity,
+        0,
     );
-    renderer.paint_root(&mut surface, rect, node, opacity);
     renderer.action
 }
 
@@ -151,6 +165,7 @@ struct Renderer<'a> {
     action: Option<crate::extension::Action>,
     remaining: usize,
     measure_remaining: usize,
+    animations_remaining: usize,
 }
 
 struct Theme {
@@ -206,11 +221,15 @@ impl<'a> Renderer<'a> {
             action: None,
             remaining: 4096,
             measure_remaining: 16_384,
+            animations_remaining: 24,
         }
     }
 
     fn paint_root(&mut self, ui: &mut Ui, rect: Rect, node: &ViewNode, opacity: f32) {
-        let size = self.in_cell(ui, node, rect.size(), [Align::Stretch; 2], 0);
+        let mut size = self.in_cell(ui, node, rect.size(), [Align::Stretch; 2], 0);
+        if matches!(node.kind, Node::Compact(_)) {
+            size = size.min(rect.size());
+        }
         self.paint(
             ui,
             node,

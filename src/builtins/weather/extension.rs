@@ -221,17 +221,19 @@ impl WeatherExtension {
     }
 
     fn root(&self) -> ViewNode {
+        let refreshing = self.pending.is_some();
         if let Some(snapshot) = &self.snapshot {
             weather_root(
                 snapshot,
                 &self.alerts,
                 self.error.as_deref(),
+                refreshing,
                 time::OffsetDateTime::now_utc(),
             )
         } else if let Some(error) = &self.error {
-            error_root(error)
+            error_root(error, refreshing)
         } else {
-            loading_root(self.preferences.auto_locate)
+            loading_root(self.preferences.auto_locate, refreshing)
         }
     }
 
@@ -300,7 +302,8 @@ impl RuntimeExtension for WeatherExtension {
     fn update(&mut self, now: Instant) -> ExtensionOutput {
         let mut output = ExtensionOutput::default();
         let changed = self.poll_fetch(now, &mut output);
-        if self.pending.is_none() && now >= self.next_refresh {
+        let started = self.pending.is_none() && now >= self.next_refresh;
+        if started {
             self.start_fetch();
         }
         if changed {
@@ -318,17 +321,18 @@ impl RuntimeExtension for WeatherExtension {
                     + i64::from(offset.whole_seconds()))
                 .div_euclid(3600)
             });
-        if std::mem::replace(&mut self.forecast_hour, forecast_hour) != forecast_hour && !changed {
+        let hour_changed =
+            std::mem::replace(&mut self.forecast_hour, forecast_hour) != forecast_hour;
+        if (started || hour_changed) && !changed {
             output.invalidated.push(ExtensionId::builtin(WIDGET_ID));
         }
         output
     }
 
     fn on_action(&mut self, action: Action, now: Instant) -> ExtensionOutput {
-        if action != Action::Advance {
+        if action != Action::Advance || self.pending.is_some() {
             return ExtensionOutput::default();
         }
-        self.error = None;
         self.next_refresh = now;
         self.start_fetch();
         ExtensionOutput {
@@ -396,10 +400,12 @@ impl RuntimeExtension for WeatherExtension {
         vec![CompactView {
             id: ExtensionId::builtin(COMPACT_ID),
             source_extension_id: ExtensionId::builtin(WIDGET_ID),
-            content: ViewNode::row(
-                vec![weather_icon(icon, 25.0), text(label, 11.0, color)],
-                Flow {
-                    gap: Some(5.0),
+            content: ViewNode::compact(
+                weather_icon(icon, 25.0),
+                super::super::compact_value(label, false),
+                CompactLayout {
+                    leading_size: [25.0, 26.0],
+                    gap: 5.0,
                     ..Default::default()
                 },
             )
@@ -449,6 +455,7 @@ fn weather_root(
     snapshot: &Snapshot,
     alerts: &[WeatherAlert],
     error: Option<&str>,
+    refreshing: bool,
     now: time::OffsetDateTime,
 ) -> ViewNode {
     let current = &snapshot.current;
@@ -475,17 +482,7 @@ fn weather_root(
                 3.0,
             )
             .sized(Size::Fill(1.0), Size::Auto),
-            ViewNode::column(
-                vec![
-                    weather_icon(snapshot.icon(), 78.0),
-                    text(
-                        format!("{} 更新", snapshot.updated_hm()),
-                        9.5,
-                        ColorSpec::SecondaryText,
-                    ),
-                ],
-                flow(0.0, Align::Center),
-            ),
+            weather_icon(snapshot.icon(), 78.0),
         ],
         flow(10.0, Align::Center),
     )
@@ -495,10 +492,26 @@ fn weather_root(
         temperatures.push(temperature_stat("今日最高", day.high));
         temperatures.push(temperature_stat("今日最低", day.low));
     }
+    let update_row = ViewNode::row(
+        vec![
+            text(
+                format!("{} 更新", snapshot.updated_hm()),
+                9.5,
+                ColorSpec::SecondaryText,
+            ),
+            super::super::refresh_button(refreshing),
+        ],
+        Flow {
+            justify: Justify::SpaceBetween,
+            ..flow(8.0, Align::Center)
+        },
+    )
+    .sized(Size::Fill(1.0), Size::Auto);
     let hero = panel(
         column(
             vec![
                 current_row,
+                update_row,
                 ViewNode::new(Node::Divider { vertical: false })
                     .sized(Size::Fill(1.0), Size::Fixed(1.0))
                     .color(ColorSpec::Border),
@@ -761,7 +774,7 @@ fn grid(children: Vec<ViewNode>) -> ViewNode {
     ViewNode::new(Node::Grid(grid, children)).sized(Size::Fill(1.0), Size::Auto)
 }
 
-fn loading_root(auto_locate: bool) -> ViewNode {
+fn loading_root(auto_locate: bool, refreshing: bool) -> ViewNode {
     column(
         vec![
             strong("正在获取天气…", 15.0),
@@ -774,12 +787,13 @@ fn loading_root(auto_locate: bool) -> ViewNode {
                 11.0,
                 ColorSpec::SecondaryText,
             ),
+            super::super::refresh_button(refreshing),
         ],
         6.0,
     )
 }
 
-fn error_root(error: &str) -> ViewNode {
+fn error_root(error: &str, refreshing: bool) -> ViewNode {
     column(
         vec![
             strong("天气暂不可用", 15.0),
@@ -793,7 +807,7 @@ fn error_root(error: &str) -> ViewNode {
             )
             .color(ColorSpec::SecondaryText)
             .sized(Size::Fill(1.0), Size::Auto),
-            ViewNode::subtle_button("重试", Action::Advance),
+            super::super::refresh_button(refreshing),
         ],
         7.0,
     )
@@ -853,6 +867,30 @@ mod tests {
     }
 
     #[test]
+    fn refresh_button_tracks_pending_weather_requests() {
+        let mut extension = WeatherExtension::for_test(Some(snapshot()), vec![], None);
+        let describe =
+            |extension: &WeatherExtension| serde_json::to_string(&extension.root()).unwrap();
+        assert!(describe(&extension).contains("立即刷新"));
+        let (sender, receiver) = mpsc::channel();
+        extension.pending = Some(receiver);
+        let pending = describe(&extension);
+        assert!(pending.contains("刷新中…"));
+        assert!(pending.contains("\"enabled\":false"));
+        let now = Instant::now();
+        assert!(extension
+            .on_action(Action::Advance, now)
+            .invalidated
+            .is_empty());
+        sender.send(Ok(snapshot())).unwrap();
+        assert!(extension
+            .update(now)
+            .invalidated
+            .contains(&ExtensionId::builtin(WIDGET_ID)));
+        assert!(describe(&extension).contains("立即刷新"));
+    }
+
+    #[test]
     fn descriptors_register_a_widget_a_compact_item_and_an_alert_source() {
         let descriptors = descriptors();
         assert_eq!(descriptors.len(), 3);
@@ -881,11 +919,13 @@ mod tests {
         let views = extension.compact_views();
         assert_eq!(views.len(), 1);
         assert_eq!(views[0].id.as_str(), COMPACT_ID);
-        let Node::Row(_, children) = &views[0].content.kind else {
-            panic!("weather compact row");
+        let Node::Compact(compact) = &views[0].content.kind else {
+            panic!("weather compact");
         };
-        assert!(matches!(&children[0].kind, Node::Image { asset } if asset == "meteo/overcast"));
-        assert!(matches!(&children[1].kind, Node::Text { text, .. } if text == "15°"));
+        assert!(
+            matches!(&compact.leading.kind, Node::Image { asset } if asset == "meteo/overcast")
+        );
+        assert!(matches!(&compact.content.kind, Node::Text { text, .. } if text == "15°"));
         assert!(views[0]
             .tooltip
             .as_deref()

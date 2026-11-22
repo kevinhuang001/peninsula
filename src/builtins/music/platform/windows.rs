@@ -231,6 +231,7 @@ fn snapshot(
             playing,
             controls,
             observed: Instant::now(),
+            audio_level: None,
             artwork: None,
         },
         properties.Thumbnail().ok(),
