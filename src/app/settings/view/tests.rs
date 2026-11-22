@@ -521,6 +521,28 @@ fn generic_number_text_accepts_decimals_and_rejects_invalid_values() {
 }
 
 #[test]
+fn notification_renderer_is_generic_for_calendar_contributions() {
+    let ctx = egui::Context::default();
+    let mut prefs = CompactPreferences::default();
+    let output = ctx.run(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO, egui::vec2(900.0, 1400.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                notifications::options(ui, &mut prefs, &mut HashMap::new());
+            });
+        },
+    );
+    for label in ["日历与时间", "节日提醒", "提醒时间", "小时（24 小时制）"] {
+        assert!(text_rect(&output, label).width() > 0.0, "{label}");
+    }
+}
+
+#[test]
 fn compact_configuration_remains_in_capsule_and_widgets_remain_first_level() {
     let ctx = egui::Context::default();
     let mut prefs = CompactPreferences::default();
