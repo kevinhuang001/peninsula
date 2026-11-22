@@ -43,8 +43,8 @@ An inactive contribution does not remain subscribed to events or schedule work a
 
 **组件 (Components)** remains a first-level settings page, but owns **only Widget** secondary menus:
 
-- **Widget 开关**: switches grouped by owning extension; Notification Center cannot be disabled.
-- **Widget 顺序**: sorting contains **enabled Widget** entries only; Notification Center stays first.
+- **Widget 开关**: switches grouped by owning extension. A disabled, permanently-on **通知中心** row appears first; the user cannot toggle it.
+- **Widget 顺序**: a fixed **通知中心** row appears first and has no move controls, followed by sortable **enabled Widget** entries only. No explanatory paragraph is needed.
 
 Widget theme and accent configuration remain in General settings.
 

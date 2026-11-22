@@ -1034,7 +1034,16 @@ fn notification_options(
 ) -> bool {
     let mut changed = false;
     for (name, entries) in contribution_groups(prefs, ContributionKind::Notification) {
-        forms::section(ui, &name);
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            let (marker, _) = ui.allocate_exact_size(
+                egui::vec2(3.0, 16.0), Sense::hover(),
+            );
+            ui.painter().rect_filled(marker, 2.0, ACCENT);
+            ui.add_space(5.0);
+            ui.label(egui::RichText::new(&name).size(14.0).strong().color(TEXT));
+        });
+        ui.add_space(7.0);
         let is_market = entries.iter().any(|entry| {
             entry.id.as_str().starts_with("builtin.market/assets/")
                 && entry.id.as_str().ends_with("/price-alert")
@@ -1056,17 +1065,20 @@ fn notification_options(
                     });
                 }
             }
-            ui.label(
-                egui::RichText::new("所有市场价格通知共用上述间隔。各资产独立设置触发条件和目标价格。")
-                    .size(10.5)
-                    .color(SECONDARY_TEXT),
-            );
         }
         for entry in entries {
-            ui.push_id(&entry.id, |ui| {
-                if is_market {
-                    forms::section(ui, &entry.title);
-                }
+            let mut show_entry = |ui: &mut egui::Ui| {
+                ui.push_id(&entry.id, |ui| {
+                    if is_market {
+                        ui.add_space(2.0);
+                        ui.label(
+                            egui::RichText::new(&entry.title)
+                                .size(12.0)
+                                .strong()
+                                .color(SECONDARY_TEXT),
+                        );
+                        ui.add_space(6.0);
+                    }
                 let mut enabled = prefs.contribution_enabled(&entry);
                 if forms::boolean(ui, if is_market { "启用提醒" } else { &entry.title }, &mut enabled) {
                     prefs.set_contribution_enabled(entry.id.clone(), enabled);
@@ -1153,7 +1165,22 @@ fn notification_options(
                         }
                     }
                 }
-            });
+                });
+            };
+            if is_market {
+                ui.add_space(9.0);
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(30, 33, 39))
+                    .stroke(Stroke::new(1.0, BORDER))
+                    .corner_radius(10.0)
+                    .inner_margin(egui::Margin::symmetric(10, 10))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        show_entry(ui);
+                    });
+            } else {
+                show_entry(ui);
+            }
         }
     }
     changed
@@ -1332,10 +1359,12 @@ fn component_options(
     match section {
         ComponentSection::WidgetSwitch => {
             forms::section(ui, "Widget 开关");
-            ui.label(
-                egui::RichText::new("通知中心始终开启并固定第一位")
-                    .size(10.5).color(SECONDARY_TEXT),
-            );
+            // Host-owned: present as a fixed, enabled row rather than
+            // an explanatory note or a user-controlled contribution.
+            ui.add_enabled_ui(false, |ui| {
+                let mut enabled = true;
+                forms::boolean(ui, "通知中心", &mut enabled);
+            });
             for (group, entries) in contribution_groups(prefs, ContributionKind::Widget) {
                 forms::section(ui, &group);
                 for entry in entries {
@@ -1350,7 +1379,15 @@ fn component_options(
             }
         }
         ComponentSection::WidgetOrder => {
-            forms::section(ui, "Widget 顺序（仅已开启，通知中心固定第一位）");
+            forms::section(ui, "Widget 顺序（仅已开启）");
+            forms::row(ui, "通知中心", |ui| {
+                ui.label(
+                    egui::RichText::new("固定")
+                        .size(10.5)
+                        .color(SECONDARY_TEXT),
+                );
+                false
+            });
             let active = prefs.ordered_enabled_widgets();
             if active.is_empty() {
                 ui.label("没有已开启的 Widget");
