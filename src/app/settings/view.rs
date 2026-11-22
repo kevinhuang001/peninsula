@@ -27,15 +27,17 @@ enum CapsuleSection {
     #[default]
     Motion,
     Mascot,
-    CompactStyle,
+    Compact,
+    Widgets,
     Switches,
     Order,
 }
 impl CapsuleSection {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Motion,
         Self::Mascot,
-        Self::CompactStyle,
+        Self::Compact,
+        Self::Widgets,
         Self::Switches,
         Self::Order,
     ];
@@ -43,7 +45,8 @@ impl CapsuleSection {
         match self {
             Self::Motion => "动态效果",
             Self::Mascot => "Mascot",
-            Self::CompactStyle => "Compact 样式",
+            Self::Compact => "Compact",
+            Self::Widgets => "Widget",
             Self::Switches => "开关",
             Self::Order => "顺序",
         }
@@ -976,12 +979,54 @@ fn notification_options(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bo
     let mut changed = false;
     for (name, entries) in contribution_groups(prefs, ContributionKind::Notification) {
         forms::section(ui, &name);
+        let is_market = entries.iter().any(|entry| {
+            entry.id.as_str().starts_with("builtin.market/assets/")
+                && entry.id.as_str().ends_with("/price-alert")
+        });
+        if is_market {
+            if let Some(page) = prefs.pages.iter_mut()
+                .find(|page| page.descriptor.id.as_str() == "builtin.market")
+            {
+                if let Some(crate::extension::SettingValue::Integer(minutes)) =
+                    page.values.get_mut("alert_interval_minutes")
+                {
+                    changed |= forms::row(ui, "统一最短提醒间隔", |ui| {
+                        ui.add(
+                            egui::DragValue::new(minutes)
+                                .range(1..=10_080)
+                                .speed(1.0)
+                                .suffix(" 分钟"),
+                        ).changed()
+                    });
+                }
+            }
+            ui.label(
+                egui::RichText::new("所有市场价格通知共用上述间隔。各资产独立设置触发条件和目标价格。")
+                    .size(10.5)
+                    .color(SECONDARY_TEXT),
+            );
+        }
         for entry in entries {
             ui.push_id(&entry.id, |ui| {
+                if is_market {
+                    forms::section(ui, &entry.title);
+                }
                 let mut enabled = prefs.contribution_enabled(&entry);
-                if forms::boolean(ui, &entry.title, &mut enabled) {
+                if forms::boolean(ui, if is_market { "启用提醒" } else { &entry.title }, &mut enabled) {
                     prefs.set_contribution_enabled(entry.id.clone(), enabled);
                     changed = true;
+                }
+                if is_market && enabled {
+                    let ready = prefs.contribution_values.get(&entry.id)
+                        .and_then(|values| values.get("threshold"))
+                        .is_some_and(|value| matches!(value, crate::extension::SettingValue::Float(price) if price.is_finite() && *price > 0.0));
+                    if !ready {
+                        ui.label(
+                            egui::RichText::new("待配置：请填写大于 0 的目标价格，提醒才能启动")
+                                .size(10.5)
+                                .color(SECONDARY_TEXT),
+                        );
+                    }
                 }
                 if let Some(values) = prefs.contribution_values.get_mut(&entry.id) {
                     for field in &entry.settings {
@@ -1105,7 +1150,7 @@ fn capsule_options(
                 prefs.mascot_motion != before
             });
         }
-        CapsuleSection::CompactStyle => {
+        CapsuleSection::Compact => {
             forms::section(ui, "Compact 文字样式");
             changed |= forms::row(ui, "字号", |ui| {
                 ui.add(
@@ -1129,6 +1174,16 @@ fn capsule_options(
                 }
                 changed
             });
+        }
+        CapsuleSection::Widgets => {
+            forms::section(ui, "Widget 外观");
+            ui.label(
+                egui::RichText::new("Widget 继承全局主题与强调色，此处与通用设置同步")
+                    .size(10.5)
+                    .color(SECONDARY_TEXT),
+            );
+            changed |= general_theme(ui, prefs);
+            changed |= general_accent(ui, prefs);
         }
         CapsuleSection::Switches => {
             forms::section(ui, "Compact 开关");
@@ -1297,7 +1352,9 @@ fn child(ui: &mut egui::Ui, rect: Rect, id: &str) -> egui::Ui {
             .max_rect(rect)
             .layout(egui::Layout::top_down(egui::Align::Min)),
     );
-    child.set_clip_rect(ui.clip_rect().intersect(rect));
+    // TextEdit draws a focus ring centered on its bounds. Without a small
+    // paint allowance, a full-width field loses its left/right focus edges.
+    child.set_clip_rect(ui.clip_rect().intersect(rect.expand(2.0)));
     child
 }
 fn configure(ui: &mut egui::Ui) {
