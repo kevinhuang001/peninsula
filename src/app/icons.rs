@@ -711,7 +711,7 @@ mod tests {
             });
         });
         assert!(output.shapes.iter().filter(|shape| {
-            matches!(&shape.shape, egui::Shape::Image(_))
+            matches!(&shape.shape, egui::Shape::Mesh(_))
         }).count() >= 5);
         let license = include_str!("../../assets/icons/lucide/LICENSE");
         assert!(license.contains("ISC License"));
