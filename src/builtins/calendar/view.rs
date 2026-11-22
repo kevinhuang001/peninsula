@@ -103,7 +103,7 @@ fn weekday_cell(label: &str, weekend: bool) -> ViewNode {
         if weekend { ColorSpec::Accent } else { ColorSpec::SecondaryText },
         true,
     )
-    .sized(Size::Fill(1.0), Size::Fixed(28.0));
+    .sized(Size::Fill(1.0), Size::Fixed(24.0));
     node.style.normal.background = Some(ColorSpec::SurfaceVariant);
     node.style.normal.corner_radius = Some(8.0);
     node.style.padding = [2.0, 5.0, 2.0, 5.0];
@@ -129,27 +129,27 @@ fn day_cell(
     } else {
         String::new()
     };
-    // The whole ActionArea, not just the intrinsic text Column, owns the
-    // visual surface. Grid Auto rows size to their tallest festival; the
-    // ActionArea is then stretched to the complete row height. Every day in
-    // the same week therefore has an equally tall background and hit target.
-    let content = column(vec![
-        text(
-            day.day().to_string(),
-            15.0,
-            if selected { ColorSpec::OnAccent }
-            else if !in_month { ColorSpec::MutedText }
-            else if is_today { ColorSpec::Accent }
-            else { ColorSpec::PrimaryText },
-            true,
-        ),
-        wrapped_festival(
+    // Omit empty subtitle text: even an empty Text node consumes one line
+    // box, making every ordinary day unnecessarily tall.
+    let mut lines = vec![text(
+        day.day().to_string(),
+        14.0,
+        if selected { ColorSpec::OnAccent }
+        else if !in_month { ColorSpec::MutedText }
+        else if is_today { ColorSpec::Accent }
+        else { ColorSpec::PrimaryText },
+        true,
+    )];
+    if !subtitle.is_empty() {
+        lines.push(wrapped_festival(
             subtitle,
             if selected { ColorSpec::OnAccent }
             else if !festivals.is_empty() { ColorSpec::Warning }
             else { ColorSpec::SecondaryText },
-        ),
-    ], 4.0);
+        ));
+    }
+    // The ActionArea itself owns the background and fills the tallest row.
+    let content = column(lines, 3.0);
 
     let mut cell = ViewNode::new(Node::ActionArea {
         action: Action::Custom(format!("calendar:select:{}", day.format("%Y-%m-%d"))),
@@ -158,8 +158,8 @@ fn day_cell(
         context_menu: None,
     })
     .sized(Size::Fill(1.0), Size::Auto);
-    cell.style.padding = [5.0, 9.0, 5.0, 8.0];
-    cell.size.min_height = Some(54.0);
+    cell.style.padding = [5.0, 6.0, 5.0, 5.0];
+    cell.size.min_height = Some(34.0);
     cell.style.normal.background = Some(
         if selected { ColorSpec::Accent }
         else if is_today { ColorSpec::AccentSubtle }
@@ -206,17 +206,17 @@ pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
         justify: Justify::Start,
         ..Default::default()
     })
-    .sized(Size::Fill(1.0), Size::Fixed(46.0));
+    .sized(Size::Fill(1.0), Size::Fixed(40.0));
 
     let mut grid = Grid::new(Columns::Tracks(vec![Track::Fraction(1.0); 7]));
     grid.column_gap = Some(6.0);
-    grid.row_gap = Some(6.0);
+    grid.row_gap = Some(4.0);
     let weekdays = ["一", "二", "三", "四", "五", "六", "日"]
         .into_iter().enumerate()
         .map(|(index, label)| weekday_cell(label, index >= 5))
         .collect::<Vec<_>>();
     let weekday_grid = ViewNode::new(Node::Grid(grid.clone(), weekdays))
-        .sized(Size::Fill(1.0), Size::Fixed(28.0));
+        .sized(Size::Fill(1.0), Size::Fixed(24.0));
 
     let cells = model::visible_grid_dates(shown)
         .into_iter()
@@ -228,12 +228,12 @@ pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
     let calendar_grid = ViewNode::new(Node::Grid(grid, cells))
         .sized(Size::Fill(1.0), Size::Auto);
 
-    let mut root = column(vec![header, weekday_grid, calendar_grid], 9.0);
-    root.style.padding = [12.0, 12.0, 12.0, 12.0];
+    let mut root = column(vec![header, weekday_grid, calendar_grid], 7.0);
+    root.style.padding = [10.0, 10.0, 10.0, 10.0];
     let requested_width = preferred_calendar_width(shown, locale);
-    let mut widget = WidgetView::new(root, [requested_width, 450.0]);
+    let mut widget = WidgetView::new(root, [requested_width, 320.0]);
     widget.bounds = WidgetBounds {
-        min: [420.0, 380.0],
+        min: [420.0, 280.0],
         max: [Some(1050.0), None],
         resizable: true,
         fit_height: true,
@@ -298,8 +298,38 @@ mod tests {
         assert!(matches!(content.size.height, Size::Auto));
         assert_eq!(cell.size.width, Size::Fill(1.0));
         assert_eq!(cell.size.height, Size::Auto);
-        assert!(cell.size.min_height.unwrap_or_default() >= 54.0);
+        assert_eq!(cell.size.min_height, Some(34.0));
         assert!(cell.style.normal.background.is_some());
+    }
+
+    #[test]
+    fn regular_dates_skip_empty_subtitle_and_holidays_keep_dynamic_height() {
+        let locale = CalendarSettings {
+            country: "US".into(),
+            region: "US-NY".into(),
+            show_lunar: false,
+        };
+        let regular = NaiveDate::from_ymd_opt(2026, 11, 12).unwrap();
+        let ordinary = day_cell(regular, regular, regular, &locale, true);
+        let Node::ActionArea { content, .. } = &ordinary.kind else {
+            panic!("normal day should be an ActionArea");
+        };
+        let Node::Column(_, lines) = &content.kind else {
+            panic!("normal day should hold a column");
+        };
+        assert_eq!(lines.len(), 1, "blank subtitles must not reserve height");
+        assert_eq!(ordinary.size.min_height, Some(34.0));
+
+        let holiday = NaiveDate::from_ymd_opt(2026, 11, 26).unwrap();
+        let festival = day_cell(holiday, regular, regular, &locale, true);
+        let Node::ActionArea { content, .. } = &festival.kind else {
+            panic!("holiday should be an ActionArea");
+        };
+        let Node::Column(_, lines) = &content.kind else {
+            panic!("holiday should hold a column");
+        };
+        assert_eq!(lines.len(), 2, "holiday subtitle remains visible");
+        assert_eq!(festival.size.height, Size::Auto);
     }
 
     #[test]
@@ -334,6 +364,7 @@ mod tests {
             }
         }
         assert!(widget.bounds.fit_height);
+        assert_eq!(widget.bounds.min[1], 280.0);
         assert_eq!(widget.bounds.max[1], None);
     }
 
@@ -348,9 +379,8 @@ mod tests {
         let Node::Column(_, children) = &content.kind else {
             panic!("date cell content is a column");
         };
-        let Node::Text { text_style, .. } = &children[1].kind else {
-            panic!("subtitle is a text node");
-        };
-        assert_eq!(text_style.max_lines, None);
+        // Adjacent-month days have no subtitle, so there is no empty line box.
+        assert_eq!(children.len(), 1);
+        assert_eq!(cell.size.min_height, Some(34.0));
     }
 }

@@ -144,9 +144,9 @@ impl RuntimeExtension for CalendarExtension {
         let widget = ContributionDescriptor::builtin(
             WIDGET_ID, ContributionKind::Widget, "日历", "calendar", true, 4,
         )
-        .with_size_hint(800.0, 465.0)
+        .with_size_hint(800.0, 320.0)
         .with_widget_bounds(crate::ui::declarative::WidgetBounds {
-            min: [420.0, 390.0],
+            min: [420.0, 280.0],
             max: [Some(1050.0), None],
             fit_height: true, resizable: true,
             ..Default::default()
