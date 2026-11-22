@@ -265,6 +265,9 @@ impl RuntimeExtension for CalendarExtension {
             Action::Custom(ref s) if s.starts_with("calendar:select:") => {
                 if let Ok(date) = NaiveDate::parse_from_str(&s["calendar:select:".len()..], "%Y-%m-%d") {
                     self.selected = Some(date);
+                    // Adjacent-month dates in the complete calendar grid
+                    // should navigate to their own month when selected.
+                    self.month = Some(model::start_month(date));
                 }
             }
             _ => return ExtensionOutput::default(),

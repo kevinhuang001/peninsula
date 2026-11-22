@@ -85,6 +85,23 @@ pub(super) fn shift_month(date: NaiveDate, direction: i32) -> NaiveDate {
     NaiveDate::from_ymd_opt(year, month, 1).unwrap_or(date)
 }
 
+/// Complete calendar weeks, including subdued adjacent-month days.
+/// Use 4–6 rows as needed so shorter months do not leave empty weeks.
+pub(super) fn visible_grid_dates(date: NaiveDate) -> Vec<(NaiveDate, bool)> {
+    use chrono::Duration;
+    let first = start_month(date);
+    let start_offset = first.weekday().num_days_from_monday() as usize;
+    let days = (shift_month(first, 1) - first).num_days() as usize;
+    let weeks = (start_offset + days).div_ceil(7);
+    let grid_start = first - Duration::days(start_offset as i64);
+    (0..weeks * 7)
+        .map(|offset| {
+            let day = grid_start + Duration::days(offset as i64);
+            (day, day.year() == first.year() && day.month() == first.month())
+        })
+        .collect()
+}
+
 pub(super) fn month_dates(date: NaiveDate) -> Vec<Option<NaiveDate>> {
     use chrono::{Duration, Weekday};
     let first = start_month(date);
@@ -114,6 +131,18 @@ mod tests {
         assert_eq!(grid.len(), 42);
         assert_eq!(grid.iter().flatten().count(), 30);
         assert_eq!(grid.iter().flatten().next().unwrap().day(), 1);
+    }
+    #[test]
+    fn visible_month_grid_fills_adjacent_dates_and_uses_only_needed_weeks() {
+        let november = visible_grid_dates(NaiveDate::from_ymd_opt(2026, 11, 1).unwrap());
+        assert_eq!(november.len(), 42);
+        assert_eq!(november[0].0.day(), 26);
+        assert!(!november[0].1);
+        assert_eq!(november[6], (NaiveDate::from_ymd_opt(2026, 11, 1).unwrap(), true));
+        assert_eq!(november.iter().filter(|(_, current)| *current).count(), 30);
+        let february = visible_grid_dates(NaiveDate::from_ymd_opt(2027, 2, 1).unwrap());
+        assert_eq!(february.len(), 28);
+        assert!(february.iter().all(|(_, current)| *current));
     }
     #[test]
     fn regions_select_dst_aware_timezones_without_changing_country() {
