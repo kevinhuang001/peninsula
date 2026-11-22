@@ -85,7 +85,9 @@ pub(super) fn row(
             .max_rect(control_rect)
             .layout(egui::Layout::right_to_left(egui::Align::Center)),
     );
-    child.set_clip_rect(ui.clip_rect().intersect(control_rect));
+    // The child can use the full control width for hit testing, but its
+    // centered focus stroke needs a little room outside that rectangle.
+    child.set_clip_rect(ui.clip_rect().intersect(control_rect.expand(2.0)));
     let changed = control(&mut child);
     ui.add_space(5.0);
     changed
