@@ -220,7 +220,7 @@ fn every_menu_keeps_its_bordered_navigation_and_content_panels() {
         let output = frame(&ctx, &mut view, &mut prefs, vec![]);
         let panels = Panels::new(
             bounds(),
-            matches!(section, Section::Extensions | Section::Capsule),
+            matches!(section, Section::Extensions | Section::Capsule | Section::Components),
         );
         for rect in [Some(panels.navigation), panels.plugins, Some(panels.form)]
             .into_iter()
@@ -240,11 +240,11 @@ fn settings_height_grows_with_content_before_host_applies_the_screen_limit() {
     let general = view.extra_height(&ctx, &prefs);
     view.section = Section::Extensions;
     let extensions = view.extra_height(&ctx, &prefs);
-    view.section = Section::Capsule;
-    view.capsule_section = CapsuleSection::CompactSwitch;
-    let capsule = view.extra_height(&ctx, &prefs);
+    view.section = Section::Components;
+    view.component_section = ComponentSection::CompactSwitch;
+    let components = view.extra_height(&ctx, &prefs);
     assert!(extensions > general);
-    assert!(capsule > general);
+    assert!(components > general);
     assert!(general < 300.0);
 }
 
@@ -324,8 +324,8 @@ fn capsule_switches_and_order_have_distinct_secondary_entries() {
     let ctx = egui::Context::default();
     let mut prefs = CompactPreferences::default();
     let mut view = SettingsView {
-        section: Section::Capsule,
-        capsule_section: CapsuleSection::CompactSwitch,
+        section: Section::Components,
+        component_section: ComponentSection::CompactSwitch,
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
@@ -333,11 +333,11 @@ fn capsule_switches_and_order_have_distinct_secondary_entries() {
         assert!(text_rect(&output, title).width() > 0.0);
     }
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "Compact 顺序").center());
-    assert_eq!(view.capsule_section, CapsuleSection::CompactOrder);
+    assert_eq!(view.component_section, ComponentSection::CompactOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "Compact 顺序（仅已开启）").width() > 0.0);
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 顺序").center());
-    assert_eq!(view.capsule_section, CapsuleSection::WidgetOrder);
+    assert_eq!(view.component_section, ComponentSection::WidgetOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "Widget 顺序（仅已开启，通知中心固定第一位）").width() > 0.0);
 }
@@ -359,7 +359,7 @@ fn capsule_exposes_four_distinct_display_management_menus() {
     let ctx = egui::Context::default();
     let mut prefs = CompactPreferences::default();
     let mut view = SettingsView {
-        section: Section::Capsule,
+        section: Section::Components,
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
@@ -367,13 +367,13 @@ fn capsule_exposes_four_distinct_display_management_menus() {
         assert!(text_rect(&output, label).width() > 0.0, "{label}");
     }
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 开关").center());
-    assert_eq!(view.capsule_section, CapsuleSection::WidgetSwitch);
+    assert_eq!(view.component_section, ComponentSection::WidgetSwitch);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "通知中心始终开启并固定第一位").width() > 0.0);
-    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Compact 样式").center());
-    assert_eq!(view.capsule_section, CapsuleSection::CompactStyle);
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Compact 顺序").center());
+    assert_eq!(view.component_section, ComponentSection::CompactOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    assert!(text_rect(&output, "Compact 文字样式").width() > 0.0);
+    assert!(text_rect(&output, "Compact 顺序（仅已开启）").width() > 0.0);
 }
 
 #[test]
@@ -480,4 +480,28 @@ fn market_price_entry_accepts_decimals_and_rejects_invalid_values() {
     assert_eq!(parse_target_price("inf"), None);
     assert_eq!(parse_target_price("abc"), None);
     assert_eq!(parse_target_price("10.3.2"), None);
+}
+
+#[test]
+fn components_are_a_first_level_menu_separate_from_capsule_appearance() {
+    let ctx = egui::Context::default();
+    let mut prefs = CompactPreferences::default();
+    let mut view = SettingsView {
+        section: Section::Capsule,
+        ..Default::default()
+    };
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    assert!(text_rect(&output, "组件").width() > 0.0);
+    assert!(text_rect(&output, "动态效果").width() > 0.0);
+    assert_eq!(view.capsule_section, CapsuleSection::Motion);
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件").center());
+    assert_eq!(view.section, Section::Components);
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    for label in ["Compact 开关", "Compact 顺序", "Widget 开关", "Widget 顺序"] {
+        assert!(text_rect(&output, label).width() > 0.0, "{label}");
+    }
+    let panels = Panels::new(bounds(), true);
+    assert!(panels.plugins.unwrap().contains(text_rect(&output, "Compact 开关").center()));
+    assert!(panels.form.contains(text_rect(&output, "Compact 开关").center())
+        || panels.form.contains(text_rect(&output, "电池").center()));
 }

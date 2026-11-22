@@ -28,26 +28,41 @@ enum CapsuleSection {
     Motion,
     Mascot,
     CompactStyle,
-    CompactSwitch,
-    CompactOrder,
-    WidgetSwitch,
-    WidgetOrder,
 }
+
 impl CapsuleSection {
-    const ALL: [Self; 7] = [
-        Self::Motion,
-        Self::Mascot,
-        Self::CompactStyle,
-        Self::CompactSwitch,
-        Self::CompactOrder,
-        Self::WidgetSwitch,
-        Self::WidgetOrder,
-    ];
+    const ALL: [Self; 3] = [Self::Motion, Self::Mascot, Self::CompactStyle];
+
     fn label(self) -> &'static str {
         match self {
             Self::Motion => "动态效果",
             Self::Mascot => "Mascot",
             Self::CompactStyle => "Compact 样式",
+        }
+    }
+}
+
+/// Compact and Widget visibility/ordering live in the first-level 组件 menu,
+/// separate from appearance and Mascot controls in 胶囊.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+enum ComponentSection {
+    #[default]
+    CompactSwitch,
+    CompactOrder,
+    WidgetSwitch,
+    WidgetOrder,
+}
+
+impl ComponentSection {
+    const ALL: [Self; 4] = [
+        Self::CompactSwitch,
+        Self::CompactOrder,
+        Self::WidgetSwitch,
+        Self::WidgetOrder,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
             Self::CompactSwitch => "Compact 开关",
             Self::CompactOrder => "Compact 顺序",
             Self::WidgetSwitch => "Widget 开关",
@@ -61,6 +76,7 @@ pub struct SettingsView {
     section: Section,
     selected: Option<ExtensionId>,
     capsule_section: CapsuleSection,
+    component_section: ComponentSection,
     quiet_dialog: Option<QuietDialog>,
     searches: HashMap<(ExtensionId, String), forms::SearchFieldState>,
     /// Edits in progress must survive frames even when the price is not yet
@@ -141,7 +157,7 @@ impl SettingsView {
     pub const WIDTH: f32 = 680.0;
 
     pub fn width(&self, context: &egui::Context, prefs: &CompactPreferences) -> f32 {
-        let extra_column = matches!(self.section, Section::Extensions | Section::Capsule);
+        let extra_column = matches!(self.section, Section::Extensions | Section::Capsule | Section::Components);
         let chrome = 24.0
             + SIDEBAR_WIDTH
             + COLUMN_GAP
@@ -153,7 +169,7 @@ impl SettingsView {
             };
         let limit = context.screen_rect().width() * 0.75;
         let available = (limit - chrome).max(1.0);
-        let content_width = if matches!(self.section, Section::Extensions | Section::Capsule) {
+        let content_width = if matches!(self.section, Section::Extensions | Section::Capsule | Section::Components) {
             EXTENSION_FORM_WIDTH
         } else if self.section == Section::Secrets {
             360.0
@@ -185,6 +201,7 @@ impl SettingsView {
                     .clone()
                     .or_else(|| prefs.pages.first().map(|p| p.descriptor.id.clone())),
                 capsule_section: self.capsule_section,
+                component_section: self.component_section,
                 searches: self.searches.clone(),
                 secret_keys: self.secret_keys.clone(),
                 secret_store: self.secret_store.clone(),
@@ -205,7 +222,7 @@ impl SettingsView {
         let width = self.width(context, prefs);
         let panels = Panels::new(
             Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 10_000.0)),
-            matches!(self.section, Section::Extensions | Section::Capsule),
+            matches!(self.section, Section::Extensions | Section::Capsule | Section::Components),
         );
         let mut measure = egui::Ui::new(
             context.clone(),
@@ -223,6 +240,7 @@ impl SettingsView {
                 .clone()
                 .or_else(|| prefs.pages.first().map(|p| p.descriptor.id.clone())),
             capsule_section: self.capsule_section,
+            component_section: self.component_section,
             quiet_dialog: None,
             searches: self.searches.clone(),
             secret_keys: self.secret_keys.clone(),
@@ -250,6 +268,7 @@ impl SettingsView {
         match self.section {
             Section::General => self.general(ui, prefs),
             Section::Capsule => capsule_options(ui, prefs, self.capsule_section),
+            Section::Components => component_options(ui, prefs, self.component_section),
             Section::Extensions => self.extension_form(ui, prefs),
             Section::Notifications => {
                 notification_options(ui, prefs, &mut self.notification_price_drafts)
@@ -282,14 +301,14 @@ impl SettingsView {
         self.navigation(&mut surface, nav_rect);
         let panels = Panels::new(
             capsule,
-            matches!(self.section, Section::Extensions | Section::Capsule),
+            matches!(self.section, Section::Extensions | Section::Capsule | Section::Components),
         );
         if let Some(plugins) = panels.plugins {
             panel(&surface, plugins, NAV_BACKGROUND);
-            if self.section == Section::Capsule {
-                self.capsule_navigation(&mut surface, plugins);
-            } else {
-                self.plugins(&mut surface, plugins, prefs);
+            match self.section {
+                Section::Capsule => self.capsule_navigation(&mut surface, plugins),
+                Section::Components => self.component_navigation(&mut surface, plugins),
+                _ => self.plugins(&mut surface, plugins, prefs),
             }
         }
         panel(&surface, panels.form, PANEL);
@@ -308,6 +327,7 @@ impl SettingsView {
                 self.section,
                 self.selected.clone(),
                 self.capsule_section,
+                self.component_section,
             ))
             .auto_shrink([false; 2])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
@@ -773,6 +793,27 @@ impl SettingsView {
             });
     }
 
+    fn component_navigation(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        let mut list = child(ui, rect.shrink(5.0), "component-navigation");
+        egui::ScrollArea::vertical()
+            .id_salt("component-sections")
+            .auto_shrink([false; 2])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .show(&mut list, |ui| {
+                for section in ComponentSection::ALL {
+                    if menu_row(
+                        ui,
+                        ("component-section", section),
+                        section.label(),
+                        self.component_section == section,
+                        None,
+                    ) {
+                        self.component_section = section;
+                    }
+                }
+            });
+    }
+
     fn plugins(&mut self, ui: &mut egui::Ui, rect: Rect, prefs: &CompactPreferences) {
         if !prefs
             .pages
@@ -1231,7 +1272,19 @@ fn capsule_options(
                 changed
             });
         }
-        CapsuleSection::CompactSwitch => {
+
+    }
+    changed
+}
+
+fn component_options(
+    ui: &mut egui::Ui,
+    prefs: &mut CompactPreferences,
+    section: ComponentSection,
+) -> bool {
+    let mut changed = false;
+    match section {
+        ComponentSection::CompactSwitch => {
             forms::section(ui, "Compact 开关");
             for (group, entries) in contribution_groups(prefs, ContributionKind::Compact) {
                 forms::section(ui, &group);
@@ -1245,7 +1298,7 @@ fn capsule_options(
                 }
             }
         }
-        CapsuleSection::CompactOrder => {
+        ComponentSection::CompactOrder => {
             forms::section(ui, "Compact 顺序（仅已开启）");
             let active: Vec<_> = prefs.ordered_compact_items()
                 .into_iter().filter(|item| item.enabled)
@@ -1267,7 +1320,7 @@ fn capsule_options(
                 }
             }
         }
-        CapsuleSection::WidgetSwitch => {
+        ComponentSection::WidgetSwitch => {
             forms::section(ui, "Widget 开关");
             ui.label(
                 egui::RichText::new("通知中心始终开启并固定第一位")
@@ -1286,7 +1339,7 @@ fn capsule_options(
                 }
             }
         }
-        CapsuleSection::WidgetOrder => {
+        ComponentSection::WidgetOrder => {
             forms::section(ui, "Widget 顺序（仅已开启，通知中心固定第一位）");
             let active = prefs.ordered_enabled_widgets();
             if active.is_empty() {
