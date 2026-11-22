@@ -548,9 +548,12 @@ fn compact_font_size_is_a_dropdown_and_not_a_numeric_drag_field() {
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "字号").width() > 0.0);
-    assert!(text_rect(&output, "pt").width() > 0.0
-        || output.shapes.iter().any(|shape| matches!(&shape.shape,
-            egui::Shape::Text(text) if text.galley.job.text.contains(" pt"))));
+    assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
+        egui::Shape::Text(text)
+            if text.galley.job.text.contains(
+                &format!("{} pt", prefs.compact_text_size)
+            )
+    )), "font-size control must render a selected point size");
 }
 
 #[test]
@@ -576,10 +579,9 @@ fn settings_input_rows_do_not_draw_a_second_outer_frame() {
     let row_border = |r: Rect| output.shapes.iter().any(|shape| {
         matches!(&shape.shape, egui::Shape::Rect(rect)
             if rect.stroke.color == BORDER
-                && rect.rect.left() <= r.left() + 2.0
+                && (rect.rect.left() - r.left()).abs() <= 2.0
                 && rect.rect.width() > 250.0
-                && rect.rect.top() >= r.top() - 0.5
-                && rect.rect.top() <= r.top() + 48.0)
+                && (rect.rect.top() - r.top()).abs() <= 1.0)
     });
     assert!(!row_border(input_rect));
     assert!(row_border(toggle_rect));
