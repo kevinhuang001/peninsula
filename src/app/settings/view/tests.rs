@@ -320,22 +320,32 @@ fn settings_width_follows_the_selected_content_and_screen_limit() {
 }
 
 #[test]
-fn capsule_switches_and_order_have_distinct_secondary_entries() {
+fn compact_switches_and_order_live_in_capsule_not_components() {
     let ctx = egui::Context::default();
     let mut prefs = CompactPreferences::default();
     let mut view = SettingsView {
-        section: Section::Components,
-        component_section: ComponentSection::CompactSwitch,
+        section: Section::Capsule,
+        capsule_section: CapsuleSection::CompactSwitch,
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for title in ["Compact 开关", "Compact 顺序", "Widget 开关", "Widget 顺序"] {
+    for title in ["动态效果", "Mascot", "Compact 样式", "Compact 开关", "Compact 顺序"] {
         assert!(text_rect(&output, title).width() > 0.0);
     }
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "Compact 顺序").center());
-    assert_eq!(view.component_section, ComponentSection::CompactOrder);
+    assert_eq!(view.capsule_section, CapsuleSection::CompactOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "Compact 顺序（仅已开启）").width() > 0.0);
+
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件").center());
+    assert_eq!(view.section, Section::Components);
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    for title in ["Widget 开关", "Widget 顺序"] {
+        assert!(text_rect(&output, title).width() > 0.0);
+    }
+    assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+        egui::Shape::Text(text) if text.galley.job.text == "Compact 开关"
+            || text.galley.job.text == "Compact 顺序")));
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 顺序").center());
     assert_eq!(view.component_section, ComponentSection::WidgetOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
@@ -355,7 +365,7 @@ fn notifications_menu_is_preserved() {
 }
 
 #[test]
-fn capsule_exposes_four_distinct_display_management_menus() {
+fn component_submenus_only_contain_widget_switch_and_order() {
     let ctx = egui::Context::default();
     let mut prefs = CompactPreferences::default();
     let mut view = SettingsView {
@@ -363,17 +373,17 @@ fn capsule_exposes_four_distinct_display_management_menus() {
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for label in ["Compact 开关", "Compact 顺序", "Widget 开关", "Widget 顺序"] {
+    for label in ["Widget 开关", "Widget 顺序"] {
         assert!(text_rect(&output, label).width() > 0.0, "{label}");
     }
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 开关").center());
     assert_eq!(view.component_section, ComponentSection::WidgetSwitch);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "通知中心始终开启并固定第一位").width() > 0.0);
-    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Compact 顺序").center());
-    assert_eq!(view.component_section, ComponentSection::CompactOrder);
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 顺序").center());
+    assert_eq!(view.component_section, ComponentSection::WidgetOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    assert!(text_rect(&output, "Compact 顺序（仅已开启）").width() > 0.0);
+    assert!(text_rect(&output, "Widget 顺序（仅已开启，通知中心固定第一位）").width() > 0.0);
 }
 
 #[test]
@@ -483,7 +493,7 @@ fn market_price_entry_accepts_decimals_and_rejects_invalid_values() {
 }
 
 #[test]
-fn components_are_a_first_level_menu_separate_from_capsule_appearance() {
+fn compact_configuration_remains_in_capsule_and_widgets_remain_first_level() {
     let ctx = egui::Context::default();
     let mut prefs = CompactPreferences::default();
     let mut view = SettingsView {
@@ -491,19 +501,16 @@ fn components_are_a_first_level_menu_separate_from_capsule_appearance() {
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    assert!(text_rect(&output, "组件").width() > 0.0);
-    assert!(text_rect(&output, "动态效果").width() > 0.0);
-    assert_eq!(view.capsule_section, CapsuleSection::Motion);
+    for title in ["组件", "动态效果", "Compact 样式", "Compact 开关", "Compact 顺序"] {
+        assert!(text_rect(&output, title).width() > 0.0);
+    }
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件").center());
     assert_eq!(view.section, Section::Components);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for label in ["Compact 开关", "Compact 顺序", "Widget 开关", "Widget 顺序"] {
-        assert!(text_rect(&output, label).width() > 0.0, "{label}");
-    }
     let panels = Panels::new(bounds(), true);
-    assert!(panels.plugins.unwrap().contains(text_rect(&output, "Compact 开关").center()));
-    assert_eq!(view.component_section, ComponentSection::CompactSwitch);
-    // Form contents are scrollable; do not assert that a later extension's
-    // battery switch is in the initially visible portion of the viewport.
+    for label in ["Widget 开关", "Widget 顺序"] {
+        assert!(panels.plugins.unwrap().contains(text_rect(&output, label).center()));
+    }
+    assert_eq!(view.component_section, ComponentSection::WidgetSwitch);
     assert!(panels.form.left() > panels.plugins.unwrap().right());
 }
