@@ -350,7 +350,10 @@ mod tests {
             0,
         ).with_settings(1, vec![
             SettingSchema::new("threshold", V::Float(0.0), "Target"),
-            SettingSchema::new("condition", V::Enum("above".into()), "Condition"),
+            SettingSchema {
+                options: vec!["above".into(), "below".into()],
+                ..SettingSchema::new("condition", V::Enum("above".into()), "Condition")
+            },
         ]);
         let mut store = SettingsStore::open(path.clone());
         // A schema-invalid edit must not leave a half-initialized record.

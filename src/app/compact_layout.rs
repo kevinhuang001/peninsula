@@ -326,7 +326,7 @@ mod lyric_tests {
         let icons = Icons::load(&context);
         // Exercise host layout with a Compact ID registered on every platform;
         // the music extension itself is intentionally unavailable on macOS.
-        let id = ExtensionId::builtin("builtin.clock/time");
+        let id = ExtensionId::builtin("builtin.calendar/time");
         let view = CompactView {
             id: id.clone(),
             source_extension_id: id.clone(),

@@ -150,11 +150,11 @@ fn stopped_extension_forms_are_editable_and_switching_plugins_keeps_values() {
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    let switch = toggle_for(&output, "12 小时制");
+    let switch = toggle_for(&output, "中国地区显示农历");
     click(&ctx, &mut view, &mut prefs, switch.center());
     let page = prefs.pages.iter().find(|p| p.descriptor.id == id).unwrap();
     assert!(!page.enabled);
-    assert_eq!(page.values["twelve_hour"], SettingValue::Boolean(true));
+    assert_eq!(page.values["show_lunar"], SettingValue::Boolean(false));
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     click(
         &ctx,
@@ -207,8 +207,8 @@ fn stopped_extension_forms_are_editable_and_switching_plugins_keeps_values() {
             .iter()
             .find(|p| p.descriptor.id == id)
             .unwrap()
-            .values["twelve_hour"],
-        SettingValue::Boolean(true)
+            .values["show_lunar"],
+        SettingValue::Boolean(false)
     );
 }
 
