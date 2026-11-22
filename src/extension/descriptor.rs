@@ -11,6 +11,7 @@ impl ExtensionId {
     pub fn new(value: impl Into<String>) -> Result<Self, IdError> {
         let value = value.into();
         let valid = !value.is_empty()
+            && !value.trim_matches('.').is_empty()
             && value.len() <= 128
             && value.bytes().all(|byte| {
                 byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'/' | b'-' | b'_')
@@ -63,10 +64,13 @@ impl fmt::Display for IdError {
 impl std::error::Error for IdError {}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum ExtensionKind {
+pub enum ContributionKind {
     Widget,
     Compact,
     Notification,
+    BackgroundService,
+    EventHandler,
+    MascotExpression,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -78,9 +82,9 @@ pub enum Capability {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ExtensionDescriptor {
+pub struct ContributionDescriptor {
     pub id: ExtensionId,
-    pub kind: ExtensionKind,
+    pub kind: ContributionKind,
     pub title: String,
     pub icon: String,
     pub default_enabled: bool,
@@ -98,10 +102,10 @@ pub struct ExtensionDescriptor {
     pub requires_setup: bool,
 }
 
-impl ExtensionDescriptor {
+impl ContributionDescriptor {
     pub fn builtin(
         id: &'static str,
-        kind: ExtensionKind,
+        kind: ContributionKind,
         title: &'static str,
         icon: &'static str,
         default_enabled: bool,
@@ -120,8 +124,11 @@ impl ExtensionDescriptor {
             settings_version: 1,
             settings: vec![],
             capabilities: match kind {
-                ExtensionKind::Notification => vec![Capability::Event],
-                ExtensionKind::Widget | ExtensionKind::Compact => {
+                ContributionKind::Notification
+                | ContributionKind::EventHandler
+                | ContributionKind::MascotExpression => vec![Capability::Event],
+                ContributionKind::BackgroundService => vec![Capability::Schedule],
+                ContributionKind::Widget | ContributionKind::Compact => {
                     vec![Capability::View, Capability::Action]
                 }
             },
@@ -160,5 +167,109 @@ impl ExtensionDescriptor {
     pub fn with_setup(mut self, requires_setup: bool) -> Self {
         self.requires_setup = requires_setup;
         self
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ExecutionPolicy {
+    EventDriven,
+    Interval(std::time::Duration),
+    WhenVisible,
+    OnEnable,
+}
+
+/// One business module owns every UI, task, notification and expression contribution.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExtensionDescriptor {
+    pub id: ExtensionId,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub icon: String,
+    pub category: String,
+    pub default_enabled: bool,
+    pub default_order: u32,
+    pub contributions: Vec<ContributionDescriptor>,
+    pub settings_version: u32,
+    pub settings: Vec<SettingSchema>,
+    pub execution_policy: ExecutionPolicy,
+}
+impl ExtensionDescriptor {
+    pub fn with_runtime_contributions(
+        mut self,
+        service: bool,
+        events: bool,
+        expressions: &[crate::core::mascot::MascotExpression],
+    ) -> Self {
+        let mut add = |local: &str, kind: ContributionKind, name: &str| {
+            self.contributions.push(ContributionDescriptor {
+                id: ExtensionId::new(format!("{}/{}", self.id, local))
+                    .unwrap_or_else(|_| self.id.clone()),
+                kind,
+                title: name.into(),
+                icon: self.icon.clone(),
+                default_enabled: true,
+                default_order: 0,
+                size_hint: [0.0, 0.0],
+                widget_bounds: Default::default(),
+                refresh_hint: Default::default(),
+                settings_version: 1,
+                settings: vec![],
+                capabilities: vec![],
+                schema_version: 1,
+                version: self.version.clone(),
+                requires_setup: false,
+            });
+        };
+        if service {
+            add(
+                "service.background",
+                ContributionKind::BackgroundService,
+                "后台服务",
+            );
+        }
+        if events {
+            add("event.handler", ContributionKind::EventHandler, "事件订阅");
+        }
+        for expression in expressions {
+            add(
+                &format!("expression.{}", expression.id),
+                ContributionKind::MascotExpression,
+                &expression.name,
+            );
+        }
+        self
+    }
+    pub fn builtin(
+        id: &'static str,
+        name: &str,
+        description: &str,
+        mut contributions: Vec<ContributionDescriptor>,
+    ) -> Self {
+        let settings_version = contributions
+            .iter()
+            .map(|c| c.settings_version)
+            .max()
+            .unwrap_or(1);
+        let settings = contributions
+            .iter_mut()
+            .flat_map(|c| std::mem::take(&mut c.settings))
+            .collect();
+        Self {
+            id: ExtensionId::builtin(id),
+            name: name.into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            description: description.into(),
+            icon: contributions
+                .first()
+                .map_or_else(|| "extension".into(), |c| c.icon.clone()),
+            category: "内置".into(),
+            default_enabled: contributions.iter().any(|c| c.default_enabled),
+            default_order: contributions.first().map_or(0, |c| c.default_order),
+            contributions,
+            settings_version,
+            settings,
+            execution_policy: ExecutionPolicy::Interval(std::time::Duration::from_millis(250)),
+        }
     }
 }

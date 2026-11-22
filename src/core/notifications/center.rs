@@ -1,7 +1,7 @@
 use crate::{
     extension::{
-        Action, ExtensionDescriptor, ExtensionKind, NotificationCenterItemView, NotificationKey,
-        NOTIFICATION_CENTER_ID,
+        Action, ContributionDescriptor, ContributionKind, NotificationCenterItemView,
+        NotificationKey, NOTIFICATION_CENTER_ID,
     },
     ui::declarative::*,
 };
@@ -22,10 +22,10 @@ pub struct NotificationCenterEntry {
     pub view: NotificationCenterItemView,
 }
 
-pub fn descriptor() -> ExtensionDescriptor {
-    ExtensionDescriptor::builtin(
+pub fn descriptor() -> ContributionDescriptor {
+    ContributionDescriptor::builtin(
         NOTIFICATION_CENTER_ID,
-        ExtensionKind::Widget,
+        ContributionKind::Widget,
         "通知中心",
         "bell",
         true,

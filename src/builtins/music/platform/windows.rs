@@ -99,6 +99,14 @@ impl Backend {
                 }
             }
             Command::Next => player.TrySkipNextAsync(),
+            Command::Seek(milliseconds) => {
+                let start = player
+                    .GetTimelineProperties()
+                    .and_then(|t| t.StartTime())
+                    .map_or(0, |t| t.Duration);
+                let ticks = milliseconds.saturating_mul(10_000).min(i64::MAX as u64) as i64;
+                player.TryChangePlaybackPositionAsync(start.saturating_add(ticks))
+            }
         };
         if result
             .and_then(|operation| operation.get())
@@ -161,6 +169,7 @@ fn observe(
                 }
                 .unwrap_or(false),
             next: hardware.IsNextEnabled().unwrap_or(false),
+            seek: hardware.IsPlaybackPositionEnabled().unwrap_or(false),
         });
         let rate = info
             .PlaybackRate()

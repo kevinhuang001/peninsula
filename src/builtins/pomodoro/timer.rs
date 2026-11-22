@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Phase {
     #[default]
     Focus,
@@ -32,7 +32,31 @@ impl Default for Pomodoro {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SavedTimer {
+    #[serde(default)]
+    started: bool,
+    phase: Phase,
+    remaining_seconds: f32,
+}
 impl Pomodoro {
+    pub fn saved(&self) -> SavedTimer {
+        SavedTimer {
+            started: self.started,
+            phase: self.phase,
+            remaining_seconds: self.remaining_at(Instant::now()),
+        }
+    }
+    pub fn restore(&mut self, saved: SavedTimer) {
+        if saved.remaining_seconds.is_finite() && saved.remaining_seconds >= 0.0 {
+            self.started = saved.started;
+            self.phase = saved.phase;
+            self.remaining_seconds = saved.remaining_seconds.min(self.phase_seconds());
+            self.running = false;
+            self.deadline = None;
+        }
+    }
+
     pub fn set_durations(&mut self, focus_minutes: u16, break_minutes: u16) -> bool {
         let focus_minutes = focus_minutes.clamp(1, 180);
         let break_minutes = break_minutes.clamp(1, 180);

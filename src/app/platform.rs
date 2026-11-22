@@ -32,6 +32,7 @@ pub(super) fn update_hit_region(
     frame: &eframe::Frame,
     rect: Option<eframe::egui::Rect>,
     dragging: bool,
+    _pixels_per_point: f32,
 ) {
     use objc2_app_kit::NSView;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -55,6 +56,7 @@ pub(super) fn pointer_inside(
     frame: &eframe::Frame,
     rect: Option<eframe::egui::Rect>,
     _pointer: Option<eframe::egui::Pos2>,
+    _pixels_per_point: f32,
 ) -> bool {
     use objc2_app_kit::NSView;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -76,20 +78,22 @@ pub(super) fn pointer_inside(
     rect.is_some_and(|bounds| bounds.contains(local))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub(super) fn pointer_inside(
     _frame: &eframe::Frame,
     rect: Option<eframe::egui::Rect>,
     pointer: Option<eframe::egui::Pos2>,
+    _pixels_per_point: f32,
 ) -> bool {
     pointer.is_some_and(|point| rect.is_some_and(|bounds| bounds.contains(point)))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub(super) fn update_hit_region(
     _frame: &eframe::Frame,
     _rect: Option<eframe::egui::Rect>,
     _dragging: bool,
+    _pixels_per_point: f32,
 ) {
 }
 
@@ -104,3 +108,35 @@ pub use drag::WindowDrag;
 mod scroll;
 #[cfg(target_os = "macos")]
 pub(super) use scroll::ScrollMonitor;
+
+#[cfg(any(target_os = "windows", test))]
+mod windows;
+#[cfg(target_os = "windows")]
+pub(super) use windows::{pointer_inside, update_hit_region};
+
+#[derive(Default)]
+pub(super) struct HoverFocus {
+    inside: bool,
+}
+impl HoverFocus {
+    pub fn entered(&mut self, inside: bool) -> bool {
+        let entered = inside && !self.inside;
+        self.inside = inside;
+        entered
+    }
+}
+#[cfg(test)]
+mod focus_tests {
+    #[test]
+    fn only_pointer_entry_requests_focus_never_idle_or_exit() {
+        let mut focus = super::HoverFocus::default();
+        for inside in [false, false, false] {
+            assert!(!focus.entered(inside));
+        }
+        assert!(focus.entered(true));
+        assert!(!focus.entered(true));
+        assert!(!focus.entered(false));
+        assert!(!focus.entered(false));
+        assert!(focus.entered(true));
+    }
+}

@@ -30,7 +30,7 @@ mod tests {
     #[test]
     fn action_is_recorded_before_dispatch_even_when_it_fails() {
         let invocation = ActionInvocation {
-            source_extension_id: ExtensionId::builtin("builtin.pomodoro/timer"),
+            source_extension_id: ExtensionId::builtin("test.timer"),
             action: Action::Toggle,
         };
         let mut dispatcher = ActionDispatcher::default();

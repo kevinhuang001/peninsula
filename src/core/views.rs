@@ -20,6 +20,10 @@ impl<K, V> Default for ViewCache<K, V> {
 }
 
 impl<K: Eq + Hash, V> ViewCache<K, V> {
+    pub fn refresh_at(&self, id: &K) -> Option<Instant> {
+        self.0.get(id).and_then(|entry| entry.refresh_at)
+    }
+
     pub fn get(&self, id: &K) -> Option<&V> {
         self.0.get(id).map(|entry| &entry.value)
     }

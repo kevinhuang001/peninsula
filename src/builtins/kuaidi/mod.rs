@@ -9,9 +9,10 @@ use self::{
 use crate::{
     core::external::opencli::OpenCli,
     extension::{
-        Action, Capability, ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionKind,
-        ExtensionOutput, Notification, NotificationPresentationProvider, NotificationPriority,
-        ReloadPolicy, RuntimeExtension, SettingSchema, SettingValue, Settings, WidgetView,
+        Action, Capability, ContributionDescriptor, ContributionKind, ExtensionContext,
+        ExtensionId, ExtensionOutput, Notification, NotificationPresentationProvider,
+        NotificationPriority, ReloadPolicy, RuntimeExtension, SettingSchema, SettingValue,
+        Settings, WidgetView,
     },
     ui::declarative::{Overflow, ScrollAxes, WidgetBounds},
 };
@@ -34,40 +35,47 @@ pub const CHANGE_NOTIFICATIONS_KEY: &str = "change_notifications";
 pub const PICKUP_NOTIFICATIONS_KEY: &str = "pickup_notifications";
 pub const MAX_REFRESH_MINUTES: u16 = 180;
 
-pub fn descriptors() -> Vec<ExtensionDescriptor> {
+pub fn descriptors() -> Vec<ContributionDescriptor> {
     vec![
-        ExtensionDescriptor::builtin(WIDGET_ID, ExtensionKind::Widget, "快递", "bell", true, 3)
-            .with_settings(
-                1,
-                vec![
-                    SettingSchema::new(
-                        REFRESH_MINUTES_KEY,
-                        SettingValue::Integer(i64::from(DEFAULT_REFRESH_MINUTES)),
-                        "快递刷新间隔（分钟）",
-                    )
-                    .range(1.0, f64::from(MAX_REFRESH_MINUTES)),
-                    SettingSchema::new(
-                        CHANGE_NOTIFICATIONS_KEY,
-                        SettingValue::Boolean(true),
-                        "快递变更通知",
-                    ),
-                    SettingSchema::new(
-                        PICKUP_NOTIFICATIONS_KEY,
-                        SettingValue::Boolean(true),
-                        "取件通知",
-                    ),
-                ],
-            )
-            .with_capabilities(vec![Capability::Action])
-            .with_widget_bounds(WidgetBounds {
-                fit_width: true,
-                fit_height: true,
-                overflow: Overflow::Scroll(ScrollAxes::Vertical),
-                ..WidgetBounds::default()
-            }),
-        ExtensionDescriptor::builtin(
+        ContributionDescriptor::builtin(
+            WIDGET_ID,
+            ContributionKind::Widget,
+            "快递",
+            "bell",
+            true,
+            3,
+        )
+        .with_settings(
+            1,
+            vec![
+                SettingSchema::new(
+                    REFRESH_MINUTES_KEY,
+                    SettingValue::Integer(i64::from(DEFAULT_REFRESH_MINUTES)),
+                    "快递刷新间隔（分钟）",
+                )
+                .range(1.0, f64::from(MAX_REFRESH_MINUTES)),
+                SettingSchema::new(
+                    CHANGE_NOTIFICATIONS_KEY,
+                    SettingValue::Boolean(true),
+                    "快递变更通知",
+                ),
+                SettingSchema::new(
+                    PICKUP_NOTIFICATIONS_KEY,
+                    SettingValue::Boolean(true),
+                    "取件通知",
+                ),
+            ],
+        )
+        .with_capabilities(vec![Capability::Action])
+        .with_widget_bounds(WidgetBounds {
+            fit_width: true,
+            fit_height: true,
+            overflow: Overflow::Scroll(ScrollAxes::Vertical),
+            ..WidgetBounds::default()
+        }),
+        ContributionDescriptor::builtin(
             NOTIFICATION_ID,
-            ExtensionKind::Notification,
+            ContributionKind::Notification,
             "快递动态",
             "bell",
             true,
@@ -85,6 +93,16 @@ struct Source {
 struct Refresh {
     results: Receiver<(Platform, Result<Vec<Parcel>, SyncError>)>,
     stop: Arc<AtomicBool>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Refresh {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }
 
 pub struct KuaidiExtension {
@@ -141,8 +159,12 @@ impl KuaidiExtension {
                     }
                 }
             });
-        if worker.is_ok() {
-            self.refresh = Some(Refresh { results, stop });
+        if let Ok(worker) = worker {
+            self.refresh = Some(Refresh {
+                results,
+                stop,
+                worker: Some(worker),
+            });
         } else {
             for source in &mut self.sources {
                 source.error = Some(SyncError::Query);
@@ -272,8 +294,13 @@ fn shorten(value: &str, max_chars: usize) -> String {
 }
 
 impl RuntimeExtension for KuaidiExtension {
-    fn descriptors(&self) -> Vec<ExtensionDescriptor> {
-        descriptors()
+    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+        crate::extension::ExtensionDescriptor::builtin(
+            "builtin.kuaidi",
+            "快递",
+            "物流状态与取件通知",
+            descriptors(),
+        )
     }
 
     fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
@@ -306,10 +333,7 @@ impl RuntimeExtension for KuaidiExtension {
             self.begin_refresh(now);
             output = invalidated();
         }
-        loop {
-            let Some(refresh) = &self.refresh else {
-                break;
-            };
+        while let Some(refresh) = &self.refresh {
             match refresh.results.try_recv() {
                 Ok((platform, result)) => {
                     if output.invalidated.is_empty() {
@@ -337,7 +361,7 @@ impl RuntimeExtension for KuaidiExtension {
         settings: &Settings,
         _policy: ReloadPolicy,
     ) -> ExtensionOutput {
-        if id.as_str() == WIDGET_ID {
+        if id.as_str() == WIDGET_ID || id.as_str() == "builtin.kuaidi" {
             if let Some(SettingValue::Integer(minutes)) = settings.get(REFRESH_MINUTES_KEY) {
                 self.poll_interval = Duration::from_secs(*minutes as u64 * 60);
             }
@@ -388,6 +412,7 @@ mod tests {
         extension.refresh = Some(Refresh {
             results,
             stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
         });
         let pending = describe(&extension);
         assert!(pending.contains("刷新中…"));

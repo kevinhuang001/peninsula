@@ -1,7 +1,7 @@
 use super::timer::{Phase, Pomodoro};
 use crate::extension::{
-    Action, CompactView, CompactVisibility, Event, ExtensionDescriptor, ExtensionId, ExtensionKind,
-    ExtensionOutput, Notification, NotificationAction, NotificationAlertView,
+    Action, CompactView, CompactVisibility, ContributionDescriptor, ContributionKind, Event,
+    ExtensionId, ExtensionOutput, Notification, NotificationAction, NotificationAlertView,
     NotificationCenterItemView, NotificationPresentationProvider, NotificationPriority,
     ReloadPolicy, RuntimeExtension, ScheduledTask, SettingSchema, SettingValue, Settings, ViewNode,
     WidgetView,
@@ -14,37 +14,44 @@ pub const COMPACT_ID: &str = "builtin.pomodoro/status";
 pub const NOTIFICATION_ID: &str = "builtin.pomodoro/notifications";
 const TIMER_TASK: &str = "builtin.pomodoro/timer";
 
-pub fn descriptors() -> Vec<ExtensionDescriptor> {
+pub fn descriptors() -> Vec<ContributionDescriptor> {
     vec![
-        ExtensionDescriptor::builtin(
+        ContributionDescriptor::builtin(
             COMPACT_ID,
-            ExtensionKind::Compact,
+            ContributionKind::Compact,
             "番茄钟进度",
             "timer",
             true,
             7,
         )
         .with_size_hint(88.0, 28.0),
-        ExtensionDescriptor::builtin(WIDGET_ID, ExtensionKind::Widget, "番茄钟", "timer", true, 2)
-            .with_size_hint(300.0, 126.0)
-            .with_settings(
-                1,
-                vec![
-                    SettingSchema::new("focus_minutes", SettingValue::Integer(25), "专注分钟数")
-                        .range(1.0, 180.0),
-                    SettingSchema::new("break_minutes", SettingValue::Integer(5), "休息分钟数")
-                        .range(1.0, 180.0),
-                ],
-            )
-            .with_capabilities(vec![
-                crate::extension::Capability::View,
-                crate::extension::Capability::Action,
-                crate::extension::Capability::Schedule,
-                crate::extension::Capability::Event,
-            ]),
-        ExtensionDescriptor::builtin(
+        ContributionDescriptor::builtin(
+            WIDGET_ID,
+            ContributionKind::Widget,
+            "番茄钟",
+            "timer",
+            true,
+            2,
+        )
+        .with_size_hint(300.0, 126.0)
+        .with_settings(
+            1,
+            vec![
+                SettingSchema::new("focus_minutes", SettingValue::Integer(25), "专注分钟数")
+                    .range(1.0, 180.0),
+                SettingSchema::new("break_minutes", SettingValue::Integer(5), "休息分钟数")
+                    .range(1.0, 180.0),
+            ],
+        )
+        .with_capabilities(vec![
+            crate::extension::Capability::View,
+            crate::extension::Capability::Action,
+            crate::extension::Capability::Schedule,
+            crate::extension::Capability::Event,
+        ]),
+        ContributionDescriptor::builtin(
             NOTIFICATION_ID,
-            ExtensionKind::Notification,
+            ContributionKind::Notification,
             "番茄钟提醒",
             "timer",
             true,
@@ -57,12 +64,23 @@ pub fn descriptors() -> Vec<ExtensionDescriptor> {
     ]
 }
 
-#[derive(Default)]
 pub struct PomodoroExtension {
     timer: Pomodoro,
     completion_sequence: u64,
+    restored: bool,
+    auto_start: bool,
 }
 
+impl Default for PomodoroExtension {
+    fn default() -> Self {
+        Self {
+            timer: Pomodoro::default(),
+            completion_sequence: 0,
+            restored: false,
+            auto_start: true,
+        }
+    }
+}
 impl PomodoroExtension {
     fn phase_color(&self) -> ColorSpec {
         if self.timer.phase == Phase::Focus {
@@ -98,7 +116,14 @@ impl PomodoroExtension {
         };
         Notification {
             source_id: ExtensionId::builtin(NOTIFICATION_ID),
-            id: format!("pomodoro-{}", self.completion_sequence),
+            id: format!(
+                "pomodoro-{}-{}",
+                SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos(),
+                self.completion_sequence
+            ),
             title: title.into(),
             body: body.into(),
             icon: Some("timer".into()),
@@ -110,10 +135,71 @@ impl PomodoroExtension {
 }
 
 impl RuntimeExtension for PomodoroExtension {
-    fn descriptors(&self) -> Vec<ExtensionDescriptor> {
-        descriptors()
+    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+        let mut d = crate::extension::ExtensionDescriptor::builtin(
+            "builtin.pomodoro",
+            "番茄钟",
+            "专注与休息计时",
+            descriptors(),
+        );
+        d.settings.push(SettingSchema::new(
+            "auto_start",
+            SettingValue::Boolean(true),
+            "自动开始下一轮",
+        ));
+        d.execution_policy = crate::extension::ExecutionPolicy::EventDriven;
+        d
     }
-
+    fn on_start(&mut self, context: &crate::extension::ExtensionContext) -> Result<(), String> {
+        if !self.restored {
+            let path = context
+                .extension_data_dir(&ExtensionId::builtin("builtin.pomodoro"))
+                .join("timer.json");
+            if let Ok(file) = std::fs::File::open(path) {
+                if let Ok(saved) = serde_json::from_reader(file) {
+                    self.timer.restore(saved);
+                }
+            }
+            self.restored = true;
+        }
+        Ok(())
+    }
+    fn on_stop(&mut self, context: &crate::extension::ExtensionContext) -> Result<(), String> {
+        if self.timer.running {
+            self.timer.toggle_at(Instant::now());
+        }
+        let directory = context.extension_data_dir(&ExtensionId::builtin("builtin.pomodoro"));
+        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+        let mut file = tempfile::NamedTempFile::new_in(&directory).map_err(|e| e.to_string())?;
+        serde_json::to_writer(&mut file, &self.timer.saved()).map_err(|e| e.to_string())?;
+        file.persist(directory.join("timer.json"))
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    fn mascot_state(&self) -> std::collections::BTreeMap<String, String> {
+        [(
+            "phase".into(),
+            if self.timer.running {
+                if self.timer.phase == Phase::Focus {
+                    "focus"
+                } else {
+                    "break"
+                }
+            } else {
+                "paused"
+            }
+            .into(),
+        )]
+        .into()
+    }
+    fn mascot_expressions(&self) -> Vec<crate::core::mascot::MascotExpression> {
+        use crate::core::mascot::MascotExpression as E;
+        vec![
+            E::state("focusing", "phase", "focus", 9),
+            E::state("resting", "phase", "break", 10),
+            E::event("celebrating", "timer.completed", 3),
+        ]
+    }
     fn widget_view(&self, widget_id: &ExtensionId) -> Option<WidgetView> {
         if widget_id.as_str() != WIDGET_ID {
             return None;
@@ -289,6 +375,7 @@ impl RuntimeExtension for PomodoroExtension {
         settings: &Settings,
         _policy: ReloadPolicy,
     ) -> ExtensionOutput {
+        self.auto_start = settings.get("auto_start") == Some(&SettingValue::Boolean(true));
         let (Some(SettingValue::Integer(focus)), Some(SettingValue::Integer(pause))) =
             (settings.get("focus_minutes"), settings.get("break_minutes"))
         else {
@@ -310,7 +397,11 @@ impl RuntimeExtension for PomodoroExtension {
         if !self.timer.update(now) {
             return ExtensionOutput::default();
         }
+        if !self.auto_start {
+            self.timer.toggle_at(now);
+        }
         let mut output = self.action_output(old_deadline);
+        output.mascot_events.push("timer.completed".into());
         output
             .notifications
             .push(self.completion_notification(completed_phase));
@@ -384,5 +475,33 @@ mod compact_tests {
             extension.compact_views()[0].visibility,
             CompactVisibility::Hidden
         );
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    #[test]
+    fn stopped_timer_is_restored_paused_and_auto_start_uses_a_new_deadline() {
+        let root = tempfile::tempdir().unwrap();
+        let ctx =
+            crate::extension::ExtensionContext::new(root.path().into(), root.path().join("config"));
+        let mut extension = PomodoroExtension::default();
+        extension.on_start(&ctx).unwrap();
+        extension.on_action(Action::Toggle, Instant::now());
+        extension.on_stop(&ctx).unwrap();
+        let mut restored = PomodoroExtension::default();
+        restored.on_start(&ctx).unwrap();
+        assert!(!restored.timer.running);
+        assert!(restored.timer.remaining_at(Instant::now()) <= 25.0 * 60.0);
+        restored.auto_start = true;
+        let now = Instant::now();
+        restored.on_action(Action::Toggle, now);
+        let deadline = restored.timer.deadline().unwrap();
+        let output = restored.on_event(&Event::Custom(TIMER_TASK.into()), deadline);
+        assert!(restored.timer.running);
+        assert_eq!(restored.timer.phase, Phase::Break);
+        assert_eq!(output.schedule.len(), 1);
+        assert_eq!(output.notifications.len(), 1);
     }
 }

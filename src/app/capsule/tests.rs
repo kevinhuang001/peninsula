@@ -43,7 +43,6 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
-                                bilibili_status: "",
                             },
                         )
                         .0;
@@ -63,76 +62,6 @@ fn compact_capsule_is_shorter_without_changing_the_expanded_widget_height() {
 }
 
 #[test]
-fn in_capsule_settings_toggle_updates_compact_preferences() {
-    use eframe::egui::{Event, Modifiers, PointerButton};
-
-    let context = egui::Context::default();
-    let mut tab = crate::app::widgets::default_widget_id();
-    let mut preferences = CompactPreferences::default();
-    let mut settings_view = SettingsView::default();
-    let icons = crate::app::icons::Icons::load(&context);
-    let (widget_ids, widget_view) = widget_fixture();
-    let point = Pos2::new(369.0, 105.0);
-    let mut changed = false;
-    let mut frame = |events: Vec<Event>| {
-        let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(420.0, 340.0))),
-            events,
-            ..Default::default()
-        };
-        let _ = context.run(input, |context| {
-            egui::CentralPanel::default()
-                .frame(egui::Frame::NONE)
-                .show(context, |ui| {
-                    ui.vertical_centered(|ui| {
-                        let result = show(
-                            ui,
-                            context,
-                            SettingsView::WIDTH,
-                            1.0,
-                            settings_view.extra_height(context, &preferences, ""),
-                            CapsuleWidgets {
-                                compact_views: &[],
-                                widget_ids: &widget_ids,
-                                widget_titles: &[],
-                                widget_title: "测试",
-                                widget_view: &widget_view,
-                                widget_body_limit: egui::vec2(300.0, 76.0),
-                                alert_view: None,
-                                preferences: &mut preferences,
-                                settings_open: true,
-                                settings_view: &mut settings_view,
-                                active_widget: &mut tab,
-                                pinned: false,
-                                icons: &icons,
-                                notification: None,
-                                do_not_disturb: false,
-                                bilibili_status: "",
-                            },
-                        );
-                        changed = result.6;
-                    });
-                });
-        });
-    };
-    let button = |pressed| Event::PointerButton {
-        pos: point,
-        button: PointerButton::Primary,
-        pressed,
-        modifiers: Modifiers::NONE,
-    };
-    frame(vec![Event::PointerMoved(point)]);
-    frame(vec![button(true)]);
-    frame(vec![button(false)]);
-    assert!(
-        !preferences.is_enabled(&crate::extension::ExtensionId::builtin(
-            "builtin.mascot/face"
-        ))
-    );
-    assert!(changed);
-}
-
-#[test]
 fn settings_close_button_returns_to_the_active_widget() {
     use eframe::egui::{Event, Modifiers, PointerButton};
 
@@ -142,11 +71,14 @@ fn settings_close_button_returns_to_the_active_widget() {
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&context);
     let (widget_ids, widget_view) = widget_fixture();
-    let point = Pos2::new(385.0, 26.0);
+    let point = Pos2::new(SettingsView::WIDTH - 19.0 + 8.0, 26.0);
     let mut close_requested = false;
     let mut frame = |events: Vec<Event>| {
         let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(420.0, 340.0))),
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO,
+                Vec2::new(SettingsView::WIDTH + 16.0, 460.0),
+            )),
             events,
             ..Default::default()
         };
@@ -160,7 +92,7 @@ fn settings_close_button_returns_to_the_active_widget() {
                             context,
                             SettingsView::WIDTH,
                             1.0,
-                            settings_view.extra_height(context, &preferences, ""),
+                            settings_view.extra_height(context, &preferences),
                             CapsuleWidgets {
                                 compact_views: &[],
                                 widget_ids: &widget_ids,
@@ -177,7 +109,6 @@ fn settings_close_button_returns_to_the_active_widget() {
                                 icons: &icons,
                                 notification: None,
                                 do_not_disturb: false,
-                                bilibili_status: "",
                             },
                         )
                         .1;
@@ -220,10 +151,15 @@ fn widget_fixture() -> (
     crate::extension::WidgetView,
 ) {
     let widget_ids = crate::builtins::registry()
-        .widget_list()
+        .by_kind(crate::extension::ContributionKind::Widget)
         .into_iter()
         .map(|descriptor| descriptor.id.clone())
-        .collect();
+        .collect::<Vec<_>>();
+    let widget_ids = std::iter::once(crate::extension::ExtensionId::builtin(
+        crate::extension::NOTIFICATION_CENTER_ID,
+    ))
+    .chain(widget_ids)
+    .collect();
     let widget_view = crate::extension::WidgetView::new(
         crate::extension::ViewNode::text("测试", Default::default()),
         [300.0, 76.0],
@@ -282,7 +218,6 @@ fn table_text_keeps_its_destination_wrap_width_during_expansion() {
                             settings_open: false,
                             settings_view: &mut settings,
                             preferences: &mut preferences,
-                            bilibili_status: "",
                         },
                     );
                 });

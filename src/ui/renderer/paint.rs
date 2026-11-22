@@ -106,7 +106,6 @@ fn named_icon(name: &str) -> Option<Icon> {
         "speaker-playing" => Icon::SpeakerPlaying,
         "equalizer" => Icon::Equalizer,
         "equalizer-playing" => Icon::EqualizerPlaying,
-        "clock-live" => Icon::ClockLive,
         "media-play" => Icon::MediaPlay,
         "media-pause" => Icon::MediaPause,
         "media-previous" => Icon::MediaPrevious,
@@ -154,11 +153,12 @@ impl Renderer<'_> {
                 }
             }
             Node::ProgressBar { .. } => vec2(100.0, 16.0),
+            Node::Slider { .. } => vec2(100.0, 24.0),
             Node::ProgressRing { .. } | Node::Gauge { .. } => Vec2::splat(60.0),
             Node::Chart { .. } | Node::Sparkline(_) | Node::RangeChart { .. } => vec2(100.0, 36.0),
             Node::LineChart { .. } => vec2(120.0, 104.0),
             Node::Image { asset } => image_size(ui, asset),
-            Node::Svg { asset, svg_style } => assets::svg(ui, &self.theme, asset, *svg_style)
+            Node::Svg { asset, svg_style } => assets::svg(ui, &self.theme, asset, *svg_style, None)
                 .map_or(Vec2::ZERO, |texture| texture.size_vec2()),
             Node::SpriteSequence(spec) => spec.frames.first().map_or(Vec2::ZERO, |frame| {
                 image_size(ui, &frame.asset) * assets::uv_rect(frame.uv).size()
@@ -227,7 +227,9 @@ impl Renderer<'_> {
         }
         self.remaining -= 1;
         let (interactive, enabled) = match node.kind {
-            Node::Control { enabled, .. } => (true, enabled && ui.is_enabled()),
+            Node::Control { enabled, .. } | Node::Slider { enabled, .. } => {
+                (true, enabled && ui.is_enabled())
+            }
             Node::ActionArea { .. } => (true, ui.is_enabled()),
             _ => (false, true),
         };
@@ -235,7 +237,15 @@ impl Renderer<'_> {
             // Use the same hit rectangle and focus behavior as egui widgets.
             let target = rect.intersect(ui.clip_rect());
             if enabled {
-                Some(ui.interact(target, id, Sense::click()))
+                Some(ui.interact(
+                    target,
+                    id,
+                    if matches!(node.kind, Node::Slider { .. }) {
+                        Sense::click_and_drag()
+                    } else {
+                        Sense::click()
+                    },
+                ))
             } else {
                 let disabled =
                     ui.new_child(UiBuilder::new().id_salt(id).max_rect(target).disabled());
@@ -348,7 +358,7 @@ impl Renderer<'_> {
             ui.painter().rect_stroke(
                 rect,
                 radius,
-                Stroke::new(1.0, color(ColorSpec::Accent)),
+                Stroke::new(1.0_f32, color(ColorSpec::Accent)),
                 StrokeKind::Inside,
             );
         }
@@ -472,7 +482,7 @@ impl Renderer<'_> {
         let painter = ui.painter().with_clip_rect(rect);
         let color = |spec| self.theme.color(ui, spec).linear_multiply(opacity);
         let surface = color(ColorSpec::SurfaceVariant);
-        let divider = Stroke::new(1.0, color(ColorSpec::Border).gamma_multiply(0.58));
+        let divider = Stroke::new(1.0_f32, color(ColorSpec::Border).gamma_multiply(0.58));
         let header = Rect::from_min_size(rect.min, vec2(rect.width(), TABLE_HEADER_HEIGHT));
         painter.rect_filled(
             header,
@@ -594,7 +604,9 @@ impl Renderer<'_> {
                 }
             }
             Node::Svg { asset, svg_style } => {
-                if let Some(texture) = assets::svg(ui, &self.theme, asset, *svg_style) {
+                if let Some(texture) =
+                    assets::svg(ui, &self.theme, asset, *svg_style, Some(rect.size()))
+                {
                     assets::paint_texture(
                         &painter,
                         &texture,
@@ -702,7 +714,75 @@ impl Renderer<'_> {
                 } else {
                     [pos2(rect.left(), c.y), pos2(rect.right(), c.y)]
                 };
-                painter.line_segment(line, Stroke::new(1.0, fg));
+                painter.line_segment(line, Stroke::new(1.0_f32, fg));
+            }
+            Node::Slider {
+                fraction,
+                label,
+                action,
+                enabled,
+            } => {
+                let enabled = *enabled && ui.is_enabled();
+                let response = ui.ctx().read_response(id);
+                let mut value = ratio(*fraction);
+                if let Some(response) = &response {
+                    if enabled && (response.drag_started() || response.clicked()) {
+                        response.request_focus();
+                    }
+                    response.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Slider, enabled, label)
+                    });
+                    let preview_id = id.with("slider-preview");
+                    if enabled
+                        && (response.dragged() || response.drag_stopped() || response.clicked())
+                    {
+                        if let Some(position) = response.interact_pointer_pos() {
+                            value = ((position.x - rect.left()) / rect.width().max(1.0))
+                                .clamp(0.0, 1.0);
+                            ui.data_mut(|data| data.insert_temp(preview_id, value));
+                        } else if let Some(preview) =
+                            ui.data(|data| data.get_temp::<f32>(preview_id))
+                        {
+                            value = preview;
+                        }
+                        if response.clicked() || response.drag_stopped() {
+                            self.action = Some(crate::extension::Action::SetProgress {
+                                key: action.clone(),
+                                basis_points: (value * 10_000.0).round() as u16,
+                            });
+                        }
+                    }
+                    if enabled && response.has_focus() {
+                        let step = ui.input_mut(|input| {
+                            i32::from(
+                                input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight),
+                            ) - i32::from(
+                                input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft),
+                            )
+                        });
+                        if step != 0 {
+                            value = (value + step as f32 * 0.01).clamp(0.0, 1.0);
+                            self.action = Some(crate::extension::Action::SetProgress {
+                                key: action.clone(),
+                                basis_points: (value * 10_000.0).round() as u16,
+                            });
+                        }
+                    }
+                }
+                let track = Rect::from_center_size(rect.center(), vec2(rect.width(), 3.0));
+                let tint = if enabled {
+                    fg
+                } else {
+                    color(ColorSpec::MutedText)
+                };
+                painter.rect_filled(track, 1.5, color(ColorSpec::SurfaceVariant));
+                let x = egui::lerp(track.x_range(), value);
+                painter.rect_filled(
+                    Rect::from_min_max(track.min, pos2(x, track.bottom())),
+                    1.5,
+                    tint,
+                );
+                painter.circle_filled(pos2(x, track.center().y), 3.0, tint);
             }
             Node::ProgressBar {
                 fraction,
@@ -798,7 +878,7 @@ impl Renderer<'_> {
                         radius,
                         pi,
                         pi,
-                        Stroke::new(3.0, color(ColorSpec::Border)),
+                        Stroke::new(3.0_f32, color(ColorSpec::Border)),
                     );
                     arc(
                         &painter,
@@ -806,7 +886,7 @@ impl Renderer<'_> {
                         radius,
                         pi,
                         pi * ratio(effects.progress.unwrap_or(*fraction)),
-                        Stroke::new(3.0, fg),
+                        Stroke::new(3.0_f32, fg),
                     );
                 }
                 text(ui, rect, label, TextStyle::default(), fg);
@@ -993,7 +1073,7 @@ fn range_chart(
         painter.hline(
             left..=left + width,
             egui::lerp(top..=bottom, ratio),
-            Stroke::new(1.0, muted.gamma_multiply(0.22)),
+            Stroke::new(1.0_f32, muted.gamma_multiply(0.22)),
         );
     }
     let mut previous: Option<(egui::Pos2, egui::Pos2)> = None;
@@ -1018,8 +1098,8 @@ fn range_chart(
                 cool.gamma_multiply(0.15),
                 Stroke::NONE,
             ));
-            painter.line_segment([previous_high, high_point], Stroke::new(1.8, warm));
-            painter.line_segment([previous_low, low_point], Stroke::new(1.8, cool));
+            painter.line_segment([previous_high, high_point], Stroke::new(1.8_f32, warm));
+            painter.line_segment([previous_low, low_point], Stroke::new(1.8_f32, cool));
         }
         for (point, value, color, offset, alignment) in [
             (high_point, high, warm, -5.0, egui::Align2::CENTER_BOTTOM),
@@ -1040,6 +1120,7 @@ fn range_chart(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Shared chart painter receives layout and visual context.
 fn line_chart(
     ui: &Ui,
     rect: Rect,
@@ -1075,7 +1156,7 @@ fn line_chart(
         painter.hline(
             rect.x_range(),
             egui::lerp(top..=bottom, level),
-            Stroke::new(1.0, muted.gamma_multiply(0.23)),
+            Stroke::new(1.0_f32, muted.gamma_multiply(0.23)),
         );
     }
 
@@ -1097,7 +1178,7 @@ fn line_chart(
                 accent.gamma_multiply(0.13),
                 Stroke::NONE,
             ));
-            painter.line_segment([a, b], Stroke::new(1.8, accent));
+            painter.line_segment([a, b], Stroke::new(1.8_f32, accent));
         }
         previous = position;
         let labels = painter.with_clip_rect(cell);
@@ -1192,7 +1273,7 @@ fn chart(painter: &egui::Painter, rect: Rect, kind: ChartKind, values: &[f32], c
         for (i, value) in data.iter().enumerate() {
             let current = value.map(|v| pos2(rect.left() + i as f32 * spacing, y(v)));
             if let (Some(a), Some(b)) = (previous, current) {
-                painter.line_segment([a, b], Stroke::new(1.5, color));
+                painter.line_segment([a, b], Stroke::new(1.5_f32, color));
             }
             previous = current;
         }

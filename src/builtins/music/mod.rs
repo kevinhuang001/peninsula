@@ -4,9 +4,9 @@ mod view;
 
 use crate::{
     extension::{
-        Action, Capability, CompactView, CompactVisibility, ExtensionContext, ExtensionDescriptor,
-        ExtensionId, ExtensionKind, ExtensionOutput, NotificationPresentationProvider,
-        RuntimeExtension, WidgetVisibility,
+        Action, Capability, CompactView, CompactVisibility, ContributionDescriptor,
+        ContributionKind, ExtensionContext, ExtensionId, ExtensionOutput,
+        NotificationPresentationProvider, RuntimeExtension, WidgetVisibility,
     },
     ui::declarative::{Overflow, ScrollAxes, WidgetBounds, WidgetView, MAX_CONTENT_WIDTH},
 };
@@ -21,27 +21,42 @@ use std::{
 
 const WIDGET_ID: &str = "builtin.music/now-playing";
 const COMPACT_ID: &str = "builtin.music/lyrics";
-const WIDGET_SIZE: [f32; 2] = [368.0, 188.0];
+const WIDGET_SIZE: [f32; 2] = [280.0, 188.0];
 const COMPACT_WIDTH: f32 = 176.0;
 const COMPACT_LYRIC_MIN_WIDTH: f32 = 360.0;
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const IDLE_INTERVAL: Duration = Duration::from_millis(500);
 const DISCONNECTED_AFTER: Duration = Duration::from_secs(4);
 
-pub(super) fn descriptors() -> Vec<ExtensionDescriptor> {
+pub(super) fn descriptors() -> Vec<ContributionDescriptor> {
     vec![
-        ExtensionDescriptor::builtin(WIDGET_ID, ExtensionKind::Widget, "音乐", "music", true, 5)
-            .with_size_hint(WIDGET_SIZE[0], WIDGET_SIZE[1])
-            .with_widget_bounds(widget_bounds())
-            .with_capabilities(vec![Capability::View, Capability::Action]),
-        ExtensionDescriptor::builtin(COMPACT_ID, ExtensionKind::Compact, "歌词", "music", true, 9)
-            .with_size_hint(COMPACT_WIDTH, 28.0),
+        ContributionDescriptor::builtin(
+            WIDGET_ID,
+            ContributionKind::Widget,
+            "音乐",
+            "music",
+            true,
+            5,
+        )
+        .with_size_hint(WIDGET_SIZE[0], WIDGET_SIZE[1])
+        .with_widget_bounds(widget_bounds())
+        .with_capabilities(vec![Capability::View, Capability::Action]),
+        ContributionDescriptor::builtin(
+            COMPACT_ID,
+            ContributionKind::Compact,
+            "歌词",
+            "music",
+            true,
+            9,
+        )
+        .with_size_hint(COMPACT_WIDTH, 28.0),
     ]
 }
 
 fn widget_bounds() -> WidgetBounds {
     WidgetBounds {
-        min: [WIDGET_SIZE[0], 0.0],
+        // Let Core apply the same resolution-dependent minimum as every Widget.
+        min: [0.0, 0.0],
         max: [Some(MAX_CONTENT_WIDTH), None],
         fit_width: true,
         fit_height: true,
@@ -60,6 +75,7 @@ type LyricsResult = Result<Option<Arc<Lyrics>>, ()>;
 
 #[derive(Default)]
 pub(super) struct MusicExtension {
+    workers: Vec<std::thread::JoinHandle<()>>,
     playback: Option<Playback>,
     controller: Option<mpsc::Sender<ControlRequest>>,
     media_updates: Option<mpsc::Receiver<MediaUpdate>>,
@@ -75,23 +91,50 @@ pub(super) struct MusicExtension {
 impl NotificationPresentationProvider for MusicExtension {}
 
 impl RuntimeExtension for MusicExtension {
-    fn descriptors(&self) -> Vec<ExtensionDescriptor> {
-        descriptors()
+    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+        crate::extension::ExtensionDescriptor::builtin(
+            "builtin.music",
+            "音乐",
+            "播放控制与同步歌词",
+            descriptors(),
+        )
     }
 
+    fn mascot_state(&self) -> std::collections::BTreeMap<String, String> {
+        [(
+            "playing".into(),
+            self.playback
+                .as_ref()
+                .is_some_and(|p| p.playing)
+                .to_string(),
+        )]
+        .into()
+    }
+    fn mascot_expressions(&self) -> Vec<crate::core::mascot::MascotExpression> {
+        vec![crate::core::mascot::MascotExpression::state(
+            "listening",
+            "playing",
+            "true",
+            7,
+        )]
+    }
     fn on_start(&mut self, _context: &ExtensionContext) -> Result<(), String> {
         let (controller, controls) = mpsc::channel();
         let (media_output, media_updates) = mpsc::channel();
         let (lyric_requests, requests) = mpsc::channel();
         let (lyric_output, lyric_updates) = mpsc::channel();
-        thread::Builder::new()
-            .name("music-session".into())
-            .spawn(move || watch_media(controls, media_output))
-            .map_err(|error| error.to_string())?;
-        thread::Builder::new()
-            .name("music-lyrics".into())
-            .spawn(move || fetch_lyrics(requests, lyric_output))
-            .map_err(|error| error.to_string())?;
+        self.workers.push(
+            thread::Builder::new()
+                .name("music-session".into())
+                .spawn(move || watch_media(controls, media_output))
+                .map_err(|error| error.to_string())?,
+        );
+        self.workers.push(
+            thread::Builder::new()
+                .name("music-lyrics".into())
+                .spawn(move || fetch_lyrics(requests, lyric_output))
+                .map_err(|error| error.to_string())?,
+        );
         self.controller = Some(controller);
         self.media_updates = Some(media_updates);
         self.lyric_requests = Some(lyric_requests);
@@ -104,6 +147,9 @@ impl RuntimeExtension for MusicExtension {
         self.media_updates = None;
         self.lyric_requests = None;
         self.lyric_updates = None;
+        for worker in self.workers.drain(..) {
+            let _ = worker.join();
+        }
         self.set_playback(None);
         Ok(())
     }
@@ -251,12 +297,24 @@ impl RuntimeExtension for MusicExtension {
         output
     }
 
-    fn on_action(&mut self, action: Action, _now: Instant) -> ExtensionOutput {
+    fn on_action(&mut self, action: Action, now: Instant) -> ExtensionOutput {
         let Some(playback) = &self.playback else {
             return ExtensionOutput::default();
         };
         let command = match action {
             Action::Toggle => Command::Toggle,
+            Action::SetProgress {
+                ref key,
+                basis_points,
+            } if key == "seek" => {
+                let Some(duration) = playback.track.duration else {
+                    return ExtensionOutput::default();
+                };
+                Command::Seek(
+                    (duration * 1000.0 * f64::from(basis_points.min(10_000)) / 10_000.0).round()
+                        as u64,
+                )
+            }
             Action::Custom(ref name) if name == "previous" => Command::Previous,
             Action::Advance => Command::Next,
             Action::Custom(ref name) if name == "lyrics-retry" => {
@@ -277,6 +335,20 @@ impl RuntimeExtension for MusicExtension {
             .controller
             .as_ref()
             .is_none_or(|sender| sender.send((playback.session.clone(), command)).is_err());
+        if !self.control_failed {
+            if let Command::Seek(milliseconds) = command {
+                if let Some(playback) = self.playback.as_mut() {
+                    playback.position = milliseconds as f64 / 1000.0;
+                    playback.observed = now;
+                }
+                self.active_line = self
+                    .lyric_result
+                    .as_ref()
+                    .and_then(|r| r.as_ref().ok())
+                    .and_then(Option::as_deref)
+                    .and_then(|lyrics| lyrics.current_index(milliseconds as f64 / 1000.0));
+            }
+        }
         invalidate()
     }
 }
@@ -562,5 +634,52 @@ mod timing_tests {
         )));
         music.update(now + Duration::from_secs(5));
         assert_eq!(music.active_line, None);
+    }
+}
+
+#[cfg(test)]
+mod seek_tests {
+    use super::*;
+    #[test]
+    fn seek_sends_position_to_backend_and_updates_paused_playback_and_lyrics() {
+        let now = Instant::now();
+        let (sender, receiver) = mpsc::channel();
+        let mut music = MusicExtension {
+            controller: Some(sender),
+            ..Default::default()
+        };
+        let mut playback = super::tests::sample(false, 10.0, now);
+        playback.controls.seek = true;
+        music.playback = Some(playback);
+        music.lyric_result = Some(Ok(Some(Arc::new(Lyrics::Synced(vec![
+            lyrics::Line {
+                at: 0.0,
+                text: "first".into(),
+            },
+            lyrics::Line {
+                at: 50.0,
+                text: "second".into(),
+            },
+        ])))));
+        music.on_action(
+            Action::SetProgress {
+                key: "seek".into(),
+                basis_points: 7500,
+            },
+            now,
+        );
+        assert_eq!(receiver.try_recv().unwrap().1, Command::Seek(75_000));
+        assert_eq!(music.playback.as_ref().unwrap().position_at(now), 75.0);
+        assert!(!music.playback.as_ref().unwrap().playing);
+        assert_eq!(music.active_line, Some(1));
+        music.playback.as_mut().unwrap().controls.seek = false;
+        music.on_action(
+            Action::SetProgress {
+                key: "seek".into(),
+                basis_points: 10_000,
+            },
+            now,
+        );
+        assert!(receiver.try_recv().is_err());
     }
 }

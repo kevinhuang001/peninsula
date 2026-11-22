@@ -1,27 +1,16 @@
 //! Power sampling stays independent of GPU/driver queries and process scans.
-use crate::core::latest::{self, LatestReceiver};
-use std::{
-    thread,
-    time::{Duration, Instant},
-};
+use crate::core::worker::Worker;
+use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(super) struct PowerSnapshot {
+pub(crate) struct PowerSnapshot {
     pub percent: Option<u8>,
     pub external: Option<bool>,
     pub charging: bool,
 }
 
-pub(super) fn start() -> LatestReceiver<PowerSnapshot> {
-    let (tx, rx) = latest::channel();
-    thread::spawn(move || loop {
-        let started = Instant::now();
-        if !tx.send(sample()) {
-            break;
-        }
-        thread::sleep(Duration::from_millis(250).saturating_sub(started.elapsed()));
-    });
-    rx
+pub(super) fn start() -> Worker<PowerSnapshot> {
+    Worker::spawn_latest("battery", Duration::from_millis(250), sample)
 }
 
 fn sample() -> PowerSnapshot {
@@ -30,7 +19,7 @@ fn sample() -> PowerSnapshot {
         return demo;
     }
     #[cfg(target_os = "windows")]
-    if let Some(snapshot) = super::sampler::power_status() {
+    if let Some(snapshot) = windows_battery_status() {
         return snapshot;
     }
 
@@ -138,8 +127,75 @@ fn decode_mac_power(text: &str) -> Option<bool> {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn windows_battery_status() -> Option<crate::builtins::battery::power::PowerSnapshot> {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    let mut status = SYSTEM_POWER_STATUS::default();
+    unsafe { GetSystemPowerStatus(&mut status) }.ok()?;
+    Some(decode_windows_battery_status(
+        status.ACLineStatus,
+        status.BatteryFlag,
+        status.BatteryLifePercent,
+    ))
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn decode_windows_battery_status(
+    ac_line: u8,
+    flags: u8,
+    percent: u8,
+) -> crate::builtins::battery::power::PowerSnapshot {
+    use crate::builtins::battery::power::PowerSnapshot;
+    let external = match ac_line {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    };
+    if flags != 255 && flags & 128 != 0 {
+        return PowerSnapshot {
+            external,
+            ..Default::default()
+        };
+    }
+    PowerSnapshot {
+        percent: (percent <= 100).then_some(percent),
+        external,
+        charging: flags != 255 && flags & 8 != 0 && external != Some(false),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_distinguishes_charging_full_charge_limit_and_unknown_data() {
+        use crate::builtins::battery::power::PowerSnapshot as Power;
+        let decode = super::decode_windows_battery_status;
+        assert_eq!(
+            decode(1, 8, 60),
+            Power {
+                percent: Some(60),
+                external: Some(true),
+                charging: true
+            }
+        );
+        for percent in [80, 100] {
+            assert_eq!(
+                decode(1, 1, percent),
+                Power {
+                    percent: Some(percent),
+                    external: Some(true),
+                    charging: false
+                }
+            );
+        }
+        assert!(!decode(0, 8, 60).charging);
+        assert!(!decode(1, 255, 60).charging);
+        assert_eq!(decode(1, 0, 255).external, Some(true));
+        assert_eq!(decode(1, 0, 255).percent, None);
+        assert_eq!(decode(255, 255, 255), Power::default());
+        assert_eq!(decode(1, 128, 255).percent, None);
+    }
+
     use super::*;
     #[test]
     fn adapter_detection_distinguishes_unknown_offline_and_multiple_supplies() {

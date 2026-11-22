@@ -5,7 +5,10 @@ mod registry;
 mod schema;
 mod view;
 
-pub use descriptor::{Capability, ExtensionDescriptor, ExtensionId, ExtensionKind};
+pub use descriptor::{
+    Capability, ContributionDescriptor, ContributionKind, ExecutionPolicy, ExtensionDescriptor,
+    ExtensionId,
+};
 pub use lifecycle::{ExtensionContext, ExtensionLifecycleRecord, LifecycleManager};
 pub use notification::{
     Notification, NotificationAction, NotificationAlertView, NotificationCenterItemView,

@@ -2,7 +2,7 @@ use super::{poller, state::SyncState, state::UnreadIncrease};
 use crate::{
     core::external::opencli::OpenCli,
     extension::{
-        ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionKind, ExtensionOutput,
+        ContributionDescriptor, ContributionKind, ExtensionContext, ExtensionId, ExtensionOutput,
         Notification, NotificationAction, NotificationAlertView, NotificationCenterItemView,
         NotificationPresentationProvider, NotificationPriority, ReloadPolicy, RuntimeExtension,
         SettingSchema, SettingValue, Settings,
@@ -171,11 +171,22 @@ impl BilibiliExtension {
     }
 }
 
-impl RuntimeExtension for BilibiliExtension {
-    fn descriptors(&self) -> Vec<ExtensionDescriptor> {
-        vec![ExtensionDescriptor::builtin(
+impl BilibiliExtension {
+    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+        crate::extension::ExtensionDescriptor::builtin(
+            "builtin.bilibili",
+            "Bilibili",
+            "动态与消息通知",
+            self.contributions(),
+        )
+    }
+}
+
+impl BilibiliExtension {
+    fn contributions(&self) -> Vec<ContributionDescriptor> {
+        vec![ContributionDescriptor::builtin(
             NOTIFICATION_ID,
-            ExtensionKind::Notification,
+            ContributionKind::Notification,
             "Bilibili 通知",
             "bell",
             false,
@@ -206,7 +217,12 @@ impl RuntimeExtension for BilibiliExtension {
             ],
         )]
     }
+}
 
+impl RuntimeExtension for BilibiliExtension {
+    fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+        BilibiliExtension::descriptor(self)
+    }
     fn on_install(&mut self, _ctx: &ExtensionContext) -> Result<(), String> {
         Ok(())
     }
@@ -252,6 +268,7 @@ impl RuntimeExtension for BilibiliExtension {
         }
         if let Some(worker) = self.worker.take() {
             worker.thread().unpark();
+            let _ = worker.join();
         }
         self.receiver = None;
         Ok(())

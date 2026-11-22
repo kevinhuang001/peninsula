@@ -66,10 +66,25 @@ impl Backend {
     pub fn control(&mut self, session: &str, command: Command) -> Result<(), String> {
         let connection = self.connection.as_ref().ok_or("D-Bus is disconnected")?;
         let player = player_proxy(connection, session).map_err(|e| e.to_string())?;
+        if let Command::Seek(milliseconds) = command {
+            let metadata = player
+                .get_property::<HashMap<String, OwnedValue>>("Metadata")
+                .map_err(|e| e.to_string())?;
+            let track = metadata
+                .get("mpris:trackid")
+                .and_then(|v| v.try_clone().ok())
+                .and_then(|v| zbus::zvariant::OwnedObjectPath::try_from(v).ok())
+                .ok_or("Player has no seekable track")?;
+            let microseconds = milliseconds.saturating_mul(1000).min(i64::MAX as u64) as i64;
+            return player
+                .call::<_, _, ()>("SetPosition", &(track, microseconds))
+                .map_err(|e| e.to_string());
+        }
         let method = match command {
             Command::Previous => "Previous",
             Command::Toggle => "PlayPause",
             Command::Next => "Next",
+            Command::Seek(_) => unreachable!(),
         };
         player
             .call::<_, _, ()>(method, &())
@@ -129,6 +144,7 @@ fn snapshot(
     let controls = if can("CanControl") {
         Controls {
             previous: can("CanGoPrevious"),
+            seek: can("CanSeek"),
             next: can("CanGoNext"),
             toggle: can(if playing { "CanPause" } else { "CanPlay" }),
         }

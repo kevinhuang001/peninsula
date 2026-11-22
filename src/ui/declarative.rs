@@ -459,6 +459,12 @@ pub enum Node {
         vertical: bool,
     },
     Spacer,
+    Slider {
+        fraction: f32,
+        label: String,
+        action: String,
+        enabled: bool,
+    },
     ProgressBar {
         fraction: f32,
         label: String,

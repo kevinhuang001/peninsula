@@ -164,7 +164,7 @@ fn paint_card(
         rect,
         10.0,
         visuals.widgets.noninteractive.bg_fill,
-        Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color),
+        Stroke::new(1.0_f32, visuals.widgets.noninteractive.bg_stroke.color),
         egui::StrokeKind::Inside,
     );
     painter.text(

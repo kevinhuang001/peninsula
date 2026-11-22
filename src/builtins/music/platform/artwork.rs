@@ -10,16 +10,18 @@ pub(super) const MAX_BYTES: u64 = 2 * 1024 * 1024;
 type Load = Box<dyn FnOnce() -> Option<Vec<u8>> + Send>;
 type Artwork = Option<Arc<RasterImage>>;
 
+type ArtworkWorker = (
+    std::sync::mpsc::Sender<(String, Load)>,
+    std::sync::mpsc::Receiver<(String, Artwork)>,
+);
 #[derive(Default)]
 pub(super) struct Cache {
     key: String,
     result: Artwork,
     retry_at: Option<Instant>,
     loading: bool,
-    worker: Option<(
-        std::sync::mpsc::Sender<(String, Load)>,
-        std::sync::mpsc::Receiver<(String, Artwork)>,
-    )>,
+    worker: Option<ArtworkWorker>,
+    worker_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Cache {
@@ -31,7 +33,7 @@ impl Cache {
         if self.worker.is_none() {
             let (tx, requests) = std::sync::mpsc::channel::<(String, Load)>();
             let (results, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
+            let worker = std::thread::spawn(move || {
                 while let Ok(first) = requests.recv() {
                     let (key, load) = requests.try_iter().last().unwrap_or(first);
                     let image = load().and_then(|bytes| decode(&bytes)).map(Arc::new);
@@ -41,6 +43,7 @@ impl Cache {
                 }
             });
             self.worker = Some((tx, rx));
+            self.worker_thread = Some(worker);
         }
         if self.key != key {
             self.key = key.into();
@@ -66,6 +69,15 @@ impl Cache {
             }
         }
         self.result.clone()
+    }
+}
+
+impl Drop for Cache {
+    fn drop(&mut self) {
+        self.worker = None;
+        if let Some(worker) = self.worker_thread.take() {
+            let _ = worker.join();
+        }
     }
 }
 
