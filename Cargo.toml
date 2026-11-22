@@ -29,6 +29,7 @@ tempfile = "3"
 time = { version = "0.3", features = ["local-offset"] }
 chrono = "0.4"
 chrono-tz = "0.10"
+iana-time-zone = "0.1.65"
 holidays-rs = "0.8"
 lunar-lite = "0.3"
 reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots", "socks", "system-proxy"] }
