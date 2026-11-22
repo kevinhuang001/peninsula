@@ -17,7 +17,7 @@ For each user-owned market asset, the market extension registers:
 - `builtin.market/service.quotes` as an on-demand background dependency. No Widget or Compact is required for alerts.
 - `alert_interval_minutes: Integer`, valid from **1–10,080 minutes**, once on the **market extension**. All per-asset price alerts share it.
 
-The Notifications → Market UI displays this one shared interval before the asset list, and displays each asset's independent enable switch, condition and target price. The source of truth is the existing extension setting; the same control in Extensions → Market edits the same record.
+The Notifications → Market UI displays this one shared interval before the asset list, and displays each asset's independent enable switch, condition and **editable target price text field**. The text editor accepts finite nonnegative decimal values, keeps incomplete typing as a UI draft, and commits valid prices into the contribution's existing Float setting; a blank value clears the threshold to zero. Nonpositive prices cannot activate the notification. The source of truth is the existing extension setting; the same cooldown control in Extensions → Market edits the same record.
 
 A threshold must be finite and **greater than zero** before a price-alert contribution can start. If an alert is switched on but not configured, show “待配置” and let the user edit its settings; never report the notification as actively running. Removing an asset unregisters its notification contribution and stops any associated work. Dynamic contribution IDs remain stable while the asset is present.
 
@@ -35,12 +35,15 @@ An inactive contribution does not remain subscribed to events or schedule work a
 
 ## Capsule secondary menus
 
-The Capsule configuration keeps existing Motion and Mascot entries; the four independent presentation-management entries are **Compact**, **Widget**, **开关** and **顺序**.
+The Capsule configuration keeps its Motion, Mascot, and Compact 样式 entries. Four additional secondary menu items are **Compact 开关**, **Compact 顺序**, **Widget 开关**, and **Widget 顺序**; these are four distinct, selectable navigation entries.
 
-- Compact: compact text presentation.
-- Widget: widget/global theme presentation.
-- 开关: Compact switches and Widget switches, grouped by owner extension; switches do not reorder.
-- 顺序: separate Compact and Widget lists containing **enabled items only**, with notification center permanently first. Disabled items preserve their saved relative order.
+- Compact 开关: Compact switches grouped by owning extension. Switching visibility does not change order.
+- Compact 顺序: sorting list containing **enabled Compact** entries only.
+- Widget 开关: Widget switches grouped by owning extension; Notification Center is not switchable.
+- Widget 顺序: sorting list containing **enabled Widget** entries only, with Notification Center permanently first.
+- Compact 样式: independent Compact typography configuration. Global widget theme remains in General settings.
+
+Disabled contributions retain their saved position, but do not appear in order lists.
 
 A change to one contribution's visibility must not toggle other contributions owned by the same extension.
 

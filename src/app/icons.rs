@@ -710,9 +710,25 @@ mod tests {
                 }
             });
         });
-        assert!(output.shapes.len() >= 8);
+        assert!(output.shapes.iter().filter(|shape| {
+            matches!(&shape.shape, egui::Shape::Image(_))
+        }).count() >= 5);
         let license = include_str!("../../assets/icons/lucide/LICENSE");
         assert!(license.contains("ISC License"));
+    }
+    #[test]
+    fn toolbar_svgs_render_as_clear_antialiased_vector_assets() {
+        for svg in [
+            include_bytes!("../../assets/icons/toolbar/database.svg").as_slice(),
+            include_bytes!("../../assets/icons/toolbar/dashboard.svg").as_slice(),
+            include_bytes!("../../assets/icons/toolbar/pin.svg").as_slice(),
+            include_bytes!("../../assets/icons/toolbar/moon.svg").as_slice(),
+            include_bytes!("../../assets/icons/toolbar/settings.svg").as_slice(),
+        ] {
+            let image = super::svg_image(svg, 96).expect("valid toolbar svg");
+            let visible = image.pixels.iter().filter(|pixel| pixel.a() > 64).count();
+            assert!(visible > 100, "toolbar icon should be visible at high DPI");
+        }
     }
     #[test]
     fn weather_svg_keeps_its_color_and_rasters_above_retina_hero_size() {

@@ -241,7 +241,7 @@ fn settings_height_grows_with_content_before_host_applies_the_screen_limit() {
     view.section = Section::Extensions;
     let extensions = view.extra_height(&ctx, &prefs);
     view.section = Section::Capsule;
-    view.capsule_section = CapsuleSection::Switches;
+    view.capsule_section = CapsuleSection::CompactSwitch;
     let capsule = view.extra_height(&ctx, &prefs);
     assert!(extensions > general);
     assert!(capsule > general);
@@ -325,16 +325,20 @@ fn capsule_switches_and_order_have_distinct_secondary_entries() {
     let mut prefs = CompactPreferences::default();
     let mut view = SettingsView {
         section: Section::Capsule,
-        capsule_section: CapsuleSection::Switches,
+        capsule_section: CapsuleSection::CompactSwitch,
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    assert!(text_rect(&output, "开关").width() > 0.0);
-    assert!(text_rect(&output, "顺序").width() > 0.0);
-    click(&ctx, &mut view, &mut prefs, text_rect(&output, "顺序").center());
-    assert_eq!(view.capsule_section, CapsuleSection::Order);
+    for title in ["Compact 开关", "Compact 顺序", "Widget 开关", "Widget 顺序"] {
+        assert!(text_rect(&output, title).width() > 0.0);
+    }
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Compact 顺序").center());
+    assert_eq!(view.capsule_section, CapsuleSection::CompactOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "Compact 顺序（仅已开启）").width() > 0.0);
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 顺序").center());
+    assert_eq!(view.capsule_section, CapsuleSection::WidgetOrder);
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "Widget 顺序（仅已开启，通知中心固定第一位）").width() > 0.0);
 }
 
@@ -359,15 +363,15 @@ fn capsule_exposes_four_distinct_display_management_menus() {
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for label in ["Compact", "Widget", "开关", "顺序"] {
+    for label in ["Compact 开关", "Compact 顺序", "Widget 开关", "Widget 顺序"] {
         assert!(text_rect(&output, label).width() > 0.0, "{label}");
     }
-    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget").center());
-    assert_eq!(view.capsule_section, CapsuleSection::Widgets);
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 开关").center());
+    assert_eq!(view.capsule_section, CapsuleSection::WidgetSwitch);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    assert!(text_rect(&output, "Widget 外观").width() > 0.0);
-    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Compact").center());
-    assert_eq!(view.capsule_section, CapsuleSection::Compact);
+    assert!(text_rect(&output, "通知中心始终开启并固定第一位").width() > 0.0);
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Compact 样式").center());
+    assert_eq!(view.capsule_section, CapsuleSection::CompactStyle);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "Compact 文字样式").width() > 0.0);
 }
@@ -450,7 +454,7 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
         },
         |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                notification_options(ui, &mut prefs);
+                notification_options(ui, &mut prefs, &mut HashMap::new());
             });
         },
     );
@@ -463,4 +467,17 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
     ] {
         assert!(text_rect(&output, label).width() > 0.0, "{label}");
     }
+}
+
+#[test]
+fn market_price_entry_accepts_decimals_and_rejects_invalid_values() {
+    assert_eq!(parse_target_price("  150.25  "), Some(150.25));
+    assert_eq!(parse_target_price("0.001"), Some(0.001));
+    assert_eq!(parse_target_price(""), Some(0.0));
+    assert_eq!(parse_target_price("0"), Some(0.0));
+    assert_eq!(parse_target_price("-5"), None);
+    assert_eq!(parse_target_price("NaN"), None);
+    assert_eq!(parse_target_price("inf"), None);
+    assert_eq!(parse_target_price("abc"), None);
+    assert_eq!(parse_target_price("10.3.2"), None);
 }
