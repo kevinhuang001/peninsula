@@ -11,6 +11,20 @@ fn text(value: impl Into<String>, size: f32, color: ColorSpec, bold: bool) -> Vi
     }).color(color)
 }
 
+fn wrapped_festival(name: String, color: ColorSpec) -> ViewNode {
+    // The renderer measures this text at the actual grid column width.
+    // No max_lines: the row grows with the whole holiday name.
+    ViewNode::text(name, TextStyle {
+        font_size: FontSize::Custom(9.0),
+        font_weight: FontWeight::Bold,
+        wrap: true,
+        max_lines: None,
+        ..Default::default()
+    })
+    .color(color)
+    .sized(Size::Fill(1.0), Size::Auto)
+}
+
 fn column(children: Vec<ViewNode>, gap: f32) -> ViewNode {
     ViewNode::column(children, Flow { gap: Some(gap), align: Align::Stretch, ..Default::default() })
         .sized(Size::Fill(1.0), Size::Auto)
@@ -33,14 +47,18 @@ fn day_cell(date: Option<NaiveDate>, today: NaiveDate, chosen: NaiveDate, locale
     let holiday = holiday::festivals(day, locale);
     let selected = day == chosen;
     let today = day == today;
-    let label = holiday.first().cloned().or_else(|| {
+    // A holiday entirely replaces the lunar subtitle. Multiple holidays
+    // remain readable in the cell instead of being hidden in a details card.
+    let label = if holiday.is_empty() {
         locale.lunar_enabled().then(|| holiday::chinese_lunar_label(day)).flatten()
-    });
-    let subtitle = text(
+    } else {
+        Some(holiday.join(" · "))
+    };
+    let subtitle = wrapped_festival(
         label.unwrap_or_default(),
-        9.0,
-        if !holiday.is_empty() { ColorSpec::Warning } else { ColorSpec::SecondaryText },
-        !holiday.is_empty(),
+        if selected { ColorSpec::OnAccent }
+        else if !holiday.is_empty() { ColorSpec::Warning }
+        else { ColorSpec::SecondaryText },
     );
     let mut cell = column(vec![
         text(day.day().to_string(), 15.0,
@@ -48,6 +66,7 @@ fn day_cell(date: Option<NaiveDate>, today: NaiveDate, chosen: NaiveDate, locale
         subtitle,
     ], 3.0);
     cell.style.padding = [6.0, 5.0, 5.0, 5.0];
+    cell.size.min_height = Some(57.0);
     cell.style.normal.background = Some(if selected { ColorSpec::Accent } else if today { ColorSpec::AccentSubtle } else { ColorSpec::Surface });
     cell.style.normal.corner_radius = Some(10.0);
     cell.style.normal.border_color = Some(if selected || today { ColorSpec::Accent } else { ColorSpec::Border });
@@ -55,9 +74,9 @@ fn day_cell(date: Option<NaiveDate>, today: NaiveDate, chosen: NaiveDate, locale
     ViewNode::new(Node::ActionArea {
         action: Action::Custom(format!("calendar:select:{}", day.format("%Y-%m-%d"))),
         label: format!("{} {}", day, holiday.join("、")),
-        content: Box::new(cell.sized(Size::Fill(1.0), Size::Fixed(57.0))),
+        content: Box::new(cell),
         context_menu: None,
-    }).sized(Size::Fill(1.0), Size::Fixed(57.0))
+    }).sized(Size::Fill(1.0), Size::Auto)
 }
 
 pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
@@ -96,32 +115,58 @@ pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
     let calendar_grid = ViewNode::new(Node::Grid(grid, cells))
         .sized(Size::Fill(1.0), Size::Auto);
 
-    let festivals = holiday::festivals(selected, locale);
-    let day_info = if festivals.is_empty() {
-        holiday::chinese_lunar_label(selected).filter(|_| locale.lunar_enabled())
-            .unwrap_or_else(|| "普通日期".into())
-    } else {
-        festivals.join(" · ")
-    };
-    let mut detail = column(vec![
-        text(format!("{}  ·  {}", selected.format("%m 月 %d 日"), day_info),
-            13.0, ColorSpec::PrimaryText, true),
-        text("节日当天显示节日名称；没有节日时才显示农历", 10.0, ColorSpec::SecondaryText, false),
-    ], 5.0);
-    detail.style.normal.background = Some(ColorSpec::SurfaceVariant);
-    detail.style.normal.corner_radius = Some(12.0);
-    detail.style.padding = [12.0, 12.0, 12.0, 12.0];
-
-    let mut root = column(vec![header, weekday_grid, calendar_grid, detail], 10.0);
+    // Only the seven-column month grid remains: no date-details or
+    // explanatory card below it. Auto-height rows preserve wrapped holidays.
+    let mut root = column(vec![header, weekday_grid, calendar_grid], 10.0);
     root.style.padding = [16.0, 16.0, 16.0, 16.0];
-    let mut widget = WidgetView::new(root, [550.0, 550.0]);
+    let mut widget = WidgetView::new(root, [550.0, 465.0]);
     widget.bounds = WidgetBounds {
-        min: [420.0, 460.0],
-        max: [Some(800.0), Some(780.0)],
+        min: [420.0, 390.0],
+        max: [Some(900.0), None],
         resizable: true,
         fit_height: true,
         overflow: Overflow::Scroll(ScrollAxes::Vertical),
         ..Default::default()
     };
     widget
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_holiday_wraps_in_an_intrinsically_sized_calendar_cell() {
+        let subtitle = wrapped_festival(
+            "International Very Long Public Holiday".into(),
+            ColorSpec::Warning,
+        );
+        assert_eq!(subtitle.size.width, Size::Fill(1.0));
+        assert_eq!(subtitle.size.height, Size::Auto);
+        let Node::Text { text_style, .. } = &subtitle.kind else {
+            panic!("festival subtitle must remain a text node");
+        };
+        assert!(text_style.wrap);
+        assert_eq!(text_style.max_lines, None);
+        let date = NaiveDate::from_ymd_opt(2026, 2, 17).unwrap();
+        let cell = day_cell(Some(date), date, date, &CalendarSettings::default());
+        assert_eq!(cell.size.height, Size::Auto);
+        let Node::ActionArea { content, .. } = &cell.kind else {
+            panic!("calendar days must be individually selectable");
+        };
+        assert!(matches!(content.size.height, Size::Auto));
+        assert!(content.size.min_height.unwrap_or_default() >= 57.0);
+    }
+
+    #[test]
+    fn month_widget_contains_no_date_details_or_explanation_card() {
+        let widget = build(&CalendarExtension::default());
+        let Node::Column(_, children) = &widget.root.kind else {
+            panic!("month root must be a column");
+        };
+        assert_eq!(children.len(), 3); // header, weekdays, calendar only
+        assert!(matches!(children[2].kind, Node::Grid(_, _)));
+        assert!(widget.bounds.fit_height);
+        assert_eq!(widget.bounds.max[1], None);
+    }
 }
