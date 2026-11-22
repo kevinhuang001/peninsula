@@ -83,18 +83,13 @@ pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
     let locale = &calendar.settings;
     let today = locale.today();
     let shown = calendar.month.unwrap_or_else(|| model::start_month(today));
-    let selected = calendar.selected.unwrap_or(today);
     let month_label = if locale.country == "CN" {
         format!("{} 年  {} 月", shown.year(), shown.month())
     } else {
         format!("{} / {:02}", shown.year(), shown.month())
     };
     let header = ViewNode::row(vec![
-        column(vec![
-            text(month_label, 21.0, ColorSpec::PrimaryText, true),
-            text(format!("{} · {}", locale.country_label(), locale.timezone().name()),
-                10.0, ColorSpec::SecondaryText, false),
-        ], 5.0),
+        text(month_label, 21.0, ColorSpec::PrimaryText, true),
         button("‹", "calendar:previous"),
         button("今天", "calendar:today"),
         button("›", "calendar:next"),

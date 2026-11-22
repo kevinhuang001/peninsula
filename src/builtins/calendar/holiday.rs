@@ -95,7 +95,7 @@ mod tests {
     use super::*;
     #[test]
     fn spring_festival_overrides_the_lunar_day() {
-        let locale = CalendarSettings::for_timezone("Asia/Shanghai");
+        let locale = CalendarSettings::default();
         let d = NaiveDate::from_ymd_opt(2026, 2, 17).unwrap();
         assert_eq!(day_subtitle(d, &locale).as_deref(), Some("春节"));
         let weekday = NaiveDate::from_ymd_opt(2026, 2, 20).unwrap();
@@ -103,7 +103,7 @@ mod tests {
     }
     #[test]
     fn international_holidays_come_from_holidays_rs() {
-        let locale = CalendarSettings::for_timezone("America/New_York");
+        let locale = CalendarSettings { country: "US".into(), region: "US-NY".into(), show_lunar: false };
         let d = NaiveDate::from_ymd_opt(2026, 7, 3).unwrap();
         assert!(!festivals(d, &locale).is_empty());
         assert_eq!(chinese_lunar_label(d).is_some(), true);

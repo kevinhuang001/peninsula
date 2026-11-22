@@ -170,6 +170,12 @@ impl RuntimeExtension for CalendarExtension {
         descriptor.execution_policy = ExecutionPolicy::EventDriven;
         descriptor.settings_version = 2;
         descriptor.settings = vec![
+            enum_field("country", "国家（ISO 3166）", "CN",
+                &["CN", "US", "GB", "DE", "FR", "CA", "AU", "ID"]),
+            enum_field("region", "地区／时区", "CN-BJ", &[
+                "默认", "CN-BJ", "CN-SH", "CN-HK", "CN-TW",
+                "US-NY", "US-CA", "CA-ON", "AU-NSW",
+            ]),
             SettingSchema::new("show_lunar", SettingValue::Boolean(true), "中国地区显示农历"),
             SettingSchema::new("twelve_hour", SettingValue::Boolean(false), "12 小时制"),
             SettingSchema::new("show_date", SettingValue::Boolean(false), "时间旁显示日期"),
@@ -180,11 +186,8 @@ impl RuntimeExtension for CalendarExtension {
     fn migrate_settings(
         &self, id: &ExtensionId, old_version: u32, mut values: Settings,
     ) -> Result<Settings, String> {
-        // Removing the country/region fields must not strand an existing
-        // calendar installation with an invalid saved settings record.
+        // Preserve country/region while adding the clock-format options.
         if id.as_str() == ID && old_version == 1 {
-            values.remove("country");
-            values.remove("region");
             return Ok(values);
         }
         Err(format!("Unsupported settings version {old_version}"))
@@ -348,8 +351,9 @@ mod tests {
             && entry.kind == ContributionKind::Compact));
         assert_eq!(d.contributions[3].kind, ContributionKind::Notification);
         assert_eq!(d.contributions[3].settings.len(), 3);
-        assert_eq!(d.settings.len(), 3);
-        assert!(d.settings.iter().all(|field| field.key != "country" && field.key != "region"));
+        assert_eq!(d.settings.len(), 5);
+        assert!(d.settings.iter().any(|field| field.key == "country"));
+        assert!(d.settings.iter().any(|field| field.key == "region"));
     }
     #[test]
     fn festival_reminder_fires_on_local_clock_the_day_before_and_deduplicates() {
@@ -358,7 +362,7 @@ mod tests {
         calendar.reminder_settings.insert("when".into(), SettingValue::Enum("前一天".into()));
         calendar.reminder_settings.insert("hour".into(), SettingValue::Integer(18));
         calendar.reminder_settings.insert("minute".into(), SettingValue::Integer(30));
-        calendar.settings = CalendarSettings::for_timezone("Asia/Shanghai");
+        calendar.settings = CalendarSettings::default();
         // 2026-02-16 10:30 UTC is 18:30 in China, one day before 春节.
         let now = Utc.with_ymd_and_hms(2026, 2, 16, 10, 30, 0).single().unwrap();
         let alerts = calendar.check_due(now);

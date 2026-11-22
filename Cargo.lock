@@ -2095,7 +2095,6 @@ dependencies = [
  "feed-rs",
  "futures-util",
  "holidays-rs",
- "iana-time-zone",
  "image",
  "imap",
  "jsonpath_lib",
