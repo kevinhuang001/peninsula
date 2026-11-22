@@ -5,7 +5,10 @@ use super::{
     theme::{ACCENT, BORDER, SECONDARY_TEXT, TEXT},
     CompactPreferences,
 };
-use crate::extension::{ContributionDescriptor, ContributionKind, ExtensionId, SettingSchema, SettingValue};
+use crate::extension::{
+    ActivationRule, ContributionDescriptor, ContributionKind, ExtensionId, SettingSchema,
+    SettingValue,
+};
 use eframe::egui::{self, Color32, Sense, Stroke};
 use std::collections::HashMap;
 
@@ -79,14 +82,6 @@ pub(super) fn options(
                                 values.entry(field.key.clone()).or_insert_with(|| default.clone());
                             }
                         }
-                        let pending = entry.requires_setup && entry.settings.iter().any(|field| {
-                            field.activation.is_some() && values.get(&field.key)
-                                .is_none_or(|value| !field.activation_ready(value))
-                        });
-                        if enabled && pending {
-                            ui.label(egui::RichText::new("待配置：请完成必填配置后启用提醒")
-                                .size(10.5).color(SECONDARY_TEXT));
-                        }
                         for field in &entry.settings {
                             if let Some(value) = values.get_mut(&field.key) {
                                 ui.push_id(&field.key, |ui| {
@@ -94,6 +89,28 @@ pub(super) fn options(
                                         ui, field, value, &entry.id, number_drafts,
                                     );
                                 });
+                                // The switch records user intent; Core starts a
+                                // contribution only when all activation rules
+                                // pass. Indicate an incomplete value beside its
+                                // own field, not in a contradictory card banner.
+                                // Evaluate AFTER editing so feedback disappears
+                                // immediately when a valid number is entered.
+                                if enabled && entry.requires_setup
+                                    && field.activation.is_some()
+                                    && !field.activation_ready(value)
+                                {
+                                    let detail = match field.activation {
+                                        Some(ActivationRule::Positive) => "需填写大于 0 的数值",
+                                        None => unreachable!("checked activation above"),
+                                    };
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{}：{detail}", field.description
+                                        ))
+                                        .size(10.5)
+                                        .color(ui.visuals().warn_fg_color),
+                                    );
+                                }
                             }
                         }
                     });
