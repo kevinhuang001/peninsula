@@ -1,7 +1,7 @@
 use super::sampler::{MetricsSampler, Snapshot};
 use crate::core::worker::Worker;
 use crate::extension::{
-    Action, CompactView, ContributionDescriptor, ContributionKind, ExtensionId, ExtensionOutput,
+    Action, CapsuleView, ContributionDescriptor, ContributionKind, ExtensionId, ExtensionOutput,
     ReloadPolicy, RuntimeExtension, SettingSchema, SettingValue, Settings, ViewNode, WidgetView,
 };
 use crate::ui::declarative::*;
@@ -38,9 +38,9 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             crate::extension::Capability::Action,
             crate::extension::Capability::Event,
         ]),
-        compact_descriptor("builtin.system-monitor/cpu", "CPU", "cpu", false, 2, 56.0),
-        compact_descriptor(GPU_ITEM, "GPU", "gpu", false, 3, 56.0),
-        compact_descriptor(
+        capsule_descriptor("builtin.system-monitor/cpu", "CPU", "cpu", false, 2, 56.0),
+        capsule_descriptor(GPU_ITEM, "GPU", "gpu", false, 3, 56.0),
+        capsule_descriptor(
             "builtin.system-monitor/memory",
             "内存",
             "memory",
@@ -48,7 +48,7 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             4,
             56.0,
         ),
-        compact_descriptor(
+        capsule_descriptor(
             "builtin.system-monitor/network",
             "网络",
             "network",
@@ -81,7 +81,7 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
     ]
 }
 
-fn compact_descriptor(
+fn capsule_descriptor(
     id: &'static str,
     title: &'static str,
     icon: &'static str,
@@ -89,7 +89,7 @@ fn compact_descriptor(
     order: u32,
     width: f32,
 ) -> ContributionDescriptor {
-    ContributionDescriptor::builtin(id, ContributionKind::Compact, title, icon, enabled, order)
+    ContributionDescriptor::builtin(id, ContributionKind::Capsule, title, icon, enabled, order)
         .with_dependency(ExtensionId::builtin(if id == GPU_ITEM {
             GPU_SERVICE
         } else {
@@ -303,30 +303,30 @@ impl RuntimeExtension for PerformanceExtension {
         }
     }
 
-    fn compact_views(&self) -> Vec<CompactView> {
+    fn capsule_views(&self) -> Vec<CapsuleView> {
         let metrics = &self.snapshot;
         let mut views = vec![
-            compact_view(
+            capsule_view(
                 "builtin.system-monitor/memory",
-                processor_compact(
+                processor_capsule(
                     "cpu",
                     Some(super::view::memory_percent(metrics)),
                     ColorSpec::Info,
                 ),
                 56.0,
             ),
-            compact_view(
+            capsule_view(
                 "builtin.system-monitor/cpu",
-                processor_compact(
+                processor_capsule(
                     "cpu",
                     metrics.ready.then_some(metrics.cpu_percent),
                     ColorSpec::Success,
                 ),
                 56.0,
             ),
-            compact_view(
+            capsule_view(
                 "builtin.system-monitor/gpu",
-                processor_compact("gpu", metrics.gpu_percent, ColorSpec::Violet),
+                processor_capsule("gpu", metrics.gpu_percent, ColorSpec::Violet),
                 56.0,
             ),
         ];
@@ -344,7 +344,7 @@ impl RuntimeExtension for PerformanceExtension {
             for (visible, arrow, speed) in rates {
                 if visible {
                     transmitting = transmitting.max(speed);
-                    lines.push(super::super::compact_detail(format!(
+                    lines.push(super::super::capsule_detail(format!(
                         "{arrow} {}",
                         format_speed(speed)
                     )));
@@ -359,7 +359,7 @@ impl RuntimeExtension for PerformanceExtension {
                 input: [0.0, 1024.0 * 128.0],
                 output: [0.25, 1.0],
             });
-            let icon = ViewNode::svg("compact/network", 16.0)
+            let icon = ViewNode::svg("capsule/network", 16.0)
                 .color(ColorSpec::Cyan)
                 .motion(Motion {
                     trigger: Trigger::While(transmitting > 0.0),
@@ -368,9 +368,9 @@ impl RuntimeExtension for PerformanceExtension {
                     tracks: vec![pulse],
                     ..Default::default()
                 });
-            views.push(compact_view(
+            views.push(capsule_view(
                 "builtin.system-monitor/network",
-                ViewNode::compact(
+                ViewNode::capsule(
                     icon,
                     ViewNode::column(
                         lines,
@@ -380,7 +380,7 @@ impl RuntimeExtension for PerformanceExtension {
                             ..Default::default()
                         },
                     ),
-                    CompactLayout {
+                    CapsuleLayout {
                         leading_size: [18.0, 22.0],
                         ..Default::default()
                     },
@@ -407,7 +407,7 @@ impl RuntimeExtension for PerformanceExtension {
     }
 }
 
-fn processor_compact(icon: &str, percent: Option<f32>, color: ColorSpec) -> ViewNode {
+fn processor_capsule(icon: &str, percent: Option<f32>, color: ColorSpec) -> ViewNode {
     let mut pulse = MotionTrack::new(MotionProperty::Scale, &[(0, 1.0), (400, 1.14), (800, 1.0)]);
     pulse.amplitude = Some(ValueMapping {
         value: percent.unwrap_or_default(),
@@ -422,13 +422,13 @@ fn processor_compact(icon: &str, percent: Option<f32>, color: ColorSpec) -> View
         tracks: vec![pulse],
         ..Default::default()
     });
-    ViewNode::compact(
+    ViewNode::capsule(
         leading,
-        super::super::compact_value(
+        super::super::capsule_value(
             percent.map_or_else(|| "—".into(), |value| format!("{value:.0}%")),
             true,
         ),
-        CompactLayout {
+        CapsuleLayout {
             leading_size: [18.0, 22.0],
             gap: 3.0,
             ..Default::default()
@@ -436,8 +436,8 @@ fn processor_compact(icon: &str, percent: Option<f32>, color: ColorSpec) -> View
     )
 }
 
-fn compact_view(id: &'static str, content: ViewNode, width: f32) -> CompactView {
-    CompactView {
+fn capsule_view(id: &'static str, content: ViewNode, width: f32) -> CapsuleView {
+    CapsuleView {
         id: ExtensionId::builtin(id),
         source_extension_id: ExtensionId::builtin(ID),
         content,

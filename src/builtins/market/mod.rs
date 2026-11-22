@@ -4,7 +4,7 @@ mod view;
 
 use crate::{
     extension::{
-        Action, CompactView, ContributionDescriptor, ContributionKind, ExecutionPolicy,
+        Action, CapsuleView, ContributionDescriptor, ContributionKind, ExecutionPolicy,
         ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionOutput, Notification,
         NotificationAlertView, NotificationCenterItemView, NotificationPresentationProvider,
         NotificationPriority, ReloadPolicy, RuntimeExtension, SettingSchema, SettingValue, Settings,
@@ -144,7 +144,7 @@ impl MarketExtension {
             .iter()
             .filter(|asset| {
                 full_watchlist
-                    || self.active.contains_key(&compact_item_id(asset))
+                    || self.active.contains_key(&capsule_item_id(asset))
                     || self.active.contains_key(&alert_id(asset))
             })
             .cloned()
@@ -322,7 +322,7 @@ fn asset_id(asset: &Asset) -> String {
     format!("{ID}/assets/{}/{symbol}", asset.kind.key())
 }
 
-pub(in crate::builtins::market) fn compact_item_id(asset: &Asset) -> ExtensionId {
+pub(in crate::builtins::market) fn capsule_item_id(asset: &Asset) -> ExtensionId {
     ExtensionId::new(asset_id(asset)).expect("normalized market asset IDs are valid")
 }
 
@@ -525,12 +525,12 @@ impl RuntimeExtension for MarketExtension {
         (widget_id.as_str() == WIDGET_ID).then(|| view::build(self))
     }
 
-    fn compact_refresh_interval(&self) -> Option<Duration> {
+    fn capsule_refresh_interval(&self) -> Option<Duration> {
         Some(REFRESH_INTERVAL)
     }
 
-    fn compact_views(&self) -> Vec<CompactView> {
-        view::compact(self)
+    fn capsule_views(&self) -> Vec<CapsuleView> {
+        view::capsule(self)
     }
 
     fn dynamic_contributions(&self) -> Option<Vec<ContributionDescriptor>> {
@@ -549,9 +549,9 @@ impl RuntimeExtension for MarketExtension {
                     } else {
                         "高于"
                     };
-                    let compact = ContributionDescriptor::new(
-                        compact_item_id(asset),
-                        ContributionKind::Compact,
+                    let capsule = ContributionDescriptor::new(
+                        capsule_item_id(asset),
+                        ContributionKind::Capsule,
                         asset.symbol.clone(),
                         "chart",
                         false,
@@ -598,7 +598,7 @@ impl RuntimeExtension for MarketExtension {
                             },
                         ],
                     );
-                    [compact, notification]
+                    [capsule, notification]
                 })
                 .collect(),
         )

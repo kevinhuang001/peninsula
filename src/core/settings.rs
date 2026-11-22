@@ -244,9 +244,9 @@ mod tests {
                     ..SettingSchema::new("startup_mode", V::Boolean(false), "Startup mode")
                 },
                 SettingSchema {
-                    options: vec!["compact".into(), "detailed".into()],
+                    options: vec!["capsule".into(), "detailed".into()],
                     reload_policy: ReloadPolicy::Reload,
-                    ..SettingSchema::new("mode", V::Enum("compact".into()), "Appearance")
+                    ..SettingSchema::new("mode", V::Enum("capsule".into()), "Appearance")
                 },
             ],
         )
@@ -259,7 +259,7 @@ mod tests {
         let descriptor = descriptor(1, "interval");
         let mut host = SettingsStore::open(path.clone());
         let values = host.load(&descriptor).unwrap();
-        assert_eq!(values["mode"], V::Enum("compact".into()));
+        assert_eq!(values["mode"], V::Enum("capsule".into()));
         assert_eq!(values["interval"], V::Integer(1000));
         let before = fs::read(&path).unwrap();
         assert!(host

@@ -1,12 +1,12 @@
 use super::{show, CapsuleWidgets};
-use crate::app::settings::{CompactPreferences, SettingsView};
+use crate::app::settings::{AppPreferences, SettingsView};
 use eframe::egui::{self, pos2, vec2, Event, Modifiers, PointerButton, RawInput, Rect};
 
 #[test]
 fn dragging_the_page_right_reveals_the_previous_widget_on_release() {
     let ctx = egui::Context::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
-    let mut preferences = CompactPreferences::default();
+    let mut preferences = AppPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
     let (widget_ids, widget_view) = widget_fixture();
@@ -28,7 +28,7 @@ fn dragging_the_page_right_reveals_the_previous_widget_on_release() {
                             1.0,
                             76.0,
                             CapsuleWidgets {
-                                compact_views: &[],
+                                capsule_views: &[],
                                 widget_ids: &widget_ids,
                                 widget_titles: &[],
                                 widget_title: "测试",
@@ -67,7 +67,7 @@ fn dragging_the_page_right_reveals_the_previous_widget_on_release() {
 fn clicking_widget_body_does_not_change_the_page() {
     let ctx = egui::Context::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
-    let mut preferences = CompactPreferences::default();
+    let mut preferences = AppPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
     let (widget_ids, widget_view) = widget_fixture();
@@ -89,7 +89,7 @@ fn clicking_widget_body_does_not_change_the_page() {
                             1.0,
                             76.0,
                             CapsuleWidgets {
-                                compact_views: &[],
+                                capsule_views: &[],
                                 widget_ids: &widget_ids,
                                 widget_titles: &[],
                                 widget_title: "测试",
@@ -130,7 +130,7 @@ fn clicking_widget_body_does_not_change_the_page() {
 fn dashboard_button_to_the_left_of_pin_acts_independently() {
     let ctx = egui::Context::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
-    let mut preferences = CompactPreferences::default();
+    let mut preferences = AppPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
     let (widget_ids, widget_view) = widget_fixture();
@@ -155,7 +155,7 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
                             1.0,
                             76.0,
                             CapsuleWidgets {
-                                compact_views: &[],
+                                capsule_views: &[],
                                 widget_ids: &widget_ids,
                                 widget_titles: &[],
                                 widget_title: "测试",
@@ -200,7 +200,7 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
 fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
     let ctx = egui::Context::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
-    let mut preferences = CompactPreferences::default();
+    let mut preferences = AppPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
     let (widget_ids, widget_view) = widget_fixture();
@@ -224,7 +224,7 @@ fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
                             1.0,
                             76.0,
                             CapsuleWidgets {
-                                compact_views: &[],
+                                capsule_views: &[],
                                 widget_ids: &widget_ids,
                                 widget_titles: &[],
                                 widget_title: "测试",

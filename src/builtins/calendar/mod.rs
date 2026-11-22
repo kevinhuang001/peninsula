@@ -6,12 +6,12 @@ mod view;
 use chrono::{Datelike, NaiveDate, Timelike, Utc};
 use crate::{
     extension::{
-        Action, Capability, CompactView, ContributionDescriptor, ContributionKind, Event,
+        Action, Capability, CapsuleView, ContributionDescriptor, ContributionKind, Event,
         ExecutionPolicy, ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionOutput,
         Notification, NotificationPresentationProvider, NotificationPriority, ReloadPolicy,
         RuntimeExtension, SettingSchema, SettingValue, Settings, WidgetView,
     },
-    ui::declarative::{ColorSpec, CompactLayout, ViewNode},
+    ui::declarative::{ColorSpec, CapsuleLayout, ViewNode},
 };
 use model::CalendarSettings;
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ use std::{
 
 const ID: &str = "builtin.calendar";
 const WIDGET_ID: &str = "builtin.calendar/month";
-const COMPACT_ID: &str = "builtin.calendar/today";
+const CAPSULE_ID: &str = "builtin.calendar/today";
 const NOTIFICATION_ID: &str = "builtin.calendar/holidays";
 const TICK: &str = "calendar-reminder-check";
 const VIEW_TICK: &str = "calendar-view-day-change";
@@ -151,8 +151,8 @@ impl RuntimeExtension for CalendarExtension {
             fit_height: true, resizable: true,
             ..Default::default()
         });
-        let compact = ContributionDescriptor::builtin(
-            COMPACT_ID, ContributionKind::Compact, "日期", "calendar", false, 9,
+        let capsule = ContributionDescriptor::builtin(
+            CAPSULE_ID, ContributionKind::Capsule, "日期", "calendar", false, 9,
         ).with_size_hint(105.0, 28.0);
         let reminders = ContributionDescriptor::builtin(
             NOTIFICATION_ID, ContributionKind::Notification, "节日提醒", "calendar", false, 9,
@@ -165,7 +165,7 @@ impl RuntimeExtension for CalendarExtension {
         ]);
         let mut descriptor = ExtensionDescriptor::builtin(
             ID, "日历与时间", "本地时间、公历、农历、节日与提醒",
-            vec![widget, compact, clock::clock_descriptor(), reminders],
+            vec![widget, capsule, clock::clock_descriptor(), reminders],
         );
         descriptor.execution_policy = ExecutionPolicy::EventDriven;
         descriptor.settings_version = 2;
@@ -217,22 +217,22 @@ impl RuntimeExtension for CalendarExtension {
         (id.as_str() == WIDGET_ID).then(|| view::build(self))
     }
 
-    fn compact_refresh_interval(&self) -> Option<Duration> {
+    fn capsule_refresh_interval(&self) -> Option<Duration> {
         Some(Duration::from_secs(1))
     }
 
-    fn compact_views(&self) -> Vec<CompactView> {
+    fn capsule_views(&self) -> Vec<CapsuleView> {
         let today = self.settings.today();
         let label = holiday::day_subtitle(today, &self.settings);
         let text = label.map_or_else(|| today.format("%m/%d").to_string(),
             |event| format!("{}/{}  {event}", today.month(), today.day()));
-        let date = CompactView {
-            id: ExtensionId::builtin(COMPACT_ID),
-            source_extension_id: ExtensionId::builtin(COMPACT_ID),
-            content: ViewNode::compact(
+        let date = CapsuleView {
+            id: ExtensionId::builtin(CAPSULE_ID),
+            source_extension_id: ExtensionId::builtin(CAPSULE_ID),
+            content: ViewNode::capsule(
                 ViewNode::icon("calendar", 17.0).color(ColorSpec::Accent),
-                super::compact_value(text, false),
-                CompactLayout { leading_size: [18.0, 20.0], gap: 5.0, ..Default::default() },
+                super::capsule_value(text, false),
+                CapsuleLayout { leading_size: [18.0, 20.0], gap: 5.0, ..Default::default() },
             ),
             visibility: Default::default(),
             min_width: 80.0,
@@ -241,7 +241,7 @@ impl RuntimeExtension for CalendarExtension {
             priority: 0,
             tooltip: Some(format!("{} · {}", today, self.settings.country_label())),
         };
-        vec![clock::compact_view(self.twelve_hour, self.show_date), date]
+        vec![clock::capsule_view(self.twelve_hour, self.show_date), date]
     }
 
     fn on_action(&mut self, action: Action, _: Instant) -> ExtensionOutput {
@@ -284,7 +284,7 @@ impl RuntimeExtension for CalendarExtension {
             context.schedule_at(TICK, Instant::now());
         }
         ExtensionOutput { invalidated: vec![
-            ExtensionId::builtin(WIDGET_ID), ExtensionId::builtin(COMPACT_ID),
+            ExtensionId::builtin(WIDGET_ID), ExtensionId::builtin(CAPSULE_ID),
             ExtensionId::builtin(clock::CLOCK_ID)
         ], ..Default::default() }
     }
@@ -346,12 +346,12 @@ impl RuntimeExtension for CalendarExtension {
 mod tests {
     use super::*;
     #[test]
-    fn descriptor_has_independent_widget_compact_and_notification_controls() {
+    fn descriptor_has_independent_widget_capsule_and_notification_controls() {
         let d = CalendarExtension::default().descriptor();
         assert_eq!(d.contributions.len(), 4);
         assert!(d.contributions.iter().any(|entry|
             entry.id.as_str() == "builtin.calendar/time"
-            && entry.kind == ContributionKind::Compact));
+            && entry.kind == ContributionKind::Capsule));
         assert_eq!(d.contributions[3].kind, ContributionKind::Notification);
         assert_eq!(d.contributions[3].settings.len(), 3);
         assert_eq!(d.settings.len(), 5);

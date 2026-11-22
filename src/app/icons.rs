@@ -58,32 +58,32 @@ impl Icons {
                 include_str!("../../assets/icons/lucide/arrow-down.svg"),
             ),
             (
-                "compact/battery",
-                include_str!("../../assets/icons/compact/battery.svg"),
+                "capsule/battery",
+                include_str!("../../assets/icons/capsule/battery.svg"),
             ),
             (
-                "compact/bolt",
-                include_str!("../../assets/icons/compact/bolt.svg"),
+                "capsule/bolt",
+                include_str!("../../assets/icons/capsule/bolt.svg"),
             ),
             (
-                "compact/check",
-                include_str!("../../assets/icons/compact/check.svg"),
+                "capsule/check",
+                include_str!("../../assets/icons/capsule/check.svg"),
             ),
             (
-                "compact/network",
-                include_str!("../../assets/icons/compact/network.svg"),
+                "capsule/network",
+                include_str!("../../assets/icons/capsule/network.svg"),
             ),
             (
-                "compact/speaker-body",
-                include_str!("../../assets/icons/compact/speaker-body.svg"),
+                "capsule/speaker-body",
+                include_str!("../../assets/icons/capsule/speaker-body.svg"),
             ),
             (
-                "compact/speaker-cone",
-                include_str!("../../assets/icons/compact/speaker-cone.svg"),
+                "capsule/speaker-cone",
+                include_str!("../../assets/icons/capsule/speaker-cone.svg"),
             ),
             (
-                "compact/speaker-waves",
-                include_str!("../../assets/icons/compact/speaker-waves.svg"),
+                "capsule/speaker-waves",
+                include_str!("../../assets/icons/capsule/speaker-waves.svg"),
             ),
         ] {
             register_svg(context, asset, source);
@@ -454,7 +454,7 @@ impl Icons {
     }
 }
 
-/// Six centered, rounded bars matching the compact waveform reference.
+/// Six centered, rounded bars matching the capsule waveform reference.
 fn paint_equalizer(painter: &Painter, rect: Rect, color: Color32, time: Option<f32>) {
     let unit = (rect.width() / 32.0).min(rect.height() / 24.0);
     for (index, height) in [8.0, 16.0, 18.0, 10.0, 5.0, 5.0].into_iter().enumerate() {
@@ -775,7 +775,7 @@ mod live_indicator_tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        renderer::show_compact(
+                        renderer::show_capsule(
                             ui,
                             Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(32.0, 24.0)),
                             &ExtensionId::builtin("test/equalizer"),

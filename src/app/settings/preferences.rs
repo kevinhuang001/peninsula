@@ -1,6 +1,6 @@
 use super::{
     quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS},
-    theme::{parse_preset_accent, WidgetTheme, DEFAULT_WIDGET_ACCENT},
+    theme::{parse_accent_color, AppearanceTheme, DEFAULT_ACCENT_COLOR},
 };
 use crate::{
     builtins::registry,
@@ -9,7 +9,7 @@ use crate::{
 use std::{collections::BTreeMap, fs, io, path::PathBuf};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompactItemPreference {
+pub struct CapsuleItemPreference {
     pub id: ExtensionId,
     pub enabled: bool,
     pub order: u32,
@@ -24,30 +24,30 @@ pub struct ExtensionPage {
     pub doctor: Vec<DiagnosticCheck>,
 }
 #[derive(Clone, Debug, PartialEq)]
-pub struct CompactPreferences {
-    pub compact_items: Vec<CompactItemPreference>,
+pub struct AppPreferences {
+    pub capsule_items: Vec<CapsuleItemPreference>,
     pub reduced_motion: bool,
     pub motion_off: bool,
     pub mascot_enabled: bool,
     pub mascot_motion: String,
     pub quiet_hours: QuietHours,
-    pub widget_theme: WidgetTheme,
-    pub widget_accent: [u8; 3],
-    pub compact_text_size: f32,
-    pub compact_text_color: Option<[u8; 3]>,
+    pub appearance_theme: AppearanceTheme,
+    pub accent_color: [u8; 3],
+    pub capsule_text_size: f32,
+    pub capsule_text_color: Option<[u8; 3]>,
     pub widget_order: Vec<ExtensionId>,
     contribution_enabled: BTreeMap<ExtensionId, bool>,
     pub contribution_values: BTreeMap<ExtensionId, Settings>,
     pub pages: Vec<ExtensionPage>,
 }
-impl Default for CompactPreferences {
+impl Default for AppPreferences {
     fn default() -> Self {
         let registry = registry();
         Self {
-            compact_items: registry
-                .by_kind(ContributionKind::Compact)
+            capsule_items: registry
+                .by_kind(ContributionKind::Capsule)
                 .into_iter()
-                .map(|d| CompactItemPreference {
+                .map(|d| CapsuleItemPreference {
                     id: d.id.clone(),
                     enabled: d.default_enabled,
                     order: d.default_order,
@@ -58,10 +58,10 @@ impl Default for CompactPreferences {
             mascot_enabled: true,
             mascot_motion: "Full".into(),
             quiet_hours: QuietHours::default(),
-            widget_theme: WidgetTheme::default(),
-            widget_accent: DEFAULT_WIDGET_ACCENT,
-            compact_text_size: 11.0,
-            compact_text_color: None,
+            appearance_theme: AppearanceTheme::default(),
+            accent_color: DEFAULT_ACCENT_COLOR,
+            capsule_text_size: 11.0,
+            capsule_text_color: None,
             widget_order: registry
                 .by_kind(ContributionKind::Widget)
                 .into_iter()
@@ -84,7 +84,7 @@ impl Default for CompactPreferences {
         }
     }
 }
-impl CompactPreferences {
+impl AppPreferences {
     pub fn parse(source: &str) -> Self {
         let mut settings = Self::default();
         for line in source.lines() {
@@ -104,25 +104,25 @@ impl CompactPreferences {
                         settings.mascot_motion = value.trim().into();
                     }
                 }
-                "widget_theme" => {
-                    if let Some(theme) = WidgetTheme::parse(value) {
-                        settings.widget_theme = theme;
+                "widget_theme" | "appearance_theme" => {
+                    if let Some(theme) = AppearanceTheme::parse(value) {
+                        settings.appearance_theme = theme;
                     }
                 }
-                "widget_accent" => {
+                "widget_accent" | "accent_color" => {
                     if let Some(accent) = parse_preset_accent(value) {
-                        settings.widget_accent = accent;
+                        settings.accent_color = accent;
                     }
                 }
-                "compact_text_size" => {
+                "compact_text_size" | "capsule_text_size" => {
                     if let Ok(size) = value.trim().parse::<f32>() {
                         if size.is_finite() {
-                            settings.compact_text_size = size.clamp(8.0, 18.0);
+                            settings.capsule_text_size = size.clamp(8.0, 18.0);
                         }
                     }
                 }
-                "compact_text_color" => {
-                    settings.compact_text_color = if value.trim() == "theme" {
+                "compact_text_color" | "capsule_text_color" => {
+                    settings.capsule_text_color = if value.trim() == "theme" {
                         None
                     } else {
                         parse_hex_color(value)
@@ -153,7 +153,7 @@ impl CompactPreferences {
                         }
                     }
                 }
-                "extension" => {
+                "extension" | "capsule_item" => {
                     let fields: Vec<_> = value.split('|').collect();
                     if fields.len() != 3 {
                         continue;
@@ -165,14 +165,14 @@ impl CompactPreferences {
                     ) else {
                         continue;
                     };
-                    if let Some(item) = settings.compact_items.iter_mut().find(|item| item.id == id)
+                    if let Some(item) = settings.capsule_items.iter_mut().find(|item| item.id == id)
                     {
                         item.enabled = enabled;
                         item.order = order;
                     } else {
                         settings
-                            .compact_items
-                            .push(CompactItemPreference { id, enabled, order });
+                            .capsule_items
+                            .push(CapsuleItemPreference { id, enabled, order });
                     }
                 }
                 "quiet_periods" => {
@@ -191,9 +191,9 @@ impl CompactPreferences {
     }
     pub fn encode(&self) -> String {
         let mut lines: Vec<_> = self
-            .ordered_compact_items()
+            .ordered_capsule_items()
             .into_iter()
-            .map(|i| format!("extension={}|{}|{}", i.id, i.enabled, i.order))
+            .map(|i| format!("capsule_item={}|{}|{}", i.id, i.enabled, i.order))
             .collect();
         lines.extend(
             self.contribution_enabled
@@ -205,15 +205,15 @@ impl CompactPreferences {
             format!("motion_off={}", self.motion_off),
             format!("mascot_enabled={}", self.mascot_enabled),
             format!("mascot_motion={}", self.mascot_motion),
-            format!("widget_theme={}", self.widget_theme.name()),
+            format!("appearance_theme={}", self.appearance_theme.name()),
             format!(
-                "widget_accent=#{:02x}{:02x}{:02x}",
-                self.widget_accent[0], self.widget_accent[1], self.widget_accent[2]
+                "accent_color=#{:02x}{:02x}{:02x}",
+                self.accent_color[0], self.accent_color[1], self.accent_color[2]
             ),
-            format!("compact_text_size={:.1}", self.compact_text_size),
+            format!("capsule_text_size={:.1}", self.capsule_text_size),
             format!(
-                "compact_text_color={}",
-                self.compact_text_color.map_or_else(
+                "capsule_text_color={}",
+                self.capsule_text_color.map_or_else(
                     || "theme".into(),
                     |color| format!("#{:02x}{:02x}{:02x}", color[0], color[1], color[2]),
                 )
@@ -235,7 +235,16 @@ impl CompactPreferences {
         let source = preference_path()
             .and_then(|p| fs::read_to_string(p).ok())
             .unwrap_or_default();
-        Self::parse(&source)
+        let settings = Self::parse(&source);
+        if source.lines().any(|line| {
+            ["extension=", "compact_text_size=", "compact_text_color=",
+             "widget_theme=", "widget_accent="]
+                .iter()
+                .any(|prefix| line.starts_with(prefix))
+        }) {
+            let _ = settings.save(); // Atomic and idempotent one-time preference migration.
+        }
+        settings
     }
     pub fn refresh_status(&mut self, host: &crate::core::extension_manager::ExtensionManager) {
         for page in &mut self.pages {
@@ -277,7 +286,7 @@ impl CompactPreferences {
         Ok(())
     }
     pub fn is_enabled(&self, id: &ExtensionId) -> bool {
-        self.compact_items
+        self.capsule_items
             .iter()
             .find(|item| &item.id == id)
             .is_some_and(|item| item.enabled)
@@ -286,7 +295,7 @@ impl CompactPreferences {
     pub fn contribution_preferences(&self) -> BTreeMap<ExtensionId, bool> {
         let mut enabled = self.contribution_enabled.clone();
         enabled.extend(
-            self.compact_items
+            self.capsule_items
                 .iter()
                 .map(|item| (item.id.clone(), item.enabled)),
         );
@@ -346,14 +355,14 @@ impl CompactPreferences {
 
     pub fn sync_contributions(&mut self, registry: &crate::extension::ExtensionRegistry) -> bool {
         let old_counts = (
-            self.compact_items.len(),
+            self.capsule_items.len(),
             self.widget_order.len(),
             self.contribution_enabled.len(),
         );
-        self.compact_items.retain(|item| {
+        self.capsule_items.retain(|item| {
             registry
                 .get(&item.id)
-                .is_some_and(|c| c.kind == ContributionKind::Compact)
+                .is_some_and(|c| c.kind == ContributionKind::Capsule)
         });
         self.widget_order.retain(|id| {
             registry
@@ -370,19 +379,19 @@ impl CompactPreferences {
         });
         let mut changed = old_counts
             != (
-                self.compact_items.len(),
+                self.capsule_items.len(),
                 self.widget_order.len(),
                 self.contribution_enabled.len(),
             );
         let mut order = self
-            .compact_items
+            .capsule_items
             .iter()
             .map(|item| item.order)
             .max()
             .map_or(0, |last| last.saturating_add(1));
-        for c in registry.by_kind(ContributionKind::Compact) {
-            if !self.compact_items.iter().any(|item| item.id == c.id) {
-                self.compact_items.push(CompactItemPreference {
+        for c in registry.by_kind(ContributionKind::Capsule) {
+            if !self.capsule_items.iter().any(|item| item.id == c.id) {
+                self.capsule_items.push(CapsuleItemPreference {
                     id: c.id.clone(),
                     enabled: c.default_enabled,
                     order,
@@ -412,8 +421,8 @@ impl CompactPreferences {
         changed
     }
 
-    pub fn set_compact_item_enabled(&mut self, id: &ExtensionId, enabled: bool) -> bool {
-        let Some(item) = self.compact_items.iter_mut().find(|item| &item.id == id) else {
+    pub fn set_capsule_item_enabled(&mut self, id: &ExtensionId, enabled: bool) -> bool {
+        let Some(item) = self.capsule_items.iter_mut().find(|item| &item.id == id) else {
             return false;
         };
         if item.enabled == enabled {
@@ -425,7 +434,7 @@ impl CompactPreferences {
 
     #[cfg(test)]
     pub fn set_enabled(&mut self, id: &ExtensionId, enabled: bool) {
-        if let Some(item) = self.compact_items.iter_mut().find(|item| &item.id == id) {
+        if let Some(item) = self.capsule_items.iter_mut().find(|item| &item.id == id) {
             item.enabled = enabled;
         }
     }
@@ -454,15 +463,15 @@ impl CompactPreferences {
         true
     }
 
-    pub fn ordered_compact_items(&self) -> Vec<&CompactItemPreference> {
-        let mut items: Vec<_> = self.compact_items.iter().collect();
+    pub fn ordered_capsule_items(&self) -> Vec<&CapsuleItemPreference> {
+        let mut items: Vec<_> = self.capsule_items.iter().collect();
         items.sort_by_key(|item| (item.order, item.id.clone()));
         items
     }
 
-    pub fn move_compact_item(&mut self, id: &ExtensionId, offset: isize) -> bool {
+    pub fn move_capsule_item(&mut self, id: &ExtensionId, offset: isize) -> bool {
         let ordered: Vec<_> = self
-            .ordered_compact_items()
+            .ordered_capsule_items()
             .into_iter()
             .filter(|item| item.enabled)
             .map(|item| item.id.clone())
@@ -479,21 +488,21 @@ impl CompactPreferences {
         let left = ordered[index].clone();
         let right = ordered[target].clone();
         let left_order = self
-            .compact_items
+            .capsule_items
             .iter()
             .find(|item| item.id == left)
             .map(|item| item.order)
             .unwrap_or(index as u32);
         let right_order = self
-            .compact_items
+            .capsule_items
             .iter()
             .find(|item| item.id == right)
             .map(|item| item.order)
             .unwrap_or(target as u32);
-        if let Some(item) = self.compact_items.iter_mut().find(|item| item.id == left) {
+        if let Some(item) = self.capsule_items.iter_mut().find(|item| item.id == left) {
             item.order = right_order;
         }
-        if let Some(item) = self.compact_items.iter_mut().find(|item| item.id == right) {
+        if let Some(item) = self.capsule_items.iter_mut().find(|item| item.id == right) {
             item.order = left_order;
         }
         self.normalize_order();
@@ -502,18 +511,18 @@ impl CompactPreferences {
 
     fn normalize_order(&mut self) {
         let mut ordered: Vec<_> = self
-            .compact_items
+            .capsule_items
             .iter()
             .map(|item| item.id.clone())
             .collect();
         ordered.sort_by_key(|id| {
-            self.compact_items
+            self.capsule_items
                 .iter()
                 .find(|item| &item.id == id)
                 .map(|item| (item.order, item.id.clone()))
         });
         for (order, id) in ordered.into_iter().enumerate() {
-            if let Some(item) = self.compact_items.iter_mut().find(|item| item.id == id) {
+            if let Some(item) = self.capsule_items.iter_mut().find(|item| item.id == id) {
                 item.order = order as u32;
             }
         }

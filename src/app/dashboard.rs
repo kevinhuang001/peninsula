@@ -210,7 +210,7 @@ mod tests {
         assert_eq!(column_count(670.0, 360.0), 1);
     }
     #[test]
-    fn compact_rows_leave_space_for_taller_content() {
+    fn capsule_rows_leave_space_for_taller_content() {
         let mut heights = [160.0, 570.0];
         fit_row_heights(&mut heights, 160.0, 700.0);
         assert_eq!(heights, [160.0, 540.0]);

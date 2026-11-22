@@ -771,13 +771,13 @@ fn semantic_text_uses_the_shared_palette_in_both_themes() {
 }
 
 #[test]
-fn compact_preserves_independent_regions_and_draws_a_center_overlay() {
+fn capsule_preserves_independent_regions_and_draws_a_center_overlay() {
     let ctx = egui::Context::default();
     let icons = Icons::load(&ctx);
     let rect = Rect::from_min_size(pos2(20.0, 20.0), vec2(92.0, 32.0));
     let ring = ViewNode::ring(0.5, "", 24.0, 2.0, 8.0).color(ColorSpec::Info);
     let heading = "A heading that wraps and should be ellipsized".repeat(3);
-    let node = ViewNode::compact(
+    let node = ViewNode::capsule(
         ViewNode::new(Node::Stack(
             [Align::Center; 2],
             vec![ring, ViewNode::text("Go", TextStyle::default())],
@@ -792,7 +792,7 @@ fn compact_preserves_independent_regions_and_draws_a_center_overlay() {
                 ..Default::default()
             },
         ),
-        CompactLayout {
+        CapsuleLayout {
             leading_size: [45.0, 26.0],
             leading_max_size: [Some(26.0), None],
             padding: [2.0, 2.0, 4.0, 2.0],
@@ -805,10 +805,10 @@ fn compact_preserves_independent_regions_and_draws_a_center_overlay() {
     assert_eq!(decoded, node);
     let output = ctx.run(RawInput::default(), |ctx| {
         egui::CentralPanel::default().show(ctx, |ui| {
-            show_compact(
+            show_capsule(
                 ui,
                 rect,
-                &ExtensionId::builtin("test.compact"),
+                &ExtensionId::builtin("test.capsule"),
                 &node,
                 &icons,
                 1.0,
@@ -849,7 +849,7 @@ fn compact_preserves_independent_regions_and_draws_a_center_overlay() {
 }
 
 #[test]
-fn compact_centers_its_leading_and_content_together_in_wide_chips() {
+fn capsule_centers_its_leading_and_content_together_in_wide_chips() {
     let ctx = egui::Context::default();
     let icons = Icons::load(&ctx);
     let bounds = Rect::from_min_size(pos2(20.0, 20.0), vec2(360.0, 28.0));
@@ -857,7 +857,7 @@ fn compact_centers_its_leading_and_content_together_in_wide_chips() {
     let mut leading = spacer(Size::Fixed(24.0), Size::Fixed(24.0));
     leading.style.normal.background = Some(ColorSpec::rgb(35, 178, 220));
     let label = "Short lyric";
-    let node = ViewNode::compact(
+    let node = ViewNode::capsule(
         leading,
         ViewNode::text(
             label,
@@ -866,17 +866,17 @@ fn compact_centers_its_leading_and_content_together_in_wide_chips() {
                 ..Default::default()
             },
         ),
-        CompactLayout {
+        CapsuleLayout {
             gap: 5.0,
             ..Default::default()
         },
     );
     let output = ctx.run(RawInput::default(), |ctx| {
         egui::CentralPanel::default().show(ctx, |ui| {
-            show_compact(
+            show_capsule(
                 ui,
                 bounds,
-                &ExtensionId::builtin("test.centered-compact"),
+                &ExtensionId::builtin("test.centered-capsule"),
                 &node,
                 &icons,
                 1.0,
@@ -903,7 +903,7 @@ fn compact_centers_its_leading_and_content_together_in_wide_chips() {
 }
 
 #[test]
-fn motion_transforms_paint_without_moving_compact_regions_and_reduced_motion_is_static() {
+fn motion_transforms_paint_without_moving_capsule_regions_and_reduced_motion_is_static() {
     let ctx = egui::Context::default();
     let icons = Icons::load(&ctx);
     let rect = Rect::from_min_size(pos2(20.0, 20.0), vec2(70.0, 28.0));
@@ -918,10 +918,10 @@ fn motion_transforms_paint_without_moving_compact_regions_and_reduced_motion_is_
         ],
         ..Default::default()
     });
-    let node = ViewNode::compact(
+    let node = ViewNode::capsule(
         motion,
         ViewNode::text("status", TextStyle::default()),
-        CompactLayout {
+        CapsuleLayout {
             leading_size: [24.0, 24.0],
             ..Default::default()
         },
@@ -934,7 +934,7 @@ fn motion_transforms_paint_without_moving_compact_regions_and_reduced_motion_is_
             },
             |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    show_compact(
+                    show_capsule(
                         ui,
                         rect,
                         &ExtensionId::builtin("test.motion"),
@@ -1020,7 +1020,7 @@ fn sprite_uses_atlas_frames_and_respects_the_reduced_motion_preference() {
             },
             |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    show_compact(
+                    show_capsule(
                         ui,
                         Rect::from_min_size(pos2(20.0, 20.0), Vec2::splat(24.0)),
                         &ExtensionId::builtin("test.sprite"),
@@ -1070,7 +1070,7 @@ fn host_svg_style_and_image_fit_render_from_registered_assets() {
     node.style.normal.corner_radius = Some(3.0);
     let output = ctx.run(RawInput::default(), |ctx| {
         egui::CentralPanel::default().show(ctx, |ui| {
-            show_compact(
+            show_capsule(
                 ui,
                 rect,
                 &ExtensionId::builtin("test.svg"),
@@ -1095,7 +1095,7 @@ fn host_svg_style_and_image_fit_render_from_registered_assets() {
 }
 
 #[test]
-fn compact_can_anchor_its_leading_and_center_short_content_across_the_chip() {
+fn capsule_can_anchor_its_leading_and_center_short_content_across_the_chip() {
     let ctx = egui::Context::default();
     let icons = Icons::load(&ctx);
     let rect = Rect::from_min_size(pos2(20.0, 20.0), vec2(360.0, 28.0));
@@ -1103,10 +1103,10 @@ fn compact_can_anchor_its_leading_and_center_short_content_across_the_chip() {
     let mut leading = spacer(Size::Fixed(24.0), Size::Fixed(24.0));
     leading.style.normal.background = Some(ColorSpec::rgb(45, 156, 210));
     let draw = |text: &str| {
-        let node = ViewNode::compact(
+        let node = ViewNode::capsule(
             leading.clone(),
             ViewNode::text(text, TextStyle::default()),
-            CompactLayout {
+            CapsuleLayout {
                 width: Size::Fill(1.0),
                 content_size: SizeSpec::default(),
                 content_align: Align::Center,
@@ -1115,7 +1115,7 @@ fn compact_can_anchor_its_leading_and_center_short_content_across_the_chip() {
         );
         ctx.run(RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                show_compact(
+                show_capsule(
                     ui,
                     rect,
                     &ExtensionId::builtin("test.lyric-alignment"),
@@ -1151,7 +1151,7 @@ fn compact_can_anchor_its_leading_and_center_short_content_across_the_chip() {
             })
             .unwrap();
         assert_eq!(icon.left(), rect.left());
-        assert!(clip.left() >= icon.right() + CompactLayout::default().gap);
+        assert!(clip.left() >= icon.right() + CapsuleLayout::default().gap);
         assert!(clip.right() <= rect.right());
         if short {
             let center = label.pos.x + label.galley.rect.center().x;
@@ -1252,7 +1252,7 @@ fn small_svg_uses_target_physical_size_and_antialiased_edges_at_fractional_dpi()
     let output = ctx.run(RawInput::default(), |ctx| {
         physical_size = (18.0 * ctx.pixels_per_point()).ceil() as usize;
         egui::CentralPanel::default().show(ctx, |ui| {
-            show_compact(
+            show_capsule(
                 ui,
                 Rect::from_min_size(pos2(30.0, 30.0), vec2(18.0, 18.0)),
                 &source,

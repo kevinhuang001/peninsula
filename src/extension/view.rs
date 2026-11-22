@@ -7,9 +7,9 @@ pub type SettingSearchTask = Box<
     dyn FnOnce(crate::sdk::tasks::CancellationToken) -> Result<Vec<SearchOption>, String> + Send,
 >;
 
-/// Runtime visibility is evaluated separately from the user's Compact preference.
+/// Runtime visibility is evaluated separately from the user's Capsule preference.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum CompactVisibility {
+pub enum CapsuleVisibility {
     #[default]
     Visible,
     Hidden,
@@ -24,14 +24,14 @@ pub enum WidgetVisibility {
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CompactView {
-    /// Preference key for a compact component. One extension can provide
+pub struct CapsuleView {
+    /// Preference key for a capsule component. One extension can provide
     /// multiple components under its own extension ID.
     pub id: ExtensionId,
     pub source_extension_id: ExtensionId,
     pub content: super::ViewNode,
     #[serde(default)]
-    pub visibility: CompactVisibility,
+    pub visibility: CapsuleVisibility,
     pub min_width: f32,
     pub preferred_width: f32,
     /// Grow to the measured content width instead of compressing this item.
@@ -91,8 +91,8 @@ pub struct ExtensionOutput {
     pub prompts: Vec<Prompt>,
 }
 
-/// A one-shot, exclusive Compact presentation. The host queues prompts in the
-/// order it receives them and restores ordinary Compact items when the queue
+/// A one-shot, exclusive Capsule presentation. The host queues prompts in the
+/// order it receives them and restores ordinary Capsule items when the queue
 /// becomes empty.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Prompt {
@@ -160,12 +160,12 @@ impl Prompt {
         self
     }
 
-    pub fn compact_view(&self) -> CompactView {
-        CompactView {
+    pub fn capsule_view(&self) -> CapsuleView {
+        CapsuleView {
             id: self.contribution_id.clone(),
             source_extension_id: self.source_extension_id.clone(),
             content: self.content.clone(),
-            visibility: CompactVisibility::Visible,
+            visibility: CapsuleVisibility::Visible,
             min_width: self.min_width,
             preferred_width: self.preferred_width,
             fit_width: false,
@@ -265,11 +265,11 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
     fn widget_visibility(&self, _widget_id: &ExtensionId) -> WidgetVisibility {
         WidgetVisibility::Visible
     }
-    fn compact_refresh_interval(&self) -> Option<std::time::Duration> {
+    fn capsule_refresh_interval(&self) -> Option<std::time::Duration> {
         None
     }
 
-    fn compact_views(&self) -> Vec<CompactView> {
+    fn capsule_views(&self) -> Vec<CapsuleView> {
         Vec::new()
     }
     /// Complete dynamic registration snapshot. None retains the last snapshot;

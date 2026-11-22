@@ -34,10 +34,10 @@ class Player(ServiceInterface):
         return 'Playing' if self.timeline()[1] else 'Paused'
     @dbus_property(access=PropertyAccess.READ)
     def Metadata(self) -> 'a{sv}':
-        song = Path(__file__).resolve().parent / 'fixtures/compact-sync-demo.ogg'
-        return {'mpris:trackid': Variant('o', '/peninsula/compactdemo'),
+        song = Path(__file__).resolve().parent / 'fixtures/capsule-sync-demo.ogg'
+        return {'mpris:trackid': Variant('o', '/peninsula/capsuledemo'),
                 'mpris:length': Variant('x', 40_000_000),
-                'xesam:title': Variant('s', 'Compact 实时同步演示'),
+                'xesam:title': Variant('s', 'Capsule 实时同步演示'),
                 'xesam:artist': Variant('as', ['本地 MPRIS 测试播放器']),
                 'xesam:url': Variant('s', song.as_uri())}
     @dbus_property(access=PropertyAccess.READ)

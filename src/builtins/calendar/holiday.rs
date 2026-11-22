@@ -39,7 +39,7 @@ pub(super) fn chinese_lunar_label(date: NaiveDate) -> Option<String> {
 }
 
 /// Festival labels are civil-day observances, NOT official leave/shift dates.
-/// The principal festival is first for compact calendar cells.
+/// The principal festival is first for capsule calendar cells.
 pub(super) fn festivals(date: NaiveDate, locale: &CalendarSettings) -> Vec<String> {
     let mut names = Vec::new();
     if locale.country == "CN" {

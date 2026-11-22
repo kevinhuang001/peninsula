@@ -4,13 +4,13 @@
 
 `builtins::runtimes()` supplies the extension implementations. Each extension provides one `ExtensionDescriptor` with its business settings and static contributions. A `ContributionDescriptor` owns its settings schema, default visibility, execution policy and dependencies. The registry reserves the notification center for Core and validates schemas and ownership before a contribution becomes visible.
 
-A running extension may return a complete snapshot from `RuntimeExtension::dynamic_contributions`. Returning `None` keeps the previous snapshot. Returning an empty vector removes all of that owner's dynamic entries. Dynamic IDs use the owner's ID followed by a slash and a stable local key. They can represent Compact, Widget and Notification entries in the same snapshot. A collision, invalid schema or invalid resource dependency rejects the whole update.
+A running extension may return a complete snapshot from `RuntimeExtension::dynamic_contributions`. Returning `None` keeps the previous snapshot. Returning an empty vector removes all of that owner's dynamic entries. Dynamic IDs use the owner's ID followed by a slash and a stable local key. They can represent Capsule, Widget and Notification entries in the same snapshot. A collision, invalid schema or invalid resource dependency rejects the whole update.
 
 Core saves accepted snapshots to `contribution-catalog.json`. It reloads this catalog before starting extensions so a stopped extension's entries remain configurable. The registry exposes both static and dynamic entries to the same settings and rendering paths. Removing a dynamic entry invalidates its views, stops its scope and removes its settings and preferences. Notification history remains available.
 
 ## Settings and migration
 
-Compact, Widget and Notification settings are grouped by extension. Each entry has its own desired enable state. Compact and Widget also have an order. The extensions page shows the owner switch, business configuration and Doctor status. The fixed navigation includes a separate Notifications page. Notification settings use the same schema controls as business settings.
+Capsule, Widget and Notification settings are grouped by extension. Each entry has its own desired enable state. Capsule and Widget also have an order. The extensions page shows the owner switch, business configuration and Doctor status. The fixed navigation includes a separate Notifications page. Notification settings use the same schema controls as business settings.
 
 The preference file stores desired enable states and order. `extension-settings.json` stores business settings, and `contribution-settings.json` stores per-entry values. A contribution runs when the owner and the contribution are enabled and any declared setup is complete. Stopping an owner preserves its children's desired states. Failed startups preserve the user's desired state as well as the failure for Doctor.
 
@@ -24,11 +24,11 @@ Use `on_contribution_start` to acquire runtime resources and `on_contribution_st
 
 For HTTP, run the full asynchronous transfer with `sdk::http::run_cancellable`, including body reads. For child processes, pass the same scope token to `ProcessExecutor::run_with`. Core cancels a stopping scope and reaps completed workers. A scope that exceeds the shutdown deadline appears in Doctor, and Core retains the handle for reaping. In-process extensions are trusted Rust code. Capability flags describe the host API and do not create a security sandbox.
 
-Market separates its overview, per-asset Compact values and per-asset notification rules. The quote service fetches the full watchlist for the overview and individual assets for other consumers. Price alerts read their threshold, comparison and cooldown from their own schemas.
+Market separates its overview, per-asset Capsule values and per-asset notification rules. The quote service fetches the full watchlist for the overview and individual assets for other consumers. Price alerts read their threshold, comparison and cooldown from their own schemas.
 
 ## Declarative data sources
 
-Installed `peninsula.datasource/v1` definitions generate Compact and optional Notification entries under the Data Sources group. The source's own switch controls whether it can make requests. Core supplies the separate Compact and Notification switches and the notification cooldown. Automatic refreshing requires at least one effective consumer.
+Installed `peninsula.datasource/v1` definitions generate Capsule and optional Notification entries under the Data Sources group. The source's own switch controls whether it can make requests. Core supplies the separate Capsule and Notification switches and the notification cooldown. Automatic refreshing requires at least one effective consumer.
 
 Import still authorizes the definition's request origin and any private network access. The instance stores its request inputs and refresh cadence. Definitions, settings and sampled values remain separate. Disabling or replacing a source cancels its request and rejects its old results.
 
@@ -40,7 +40,7 @@ When a notification rule matches, the request path checks the source's active no
 
 Independent blinks recur every 3–7 seconds. Full expressions start after 3–5 seconds of visibility, then wait 8–18 seconds after the last expression ends. Extensions declare owner-local IDs, typed motions, playback duration, bounded weights and either a state conjunction or an event trigger with its own expiry. When state expressions are active, scheduling selects their category 75% of the time. Events enter a bounded FIFO and can interrupt ordinary actions. Stopping an owner removes its pending and active actions. A hidden slot pauses playback while queued events retain their wall-clock expiry.
 
-Compact and vault unlock share a procedural egui renderer. The unlock view supplies interaction states and has precedence over extension actions. Reduced scales movement and softens changes in expression. Off draws immediate static expressions without animation repaint requests.
+Capsule and vault unlock share a procedural egui renderer. The unlock view supplies interaction states and has precedence over extension actions. Reduced scales movement and softens changes in expression. Off draws immediate static expressions without animation repaint requests.
 
 ## Search and Doctor
 
@@ -50,9 +50,9 @@ Doctor shows registered checks with a stable ID, status, detail and optional rem
 
 ## Prompt contributions
 
-Prompt is a one-shot exclusive capsule presentation with its own layout contract, separate from Compact items. It contains a declarative fallback view and a display duration. Optional `layers` position any number of `ViewNode`s in fractional rectangles across the entire capsule (left, top, width, height, each from 0 to 1); each layer can use the full Motion renderer independently. The optional `accent` colors the host's animated ambient light and outline. With no layers, the fallback view stays centered. Prompt content is painted directly on the capsule shell without an inner chip or a prescribed icon/text arrangement. Reduced Motion and Motion Off freeze the host lighting and declarative motion.
+Prompt is a one-shot exclusive capsule presentation with its own layout contract, separate from Capsule items. It contains a declarative fallback view and a display duration. Optional `layers` position any number of `ViewNode`s in fractional rectangles across the entire capsule (left, top, width, height, each from 0 to 1); each layer can use the full Motion renderer independently. The optional `accent` colors the host's animated ambient light and outline. With no layers, the fallback view stays centered. Prompt content is painted directly on the capsule shell without an inner chip or a prescribed icon/text arrangement. Reduced Motion and Motion Off freeze the host lighting and declarative motion.
 
-The host accepts a Prompt only from its registered running owner, then appends it to one FIFO queue; there is no priority field or persistent `while` trigger. While a Prompt is visible it replaces all ordinary Compact items, including the Mascot slot. Its duration pauses while the capsule is hidden by an expanded Widget, settings or a notification alert. When the queue drains, normal Compact composition resumes.
+The host accepts a Prompt only from its registered running owner, then appends it to one FIFO queue; there is no priority field or persistent `while` trigger. While a Prompt is visible it replaces all ordinary Capsule items, including the Mascot slot. Its duration pauses while the capsule is hidden by an expanded Widget, settings or a notification alert. When the queue drains, normal Capsule composition resumes.
 
 Every Prompt receives the host entrance fade and moving ambient highlight, including extensions that only supply the fallback view. The battery and USB built-ins add their own independently animated layers. USB samples the platform's device inventory off the UI thread (Linux sysfs, macOS System Profiler, Windows PnP), establishes a silent initial baseline, and queues a Prompt only for later insertions and removals.
 

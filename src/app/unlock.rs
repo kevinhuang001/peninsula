@@ -1,4 +1,4 @@
-use super::{capsule, compact_layout, IslandApp, WINDOW_TOP_PADDING};
+use super::{capsule, capsule_layout, IslandApp, WINDOW_TOP_PADDING};
 use crate::{
     core::mascot::{MascotMotion, MotionPolicy, UnlockMascotState},
     sdk::secrets::{SecretStore, SecretsError},
@@ -74,8 +74,8 @@ impl UnlockHandoff {
         self.amount >= 1.0
     }
 
-    pub(super) fn width(self, compact_width: f32) -> f32 {
-        egui::lerp(WIDTH..=compact_width, self.travel())
+    pub(super) fn width(self, capsule_width: f32) -> f32 {
+        egui::lerp(WIDTH..=capsule_width, self.travel())
     }
 
     pub(super) fn travel(self) -> f32 {
@@ -101,7 +101,7 @@ pub(super) fn mascot_rect(rect: egui::Rect) -> egui::Rect {
         rect.left_center() + egui::vec2(27.0, 0.0),
         egui::vec2(
             crate::core::mascot::SLOT_WIDTH - 6.0,
-            compact_layout::CHIP_HEIGHT,
+            capsule_layout::CHIP_HEIGHT,
         ),
     )
 }
@@ -142,7 +142,7 @@ impl IslandApp {
     pub(super) fn show_unlock_capsule(&mut self, context: &egui::Context, now: Instant) {
         let policy = self.mascot_policy();
         let state = &mut self.unlock;
-        let height = compact_layout::CAPSULE_HEIGHT;
+        let height = capsule_layout::CAPSULE_HEIGHT;
         let verifying = state.task.is_some();
         let editable = !verifying;
         egui::CentralPanel::default()
@@ -263,7 +263,7 @@ impl IslandApp {
                                 (edit + TYPING_TIMEOUT).saturating_duration_since(now),
                             );
                         }
-                        let _ = crate::ui::renderer::show_compact(
+                        let _ = crate::ui::renderer::show_capsule(
                             ui,
                             mascot_rect(rect),
                             &crate::extension::ExtensionId::builtin(
@@ -320,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn handoff_uses_the_unlock_and_compact_endpoints_and_respects_motion_off() {
+    fn handoff_uses_the_unlock_and_capsule_endpoints_and_respects_motion_off() {
         let now = Instant::now();
         let view = UnlockView {
             success_at: Some(now),

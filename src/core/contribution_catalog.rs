@@ -105,8 +105,72 @@ impl ContributionCatalog {
 
 fn read(path: &Path) -> io::Result<SavedCatalog> {
     match fs::read(path) {
-        Ok(contents) => serde_json::from_slice(&contents).map_err(io::Error::other),
+        Ok(contents) => {
+            let mut data: serde_json::Value =
+                serde_json::from_slice(&contents).map_err(io::Error::other)?;
+            if migrate_kind(&mut data) {
+                // Best effort atomic one-time write. Failed persistence never discards
+                // already loaded dynamic contributions; the retry happens next launch.
+                if let Some(parent) = path.parent() {
+                    if let Ok(mut temp) = tempfile::NamedTempFile::new_in(parent) {
+                        if serde_json::to_writer_pretty(&mut temp, &data).is_ok()
+                            && temp.write_all(b"\n").is_ok()
+                            && temp.as_file().sync_all().is_ok()
+                        {
+                            if let Err(error) = temp.persist(path) {
+                                eprintln!("Unable to persist contribution catalog migration: {error}");
+                            }
+                        }
+                    }
+                }
+            }
+            serde_json::from_value(data).map_err(io::Error::other)
+        },
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(SavedCatalog::default()),
         Err(error) => Err(error),
+    }
+}
+
+
+/// Older catalogs serialized ContributionKind::Compact under "kind".
+/// Rewrite only that enum value, leaving business strings and IDs untouched.
+fn migrate_kind(value: &mut serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(properties) => {
+            let mut changed = false;
+            if properties.get("kind").and_then(serde_json::Value::as_str) == Some("Compact") {
+                properties.insert("kind".into(), serde_json::Value::String("Capsule".into()));
+                changed = true;
+            }
+            for child in properties.values_mut() {
+                changed |= migrate_kind(child);
+            }
+            changed
+        }
+        serde_json::Value::Array(items) => {
+            items.iter_mut().fold(false, |changed, item| migrate_kind(item) | changed)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+    #[test]
+    fn upgrades_kind_without_changing_ids_or_business_labels() {
+        let mut json = serde_json::json!({
+            "snapshots": {
+                "example": [
+                    {"kind": "Compact", "id": "test.compact", "title": "Compact sample"},
+                    {"kind": "Widget", "id": "test.widget"}
+                ]
+            }
+        });
+        assert!(migrate_kind(&mut json));
+        assert!(!migrate_kind(&mut json));
+        assert_eq!(json["snapshots"]["example"][0]["kind"], "Capsule");
+        assert_eq!(json["snapshots"]["example"][0]["id"], "test.compact");
+        assert_eq!(json["snapshots"]["example"][0]["title"], "Compact sample");
     }
 }

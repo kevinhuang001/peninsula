@@ -2,9 +2,9 @@ use super::{
     forms,
     model::Section,
     quiet_view::{self, QuietDialog},
-    theme::{WidgetTheme, ACCENT, ACCENT_SELECTED, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT},
+    theme::{accent_color, accent_selected, AppearanceTheme, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT},
     notifications,
-    CompactPreferences,
+    AppPreferences,
 };
 use crate::extension::{ContributionDescriptor, ContributionKind, ExtensionId};
 use crate::sdk::secrets::SecretStore;
@@ -28,33 +28,33 @@ enum CapsuleSection {
     #[default]
     Motion,
     Mascot,
-    CompactStyle,
-    CompactSwitch,
-    CompactOrder,
+    CapsuleStyle,
+    CapsuleSwitch,
+    CapsuleOrder,
 }
 
 impl CapsuleSection {
     const ALL: [Self; 5] = [
         Self::Motion,
         Self::Mascot,
-        Self::CompactStyle,
-        Self::CompactSwitch,
-        Self::CompactOrder,
+        Self::CapsuleStyle,
+        Self::CapsuleSwitch,
+        Self::CapsuleOrder,
     ];
 
     fn label(self) -> &'static str {
         match self {
             Self::Motion => "动态效果",
             Self::Mascot => "Mascot",
-            Self::CompactStyle => "Compact 样式",
-            Self::CompactSwitch => "Compact 开关",
-            Self::CompactOrder => "Compact 顺序",
+            Self::CapsuleStyle => "Capsule 样式",
+            Self::CapsuleSwitch => "Capsule 开关",
+            Self::CapsuleOrder => "Capsule 顺序",
         }
     }
 }
 
 /// Widget switches and ordering remain under the first-level 组件 menu.
-/// Compact controls and typography belong in 胶囊.
+/// Capsule controls and typography belong in 胶囊.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 enum ComponentSection {
     #[default]
@@ -67,8 +67,8 @@ impl ComponentSection {
 
     fn label(self) -> &'static str {
         match self {
-            Self::WidgetSwitch => "Widget 开关",
-            Self::WidgetOrder => "Widget 顺序",
+            Self::WidgetSwitch => "组件开关",
+            Self::WidgetOrder => "组件顺序",
         }
     }
 }
@@ -157,7 +157,7 @@ impl SettingsView {
     #[cfg(test)]
     pub const WIDTH: f32 = 680.0;
 
-    pub fn width(&self, context: &egui::Context, prefs: &CompactPreferences) -> f32 {
+    pub fn width(&self, context: &egui::Context, prefs: &AppPreferences) -> f32 {
         let extra_column = matches!(self.section, Section::Extensions | Section::Capsule | Section::Components);
         let chrome = 24.0
             + SIDEBAR_WIDTH
@@ -216,7 +216,7 @@ impl SettingsView {
         (chrome + content_width).ceil().max(380.0).min(limit)
     }
 
-    pub fn extra_height(&self, context: &egui::Context, prefs: &CompactPreferences) -> f32 {
+    pub fn extra_height(&self, context: &egui::Context, prefs: &AppPreferences) -> f32 {
         if self.section == Section::Extensions {
             return EXTENSION_FORM_HEIGHT + 21.0;
         }
@@ -267,7 +267,7 @@ impl SettingsView {
         content_height.max(navigation_height) + 21.0
     }
 
-    fn content(&mut self, ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
+    fn content(&mut self, ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
         match self.section {
             Section::General => self.general(ui, prefs),
             Section::Capsule => capsule_options(ui, prefs, self.capsule_section),
@@ -289,7 +289,7 @@ impl SettingsView {
         &mut self,
         ui: &mut egui::Ui,
         capsule: Rect,
-        prefs: &mut CompactPreferences,
+        prefs: &mut AppPreferences,
     ) -> bool {
         self.poll_encryption();
         if capsule.width() < 180.0 || capsule.height() < 60.0 {
@@ -391,7 +391,7 @@ impl SettingsView {
                 .show(ui, |ui| {
                     ui.set_width(content_width - 32.0);
                     ui.vertical_centered(|ui| {
-                        ui.label(egui::RichText::new("◇").size(26.0).color(ACCENT));
+                        ui.label(egui::RichText::new("◇").size(26.0).color(accent_color(ui)));
                         ui.label(
                             egui::RichText::new("还没有保存的 Secret")
                                 .size(12.5)
@@ -453,7 +453,7 @@ impl SettingsView {
         changed
     }
 
-    fn general(&mut self, ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
+    fn general(&mut self, ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
         let Some(store) = self.secret_store.clone() else {
             return general(ui, prefs);
         };
@@ -724,7 +724,7 @@ impl SettingsView {
                         .add(
                             egui::Button::new("保存 Secret")
                                 .min_size(egui::vec2(100.0, 28.0))
-                                .fill(ACCENT_SELECTED),
+                                .fill(accent_selected(ui)),
                         )
                         .clicked()
                     {
@@ -817,7 +817,7 @@ impl SettingsView {
             });
     }
 
-    fn plugins(&mut self, ui: &mut egui::Ui, rect: Rect, prefs: &CompactPreferences) {
+    fn plugins(&mut self, ui: &mut egui::Ui, rect: Rect, prefs: &AppPreferences) {
         if !prefs
             .pages
             .iter()
@@ -848,7 +848,7 @@ impl SettingsView {
             });
     }
 
-    fn extension_form(&mut self, ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
+    fn extension_form(&mut self, ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
         let Some(id) = self.selected.as_ref() else {
             forms::empty(ui, "没有已注册的扩展");
             return false;
@@ -888,7 +888,7 @@ impl SettingsView {
 
     pub(in crate::app) fn take_due_searches(
         &mut self,
-        prefs: &CompactPreferences,
+        prefs: &AppPreferences,
         now: Instant,
     ) -> Vec<forms::SearchRequest> {
         let mut requests = Vec::new();
@@ -985,7 +985,7 @@ impl SettingsView {
             .min()
     }
 
-    fn quiet(&mut self, ui: &mut egui::Ui, rect: Rect, prefs: &mut CompactPreferences) -> bool {
+    fn quiet(&mut self, ui: &mut egui::Ui, rect: Rect, prefs: &mut AppPreferences) -> bool {
         let mut changed = forms::boolean(ui, "开启免打扰", &mut prefs.quiet_hours.manual_enabled);
         forms::section(ui, "定时免打扰");
         let quiet = Rect::from_min_max(egui::pos2(rect.left(), ui.cursor().top() + 5.0), rect.max);
@@ -1010,7 +1010,7 @@ impl SettingsView {
 }
 
 fn contribution_groups(
-    prefs: &CompactPreferences,
+    prefs: &AppPreferences,
     kind: ContributionKind,
 ) -> Vec<(String, Vec<ContributionDescriptor>)> {
     prefs
@@ -1029,22 +1029,22 @@ fn contribution_groups(
         .collect()
 }
 
-fn general(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
+fn general(ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
     let mut changed = general_theme(ui, prefs);
     changed |= general_accent(ui, prefs);
     changed
 }
 
-fn general_theme(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
+fn general_theme(ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
     forms::input_row(ui, "主题", |ui| {
         let mut changed = false;
         egui::ComboBox::from_id_salt("global-theme")
             .width(ui.available_width())
-            .selected_text(theme_label(prefs.widget_theme))
+            .selected_text(theme_label(prefs.appearance_theme))
             .show_ui(ui, |ui| {
-                for theme in [WidgetTheme::System, WidgetTheme::Dark, WidgetTheme::Light] {
+                for theme in [AppearanceTheme::System, AppearanceTheme::Dark, AppearanceTheme::Light] {
                     changed |= ui
-                        .selectable_value(&mut prefs.widget_theme, theme, theme_label(theme))
+                        .selectable_value(&mut prefs.appearance_theme, theme, theme_label(theme))
                         .changed();
                 }
             });
@@ -1052,13 +1052,13 @@ fn general_theme(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
     })
 }
 
-fn general_accent(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
+fn general_accent(ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
     forms::input_row(ui, "强调色", |ui| {
         let mut changed = false;
         let colors = super::theme::ACCENT_PRESETS;
         let selected = colors
             .iter()
-            .find(|(_, color)| *color == prefs.widget_accent)
+            .find(|(_, color)| *color == prefs.accent_color)
             .map_or("蓝色", |(name, _)| *name);
         egui::ComboBox::from_id_salt("accent-preset")
             .width(ui.available_width())
@@ -1068,24 +1068,24 @@ fn general_accent(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
                     let label = egui::RichText::new(name)
                         .color(Color32::from_rgb(color[0], color[1], color[2]));
                     changed |= ui
-                        .selectable_value(&mut prefs.widget_accent, color, label)
+                        .selectable_value(&mut prefs.accent_color, color, label)
                         .changed();
                 }
             });
         changed
     })
 }
-fn theme_label(theme: WidgetTheme) -> &'static str {
+fn theme_label(theme: AppearanceTheme) -> &'static str {
     match theme {
-        WidgetTheme::System => "跟随系统",
-        WidgetTheme::Dark => "深色",
-        WidgetTheme::Light => "浅色",
+        AppearanceTheme::System => "跟随系统",
+        AppearanceTheme::Dark => "深色",
+        AppearanceTheme::Light => "浅色",
     }
 }
 
 fn capsule_options(
     ui: &mut egui::Ui,
-    prefs: &mut CompactPreferences,
+    prefs: &mut AppPreferences,
     section: CapsuleSection,
 ) -> bool {
     let mut changed = false;
@@ -1116,13 +1116,13 @@ fn capsule_options(
                 prefs.mascot_motion != before
             });
         }
-        CapsuleSection::CompactStyle => {
-            forms::section(ui, "Compact 文字样式");
+        CapsuleSection::CapsuleStyle => {
+            forms::section(ui, "Capsule 文字样式");
             changed |= forms::input_row(ui, "字号", |ui| {
                 let mut changed = false;
-                egui::ComboBox::from_id_salt("compact-font-size")
+                egui::ComboBox::from_id_salt("capsule-font-size")
                     .width(ui.available_width())
-                    .selected_text(format!("{} pt", prefs.compact_text_size))
+                    .selected_text(format!("{} pt", prefs.capsule_text_size))
                     .show_ui(ui, |ui| {
                         for size in [
                             8.0, 9.0, 10.0, 11.0, 12.0, 13.0,
@@ -1130,7 +1130,7 @@ fn capsule_options(
                         ] {
                             changed |= ui
                                 .selectable_value(
-                                    &mut prefs.compact_text_size,
+                                    &mut prefs.capsule_text_size,
                                     size,
                                     format!("{size} pt"),
                                 )
@@ -1140,12 +1140,12 @@ fn capsule_options(
                 changed
             });
             changed |= forms::row(ui, "文字颜色", |ui| {
-                let mut follow_theme = prefs.compact_text_color.is_none();
+                let mut follow_theme = prefs.capsule_text_color.is_none();
                 let mut changed = forms::toggle(ui, &mut follow_theme, "跟随主题");
                 if changed {
-                    prefs.compact_text_color = (!follow_theme).then_some([245, 248, 255]);
+                    prefs.capsule_text_color = (!follow_theme).then_some([245, 248, 255]);
                 }
-                if let Some(color) = &mut prefs.compact_text_color {
+                if let Some(color) = &mut prefs.capsule_text_color {
                     changed |= ui.color_edit_button_srgb(color)
                         .on_hover_text("显示时会自动调整颜色，确保文字与背景有足够对比度")
                         .changed();
@@ -1154,39 +1154,39 @@ fn capsule_options(
             });
         }
 
-        CapsuleSection::CompactSwitch => {
-            forms::section(ui, "Compact 开关");
-            for (group, entries) in contribution_groups(prefs, ContributionKind::Compact) {
+        CapsuleSection::CapsuleSwitch => {
+            forms::section(ui, "Capsule 开关");
+            for (group, entries) in contribution_groups(prefs, ContributionKind::Capsule) {
                 forms::section(ui, &group);
                 for entry in entries {
                     let mut enabled = prefs.is_enabled(&entry.id);
-                    ui.push_id(("compact-switch", &entry.id), |ui| {
+                    ui.push_id(("capsule-switch", &entry.id), |ui| {
                         if forms::boolean(ui, &entry.title, &mut enabled) {
-                            changed |= prefs.set_compact_item_enabled(&entry.id, enabled);
+                            changed |= prefs.set_capsule_item_enabled(&entry.id, enabled);
                         }
                     });
                 }
             }
         }
-        CapsuleSection::CompactOrder => {
-            forms::section(ui, "Compact 顺序（仅已开启）");
-            let active: Vec<_> = prefs.ordered_compact_items()
+        CapsuleSection::CapsuleOrder => {
+            forms::section(ui, "Capsule 顺序（仅已开启）");
+            let active: Vec<_> = prefs.ordered_capsule_items()
                 .into_iter().filter(|item| item.enabled)
                 .map(|item| item.id.clone()).collect();
             if active.is_empty() {
-                ui.label("没有已开启的 Compact");
+                ui.label("没有已开启的 Capsule");
             }
             for id in active {
                 let label = contribution_title(prefs, &id);
                 let mut direction = 0;
-                ui.push_id(("compact-order", &id), |ui| {
+                ui.push_id(("capsule-order", &id), |ui| {
                     forms::row(ui, &label, |ui| {
                         direction = forms::reorder(ui);
                         false
                     });
                 });
                 if direction != 0 {
-                    changed |= prefs.move_compact_item(&id, direction as isize);
+                    changed |= prefs.move_capsule_item(&id, direction as isize);
                 }
             }
         }
@@ -1196,13 +1196,13 @@ fn capsule_options(
 
 fn component_options(
     ui: &mut egui::Ui,
-    prefs: &mut CompactPreferences,
+    prefs: &mut AppPreferences,
     section: ComponentSection,
 ) -> bool {
     let mut changed = false;
     match section {
         ComponentSection::WidgetSwitch => {
-            forms::section(ui, "Widget 开关");
+            forms::section(ui, "组件开关");
             // Host-owned: present as a fixed, enabled row rather than
             // an explanatory note or a user-controlled contribution.
             ui.add_enabled_ui(false, |ui| {
@@ -1223,7 +1223,7 @@ fn component_options(
             }
         }
         ComponentSection::WidgetOrder => {
-            forms::section(ui, "Widget 顺序（仅已开启）");
+            forms::section(ui, "组件顺序（仅已开启）");
             forms::row(ui, "通知中心", |ui| {
                 ui.label(
                     egui::RichText::new("固定")
@@ -1234,7 +1234,7 @@ fn component_options(
             });
             let active = prefs.ordered_enabled_widgets();
             if active.is_empty() {
-                ui.label("没有已开启的 Widget");
+                ui.label("没有已开启的组件");
             }
             for id in active {
                 let label = contribution_title(prefs, &id);
@@ -1254,7 +1254,7 @@ fn component_options(
     changed
 }
 
-fn contribution_title(prefs: &CompactPreferences, id: &ExtensionId) -> String {
+fn contribution_title(prefs: &AppPreferences, id: &ExtensionId) -> String {
     prefs
         .pages
         .iter()
@@ -1354,15 +1354,16 @@ fn child(ui: &mut egui::Ui, rect: Rect, id: &str) -> egui::Ui {
     child
 }
 fn configure(ui: &mut egui::Ui) {
+    let selected_accent = accent_selected(ui);
     let style = ui.style_mut();
     style.visuals = egui::Visuals::dark();
     style.visuals.override_text_color = Some(TEXT);
-    style.visuals.selection.bg_fill = ACCENT_SELECTED;
+    style.visuals.selection.bg_fill = selected_accent;
     style.visuals.selection.stroke = Stroke::new(1.0_f32, TEXT);
     style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(44, 49, 59);
     style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT);
     style.visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER);
-    style.visuals.widgets.hovered.bg_fill = ACCENT_SELECTED;
+    style.visuals.widgets.hovered.bg_fill = selected_accent;
     style.visuals.widgets.hovered.fg_stroke.color = TEXT;
     style.visuals.widgets.active.fg_stroke.color = TEXT;
     style.spacing.item_spacing = egui::vec2(6.0, 4.0);

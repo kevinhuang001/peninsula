@@ -22,7 +22,7 @@ impl RuntimeExtension for BatteryExtension {
             vec![
                 ContributionDescriptor::builtin(
                     ID,
-                    ContributionKind::Compact,
+                    ContributionKind::Capsule,
                     "电池",
                     "battery",
                     true,
@@ -78,11 +78,11 @@ impl RuntimeExtension for BatteryExtension {
         }
         Default::default()
     }
-    fn compact_views(&self) -> Vec<CompactView> {
-        vec![CompactView {
+    fn capsule_views(&self) -> Vec<CapsuleView> {
+        vec![CapsuleView {
             id: ExtensionId::builtin(ID),
             source_extension_id: ExtensionId::builtin("builtin.device"),
-            content: battery_compact(&self.snapshot),
+            content: battery_capsule(&self.snapshot),
             visibility: Default::default(),
             min_width: 64.0,
             preferred_width: 64.0,
@@ -103,7 +103,7 @@ impl RuntimeExtension for BatteryExtension {
         )]
     }
 }
-fn battery_compact(metrics: &PowerSnapshot) -> ViewNode {
+fn battery_capsule(metrics: &PowerSnapshot) -> ViewNode {
     battery_view(metrics, battery_label(metrics))
 }
 
@@ -244,7 +244,7 @@ fn battery_symbol(metrics: &PowerSnapshot, scale: f32, connection_prompt: bool) 
             ..Default::default()
         });
     let mut layers = vec![
-        ViewNode::svg("compact/battery", 28.0 * scale)
+        ViewNode::svg("capsule/battery", 28.0 * scale)
             .sized(Size::Fixed(28.0 * scale), Size::Fixed(18.0 * scale))
             .color(ColorSpec::MutedText),
         interior,
@@ -254,7 +254,7 @@ fn battery_symbol(metrics: &PowerSnapshot, scale: f32, connection_prompt: bool) 
             ViewNode::new(Node::Container(Box::new(
                 ViewNode::new(Node::Stack(
                     [Align::Center; 2],
-                    vec![ViewNode::svg("compact/bolt", 12.0 * scale)
+                    vec![ViewNode::svg("capsule/bolt", 12.0 * scale)
                         .sized(Size::Fixed(7.0 * scale), Size::Fixed(12.0 * scale))
                         .color(ColorSpec::OnAccent)],
                 ))
@@ -272,7 +272,7 @@ fn battery_symbol(metrics: &PowerSnapshot, scale: f32, connection_prompt: bool) 
 }
 
 fn battery_view(metrics: &PowerSnapshot, label: String) -> ViewNode {
-    ViewNode::compact(
+    ViewNode::capsule(
         battery_symbol(metrics, 1.0, false),
         ViewNode::text(
             label,
@@ -283,7 +283,7 @@ fn battery_view(metrics: &PowerSnapshot, label: String) -> ViewNode {
             },
         )
         .color(ColorSpec::PrimaryText),
-        CompactLayout {
+        CapsuleLayout {
             leading_size: [28.0, 18.0],
             gap: 5.0,
             ..Default::default()
@@ -328,7 +328,7 @@ mod appearance_tests {
     use eframe::egui::{self, pos2, vec2, Rect};
 
     #[test]
-    fn continuous_fill_matches_charge_at_compact_and_prompt_sizes() {
+    fn continuous_fill_matches_charge_at_capsule_and_prompt_sizes() {
         for scale in [1.0, 1.15] {
             for percent in [10, 50, 100] {
                 let ctx = egui::Context::default();
@@ -399,7 +399,7 @@ mod appearance_tests {
             },
             ..Default::default()
         };
-        let views = extension.compact_views();
+        let views = extension.capsule_views();
         let view = &views[0];
         assert!(view.fit_width);
         let output = ctx.run(egui::RawInput::default(), |ctx| {
@@ -408,7 +408,7 @@ mod appearance_tests {
                 .max(view.min_width);
             egui::CentralPanel::default().show(ctx, |ui| {
                 let chip = Rect::from_min_size(pos2(40.0, 40.0), vec2(width, 28.0));
-                renderer::show_compact(
+                renderer::show_capsule(
                     ui,
                     chip.shrink2(vec2(3.0, 0.0)),
                     &view.id,

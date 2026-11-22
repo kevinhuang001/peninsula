@@ -121,7 +121,7 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
             &feed.title,
             11.5,
             if active {
-                ColorSpec::Info
+                ColorSpec::Accent
             } else {
                 ColorSpec::PrimaryText
             },
@@ -130,7 +130,7 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
         if unread > 0 {
             let mut badge = ViewNode::new(Node::Badge(unread.to_string()))
                 .sized(Size::Fixed(32.0), Size::Fixed(18.0))
-                .color(ColorSpec::Info);
+                .color(ColorSpec::Accent);
             badge.style.normal.background = Some(ColorSpec::AccentSubtle);
             heading.push(badge);
         }
@@ -220,7 +220,7 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
                 ViewNode::new(Node::Spacer).sized(Size::Fixed(18.0), Size::Fixed(18.0))
             } else {
                 let mut dot = ViewNode::new(Node::Spacer).sized(Size::Fixed(8.0), Size::Fixed(8.0));
-                dot.style.normal.background = Some(ColorSpec::Info);
+                dot.style.normal.background = Some(ColorSpec::Accent);
                 dot.style.normal.corner_radius = Some(4.0);
                 let mut state = ViewNode::new(Node::ActionArea {
                     action: Action::Custom(format!("read:{}", article.id)),

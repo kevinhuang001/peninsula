@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     extension::{
-        Action, CompactView, ContributionDescriptor, ContributionKind, ExtensionContext,
+        Action, CapsuleView, ContributionDescriptor, ContributionKind, ExtensionContext,
         ExtensionId, ExtensionOutput, Notification, NotificationAlertView,
         NotificationCenterItemView, NotificationPriority, RuntimeExtension,
     },
@@ -23,13 +23,13 @@ use std::{
 };
 
 pub const WIDGET_ID: &str = "builtin.weather/forecast";
-pub const COMPACT_ID: &str = "builtin.weather/current";
+pub const CAPSULE_ID: &str = "builtin.weather/current";
 const SERVICE_ID: &str = "builtin.weather/service.forecast";
 pub const ALERTS_ID: &str = "builtin.weather/alerts";
 
 const RETRY_INTERVAL: Duration = Duration::from_secs(60);
 const WIDGET_SIZE: [f32; 2] = [506.0, 456.0];
-const COMPACT_WIDTH: f32 = 68.0;
+const CAPSULE_WIDTH: f32 = 68.0;
 const HOURLY_COUNT: usize = 5;
 
 pub fn descriptors() -> Vec<ContributionDescriptor> {
@@ -55,15 +55,15 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             crate::extension::Capability::Event,
         ]),
         ContributionDescriptor::builtin(
-            COMPACT_ID,
-            ContributionKind::Compact,
+            CAPSULE_ID,
+            ContributionKind::Capsule,
             "天气",
             "cloud-sun",
             true,
             8,
         )
         .with_dependency(ExtensionId::builtin(SERVICE_ID))
-        .with_size_hint(COMPACT_WIDTH, 28.0),
+        .with_size_hint(CAPSULE_WIDTH, 28.0),
         ContributionDescriptor::builtin(
             ALERTS_ID,
             ContributionKind::Notification,
@@ -420,7 +420,7 @@ impl RuntimeExtension for WeatherExtension {
         ExtensionOutput {
             invalidated: vec![
                 ExtensionId::builtin(WIDGET_ID),
-                ExtensionId::builtin(COMPACT_ID),
+                ExtensionId::builtin(CAPSULE_ID),
             ],
             ..Default::default()
         }
@@ -503,7 +503,7 @@ impl RuntimeExtension for WeatherExtension {
         if changed {
             output.invalidated = vec![
                 ExtensionId::builtin(WIDGET_ID),
-                ExtensionId::builtin(COMPACT_ID),
+                ExtensionId::builtin(CAPSULE_ID),
             ];
         }
         let forecast_hour = self
@@ -541,12 +541,12 @@ impl RuntimeExtension for WeatherExtension {
         Some(WidgetView::new(self.root(), WIDGET_SIZE))
     }
 
-    fn compact_views(&self) -> Vec<CompactView> {
+    fn capsule_views(&self) -> Vec<CapsuleView> {
         let (icon, label, _color, tooltip) = if let Some(snapshot) = &self.snapshot {
             let mut color = if self.alerts.iter().any(WeatherAlert::is_urgent) {
                 ColorSpec::Warning
             } else {
-                ColorSpec::Cyan
+                ColorSpec::Accent
             };
             if self.error.is_some() {
                 color = ColorSpec::Danger;
@@ -582,17 +582,17 @@ impl RuntimeExtension for WeatherExtension {
             (
                 "meteo/partly-cloudy-day",
                 "--°".to_owned(),
-                ColorSpec::Cyan,
+                ColorSpec::Accent,
                 "正在获取天气…".to_owned(),
             )
         };
-        vec![CompactView {
-            id: ExtensionId::builtin(COMPACT_ID),
+        vec![CapsuleView {
+            id: ExtensionId::builtin(CAPSULE_ID),
             source_extension_id: ExtensionId::builtin(WIDGET_ID),
-            content: ViewNode::compact(
+            content: ViewNode::capsule(
                 weather_icon(icon, 25.0),
-                super::super::compact_value(label, false),
-                CompactLayout {
+                super::super::capsule_value(label, false),
+                CapsuleLayout {
                     leading_size: [25.0, 26.0],
                     gap: 5.0,
                     ..Default::default()
@@ -600,8 +600,8 @@ impl RuntimeExtension for WeatherExtension {
             )
             .color(_color),
             visibility: Default::default(),
-            min_width: COMPACT_WIDTH,
-            preferred_width: COMPACT_WIDTH,
+            min_width: CAPSULE_WIDTH,
+            preferred_width: CAPSULE_WIDTH,
             fit_width: true,
             priority: 0,
             tooltip: Some(tooltip),
@@ -655,7 +655,7 @@ fn weather_root(
                 vec![
                     ViewNode::row(
                         vec![
-                            ViewNode::icon("map-pin", 13.0).color(ColorSpec::Info),
+                            ViewNode::icon("map-pin", 13.0).color(ColorSpec::Accent),
                             strong(&snapshot.location.name, 13.0),
                         ],
                         flow(4.0, Align::Center),
@@ -760,13 +760,13 @@ fn weather_root(
         "sun",
         "紫外线",
         format!("{:.0} · {}", current.uv_index, uv_level(current.uv_index)),
-        ColorSpec::Info,
+        ColorSpec::Accent,
     ));
     metrics.push(metric(
         "droplet",
         "湿度",
         format!("{}%", current.humidity),
-        ColorSpec::Info,
+        ColorSpec::Accent,
     ));
     metrics.push(metric(
         "wind",
@@ -776,13 +776,13 @@ fn weather_root(
             wind_level(current.wind_speed)
         ),
         format!("{:.0} km/h", current.wind_speed),
-        ColorSpec::Info,
+        ColorSpec::Accent,
     ));
     metrics.push(metric(
         "cloud-rain",
         "降水概率",
         format!("{}%", current.precipitation_probability),
-        ColorSpec::Info,
+        ColorSpec::Accent,
     ));
     sections.push(grid(metrics));
 
@@ -839,7 +839,7 @@ fn hourly_chart(snapshot: &Snapshot, now: time::OffsetDateTime) -> ViewNode {
             unit: "°".into(),
         })
         .sized(Size::Fill(1.0), Size::Fixed(104.0))
-        .color(ColorSpec::Info)
+        .color(ColorSpec::Accent)
     };
     panel(
         column(
@@ -1079,14 +1079,14 @@ mod tests {
     }
 
     #[test]
-    fn descriptors_register_a_widget_a_compact_item_and_an_alert_source() {
+    fn descriptors_register_a_widget_a_capsule_item_and_an_alert_source() {
         let descriptors = descriptors();
         assert_eq!(descriptors.len(), 4);
         assert!(descriptors.iter().any(|descriptor| {
             descriptor.id.as_str() == WIDGET_ID && descriptor.kind == ContributionKind::Widget
         }));
         assert!(descriptors.iter().any(|descriptor| {
-            descriptor.id.as_str() == COMPACT_ID && descriptor.kind == ContributionKind::Compact
+            descriptor.id.as_str() == CAPSULE_ID && descriptor.kind == ContributionKind::Capsule
         }));
         assert!(descriptors.iter().any(|descriptor| {
             descriptor.id.as_str() == ALERTS_ID && descriptor.kind == ContributionKind::Notification
@@ -1102,18 +1102,18 @@ mod tests {
     }
 
     #[test]
-    fn compact_view_uses_a_weather_icon_and_the_temperature_text() {
+    fn capsule_view_uses_a_weather_icon_and_the_temperature_text() {
         let extension = WeatherExtension::for_test(Some(snapshot()), Vec::new(), None);
-        let views = extension.compact_views();
+        let views = extension.capsule_views();
         assert_eq!(views.len(), 1);
-        assert_eq!(views[0].id.as_str(), COMPACT_ID);
-        let Node::Compact(compact) = &views[0].content.kind else {
-            panic!("weather compact");
+        assert_eq!(views[0].id.as_str(), CAPSULE_ID);
+        let Node::Capsule(capsule) = &views[0].content.kind else {
+            panic!("weather capsule");
         };
         assert!(
-            matches!(&compact.leading.kind, Node::Image { asset } if asset == "meteo/overcast")
+            matches!(&capsule.leading.kind, Node::Image { asset } if asset == "meteo/overcast")
         );
-        assert!(matches!(&compact.content.kind, Node::Text { text, .. } if text == "15°"));
+        assert!(matches!(&capsule.content.kind, Node::Text { text, .. } if text == "15°"));
         assert!(views[0]
             .tooltip
             .as_deref()
@@ -1169,7 +1169,7 @@ mod tests {
         assert_eq!(output.notifications.len(), 2);
         assert_ne!(output.notifications[0].id, output.notifications[1].id);
         assert_eq!(
-            extension.compact_views()[0].content.style.normal.foreground,
+            extension.capsule_views()[0].content.style.normal.foreground,
             Some(ColorSpec::Warning)
         );
     }

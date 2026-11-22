@@ -237,7 +237,7 @@ mod tests {
     use crate::app::settings::quiet_hours::QuietPeriod;
 
     #[test]
-    fn period_summary_uses_compact_weekday_and_time_labels() {
+    fn period_summary_uses_capsule_weekday_and_time_labels() {
         assert_eq!(period_label(QuietPeriod::default()), "工作日  22:00–07:00");
         assert_eq!(
             period_label(QuietPeriod {

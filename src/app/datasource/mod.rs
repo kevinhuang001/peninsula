@@ -33,7 +33,7 @@ fn form_surface(ui: &egui::Ui) -> egui::Frame {
 }
 
 fn accent(ui: &egui::Ui) -> Color32 {
-    ui.visuals().hyperlink_color
+    crate::ui::palette::accent_tokens(ui.ctx(), ui.visuals().dark_mode).accent
 }
 
 fn panel(ui: &egui::Ui) -> egui::Frame {
@@ -253,7 +253,7 @@ impl DataSourceWindow {
         &mut self,
         context: &egui::Context,
         manager: &mut DataSourceManager,
-        preferences: &mut super::settings::CompactPreferences,
+        preferences: &mut super::settings::AppPreferences,
     ) {
         let requested = context
             .data_mut(|data| data.remove_temp::<bool>(egui::Id::new(OPEN_REQUEST_ID)))
@@ -309,7 +309,7 @@ impl DataSourceWindow {
         &mut self,
         ui: &mut egui::Ui,
         manager: &mut DataSourceManager,
-        preferences: &mut super::settings::CompactPreferences,
+        preferences: &mut super::settings::AppPreferences,
     ) {
         if ui.visuals().dark_mode {
             let visuals = ui.visuals_mut();
@@ -362,7 +362,7 @@ impl DataSourceWindow {
                                 .add_sized(
                                     [ui.available_width(), import_height],
                                     egui::Button::new("＋  导入数据源")
-                                        .fill(Color32::from_rgb(28, 92, 154)),
+                                        .fill(accent(ui)),
                                 )
                                 .on_hover_text("选择 .pds.json 文件")
                                 .clicked()
@@ -480,7 +480,7 @@ impl DataSourceWindow {
         ui: &mut egui::Ui,
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
-        preferences: &mut super::settings::CompactPreferences,
+        preferences: &mut super::settings::AppPreferences,
     ) {
         ui.horizontal(|ui| {
             if let Some(icon) = manager.icon_texture(&source.id) {
@@ -721,7 +721,7 @@ impl DataSourceWindow {
         ui: &mut egui::Ui,
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
-        preferences: &mut super::settings::CompactPreferences,
+        preferences: &mut super::settings::AppPreferences,
     ) {
         section_title(ui, "运行设置", "");
         egui::Grid::new(("datasource-runtime-settings", &source.id))
@@ -1055,7 +1055,7 @@ impl DataSourceWindow {
                         let primary =
                             egui::Button::new(RichText::new("授权并导入").color(Color32::WHITE))
                                 .min_size(Vec2::new(112.0, 32.0))
-                                .fill(Color32::from_rgb(28, 92, 154));
+                                .fill(accent(ui));
                         if ui.add(primary).clicked() {
                             match manager.import(candidate.clone(), self.allow_private_network) {
                                 Ok(_) => {

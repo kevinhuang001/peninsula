@@ -1,6 +1,6 @@
 use super::{Asset, MarketExtension, MarketQuote, WIDGET_ID};
 use crate::{
-    extension::{Action, CompactView, ExtensionId},
+    extension::{Action, CapsuleView, ExtensionId},
     ui::declarative::{
         Align, ColorSpec, Flow, FontSize, FontWeight, ImageFit, Justify, Node, Paint, Size, Style,
         Table, TableColumn, TableRowMenu, TextStyle, ViewNode,
@@ -233,7 +233,7 @@ fn add_modal(base: ViewNode, market: &MarketExtension) -> ViewNode {
     .sized(Size::Fill(1.0), Size::Fill(1.0))
 }
 
-pub(super) fn compact(market: &MarketExtension) -> Vec<CompactView> {
+pub(super) fn capsule(market: &MarketExtension) -> Vec<CapsuleView> {
     market
         .watchlist
         .assets
@@ -248,7 +248,7 @@ pub(super) fn compact(market: &MarketExtension) -> Vec<CompactView> {
                     .sized(Size::Fixed(18.0), Size::Fixed(18.0))
                     .styled(Style {
                         normal: Paint {
-                            foreground: Some(ColorSpec::OnAccent),
+                            foreground: Some(ColorSpec::OnAccentSubtle),
                             background: Some(ColorSpec::AccentSubtle),
                             corner_radius: Some(9.0),
                             ..Default::default()
@@ -281,8 +281,8 @@ pub(super) fn compact(market: &MarketExtension) -> Vec<CompactView> {
                     ..Default::default()
                 },
             );
-            CompactView {
-                id: super::compact_item_id(asset),
+            CapsuleView {
+                id: super::capsule_item_id(asset),
                 source_extension_id: ExtensionId::builtin(WIDGET_ID),
                 content: ViewNode::row(
                     vec![logo, price],
@@ -315,7 +315,7 @@ fn quote_row(asset: &Asset, quote: Option<&MarketQuote>) -> Vec<ViewNode> {
             .sized(Size::Fixed(28.0), Size::Fixed(28.0))
             .styled(Style {
                 normal: Paint {
-                    foreground: Some(ColorSpec::OnAccent),
+                    foreground: Some(ColorSpec::OnAccentSubtle),
                     background: Some(ColorSpec::AccentSubtle),
                     corner_radius: Some(14.0),
                     ..Default::default()
@@ -456,7 +456,7 @@ mod tests {
     use eframe::egui::{self, pos2, vec2, Rect};
 
     #[test]
-    fn market_header_is_compact_and_prices_are_centered_under_their_headers() {
+    fn market_header_is_capsule_and_prices_are_centered_under_their_headers() {
         let mut market = MarketExtension::new();
         market.watchlist.assets.truncate(1);
         market.last_updated = Some("09:14:48".into());

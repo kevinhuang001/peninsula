@@ -88,7 +88,7 @@ fn card(mut node: ViewNode) -> ViewNode {
 fn badge(count: usize) -> ViewNode {
     let mut node = ViewNode::new(Node::Badge(count.to_string()))
         .sized(Size::Fixed(34.0), Size::Fixed(20.0))
-        .color(ColorSpec::Info);
+        .color(ColorSpec::Accent);
     node.style.normal.background = Some(ColorSpec::AccentSubtle);
     node
 }
@@ -99,7 +99,7 @@ fn account_row(mail: &MailExtension, account: &Account, unread: usize) -> ViewNo
         &account.email,
         11.5,
         if selected {
-            ColorSpec::Info
+            ColorSpec::Accent
         } else {
             ColorSpec::PrimaryText
         },
@@ -300,12 +300,12 @@ fn message_row(message: &EmailMessage, account: &Account, pending: bool) -> View
     .color(primary_color)
     .sized(Size::Fill(1.0), Size::Auto);
     let dot = if pending {
-        text("打开中…", 9.0, ColorSpec::Info)
+        text("打开中…", 9.0, ColorSpec::Accent)
     } else if message.is_read {
         ViewNode::new(Node::Spacer)
     } else {
         let mut dot = ViewNode::new(Node::Spacer).sized(Size::Fixed(8.0), Size::Fixed(8.0));
-        dot.style.normal.background = Some(ColorSpec::Info);
+        dot.style.normal.background = Some(ColorSpec::Accent);
         dot.style.normal.corner_radius = Some(4.0);
         dot
     };
@@ -438,7 +438,7 @@ pub(super) fn build(mail: &MailExtension) -> WidgetView {
     let top = ViewNode::row(
         vec![
             ViewNode::icon("mail", 18.0)
-                .color(ColorSpec::Info)
+                .color(ColorSpec::Accent)
                 .sized(Size::Fixed(24.0), Size::Fixed(24.0)),
             text(title, 14.0, ColorSpec::PrimaryText).sized(Size::Fill(1.0), Size::Auto),
         ]

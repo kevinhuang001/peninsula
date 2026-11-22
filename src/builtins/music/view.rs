@@ -2,7 +2,7 @@ use super::{lyrics::Lyrics, platform::Playback, LyricsResult, WIDGET_SIZE};
 use crate::{extension::Action, ui::declarative::*};
 use std::time::Instant;
 
-pub(super) fn compact(
+pub(super) fn capsule(
     value: &str,
     has_lyric: bool,
     playing: bool,
@@ -16,10 +16,10 @@ pub(super) fn compact(
         value.to_owned()
     };
     let indicator = equalizer(playing);
-    ViewNode::compact(
+    ViewNode::capsule(
         indicator,
-        super::super::compact_value(text, false),
-        CompactLayout {
+        super::super::capsule_value(text, false),
+        CapsuleLayout {
             leading_size: [32.0, 24.0],
             width: Size::Fill(1.0),
             content_size: SizeSpec::default(),
@@ -40,7 +40,7 @@ fn equalizer(playing: bool) -> ViewNode {
         32.0,
     )
     .sized(Size::Fixed(32.0), Size::Fixed(24.0))
-    .color(ColorSpec::Violet)
+    .color(ColorSpec::Accent)
 }
 
 pub(super) fn widget(
@@ -188,7 +188,7 @@ fn lyric_row(
                         ..Default::default()
                     },
                 )
-                .color(ColorSpec::Info),
+                .color(ColorSpec::Accent),
                 None,
             ),
             Lyrics::Plain(lines) => (lyric_action("查看纯文本歌词", "lyrics-plain"), Some(lines)),
@@ -203,7 +203,7 @@ fn lyric_action(value: &str, action: &str) -> ViewNode {
     ViewNode::new(Node::ActionArea {
         label: value.to_owned(),
         action: Action::Custom(action.into()),
-        content: Box::new(label(value, 11.0, ColorSpec::Info)),
+        content: Box::new(label(value, 11.0, ColorSpec::Accent)),
         context_menu: None,
     })
 }
@@ -316,22 +316,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn compact_keeps_full_lyric_with_adjacent_notes_and_playback_icon() {
+    fn capsule_keeps_full_lyric_with_adjacent_notes_and_playback_icon() {
         let lyric = "这是一句很长的歌词，需要完整显示而不是省略".repeat(8);
         for playing in [true, false] {
-            let node = compact(&lyric, true, playing, Some(0.7));
-            let Node::Compact(compact) = node.kind else {
-                panic!("expected compact")
+            let node = capsule(&lyric, true, playing, Some(0.7));
+            let Node::Capsule(capsule) = node.kind else {
+                panic!("expected capsule")
             };
-            assert_eq!(compact.layout.width, Size::Fill(1.0));
-            assert_eq!(compact.layout.content_align, Align::Center);
-            assert!(matches!(&compact.leading.kind, Node::Icon { name, .. }
+            assert_eq!(capsule.layout.width, Size::Fill(1.0));
+            assert_eq!(capsule.layout.content_align, Align::Center);
+            assert!(matches!(&capsule.leading.kind, Node::Icon { name, .. }
                 if name == if playing { "equalizer-playing" } else { "equalizer" }));
             assert_eq!(
-                compact.leading.style.normal.foreground,
-                Some(ColorSpec::Violet)
+                capsule.leading.style.normal.foreground,
+                Some(ColorSpec::Accent)
             );
-            assert!(matches!(&compact.content.kind, Node::Text { text, .. }
+            assert!(matches!(&capsule.content.kind, Node::Text { text, .. }
                 if text == &format!("♪{lyric}♪")));
         }
     }

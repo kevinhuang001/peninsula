@@ -1,5 +1,5 @@
-use super::{icons::Icons, settings::CompactPreferences};
-use crate::extension::{CompactView, Prompt};
+use super::{icons::Icons, settings::AppPreferences};
+use crate::extension::{CapsuleView, Prompt};
 use crate::ui::{declarative::MAX_CONTENT_WIDTH, renderer};
 use eframe::egui;
 
@@ -11,16 +11,16 @@ pub(super) const HORIZONTAL_PADDING: f32 = 16.0;
 const MIN_WIDTH: f32 = 64.0;
 const MAX_WIDTH: f32 = 600.0;
 
-pub(super) struct CompactItem<'a> {
-    pub view: &'a CompactView,
+pub(super) struct CapsuleItem<'a> {
+    pub view: &'a CapsuleView,
     preferred_width: f32,
     min_width: f32,
     pub exclusive: bool,
     pub prompt: Option<Prompt>,
 }
 
-impl<'a> From<&'a CompactView> for CompactItem<'a> {
-    fn from(view: &'a CompactView) -> Self {
+impl<'a> From<&'a CapsuleView> for CapsuleItem<'a> {
+    fn from(view: &'a CapsuleView) -> Self {
         Self {
             view,
             preferred_width: view.preferred_width,
@@ -34,18 +34,18 @@ impl<'a> From<&'a CompactView> for CompactItem<'a> {
 /// Resolve font-dependent widths using the same renderer as paint.
 pub(super) fn measure_views<'a>(
     context: &egui::Context,
-    available: impl IntoIterator<Item = &'a CompactView>,
+    available: impl IntoIterator<Item = &'a CapsuleView>,
     icons: &Icons,
     text_size: f32,
-) -> Vec<CompactItem<'a>> {
+) -> Vec<CapsuleItem<'a>> {
     available
         .into_iter()
         .map(|view| {
-            let mut item = CompactItem::from(view);
+            let mut item = CapsuleItem::from(view);
             if view.fit_width {
                 // Include the chip insets and round up so fractional metrics
                 // cannot introduce an ellipsis on the last glyph.
-                let width = (renderer::compact_content_width(
+                let width = (renderer::capsule_content_width(
                     context,
                     &view.content,
                     MAX_CONTENT_WIDTH - 6.0,
@@ -62,8 +62,8 @@ pub(super) fn measure_views<'a>(
 }
 
 pub(super) fn item_widths(
-    preferences: &CompactPreferences,
-    available: &[CompactItem<'_>],
+    preferences: &AppPreferences,
+    available: &[CapsuleItem<'_>],
 ) -> Vec<f32> {
     if available.iter().any(|item| item.exclusive) {
         return available
@@ -79,7 +79,7 @@ pub(super) fn item_widths(
         })
         .map(|v| v.preferred_width)
         .collect::<Vec<_>>();
-    for item in preferences.ordered_compact_items() {
+    for item in preferences.ordered_capsule_items() {
         if preferences.is_enabled(&item.id) {
             if let Some(view) = available.iter().find(|view| view.view.id == item.id) {
                 widths.push(view.preferred_width);
@@ -89,7 +89,7 @@ pub(super) fn item_widths(
     widths
 }
 
-pub(super) fn width(preferences: &CompactPreferences, available: &[CompactItem<'_>]) -> f32 {
+pub(super) fn width(preferences: &AppPreferences, available: &[CapsuleItem<'_>]) -> f32 {
     if let Some(prompt) = available.iter().find_map(|item| item.prompt.as_ref()) {
         return prompt.preferred_width.clamp(MIN_WIDTH, MAX_WIDTH);
     }
@@ -110,7 +110,7 @@ pub(super) fn width(preferences: &CompactPreferences, available: &[CompactItem<'
     }
 }
 
-pub(super) fn fitted_widths(views: &[&CompactItem<'_>], capsule_width: f32) -> Vec<f32> {
+pub(super) fn fitted_widths(views: &[&CapsuleItem<'_>], capsule_width: f32) -> Vec<f32> {
     let available =
         (capsule_width - HORIZONTAL_PADDING - ITEM_GAP * views.len().saturating_sub(1) as f32)
             .max(0.0);
@@ -139,20 +139,20 @@ pub(super) fn fitted_widths(views: &[&CompactItem<'_>], capsule_width: f32) -> V
 #[cfg(test)]
 mod tests {
     use super::{
-        fitted_widths, item_widths, width, CompactItem, CAPSULE_HEIGHT, CHIP_HEIGHT,
+        fitted_widths, item_widths, width, CapsuleItem, CAPSULE_HEIGHT, CHIP_HEIGHT,
         HORIZONTAL_PADDING, ITEM_GAP, MAX_WIDTH,
     };
     use crate::{
-        app::settings::CompactPreferences,
+        app::settings::AppPreferences,
         builtins,
-        extension::{CompactView, ContributionKind, ExtensionId, ViewNode},
+        extension::{CapsuleView, ContributionKind, ExtensionId, ViewNode},
     };
 
-    fn available_views() -> Vec<CompactView> {
+    fn available_views() -> Vec<CapsuleView> {
         builtins::registry()
-            .by_kind(ContributionKind::Compact)
+            .by_kind(ContributionKind::Capsule)
             .into_iter()
-            .map(|descriptor| CompactView {
+            .map(|descriptor| CapsuleView {
                 id: descriptor.id.clone(),
                 source_extension_id: descriptor.id.clone(),
                 content: ViewNode::text(String::new(), Default::default()),
@@ -167,18 +167,18 @@ mod tests {
     }
 
     #[test]
-    fn compact_capsule_has_small_even_padding_around_its_contents() {
-        let preferences = CompactPreferences::default();
+    fn capsule_capsule_has_small_even_padding_around_its_contents() {
+        let preferences = AppPreferences::default();
         let views = available_views();
         let widths = item_widths(
             &preferences,
-            &views.iter().map(CompactItem::from).collect::<Vec<_>>(),
+            &views.iter().map(CapsuleItem::from).collect::<Vec<_>>(),
         );
         let content_width = widths.iter().sum::<f32>() + ITEM_GAP * (widths.len() - 1) as f32;
         assert_eq!(
             width(
                 &preferences,
-                &views.iter().map(CompactItem::from).collect::<Vec<_>>()
+                &views.iter().map(CapsuleItem::from).collect::<Vec<_>>()
             ) - content_width,
             HORIZONTAL_PADDING
         );
@@ -187,8 +187,8 @@ mod tests {
     }
 
     #[test]
-    fn prompt_owns_the_whole_capsule_width_without_compact_chip_padding() {
-        let view = CompactView {
+    fn prompt_owns_the_whole_capsule_width_without_capsule_chip_padding() {
+        let view = CapsuleView {
             id: ExtensionId::builtin("builtin.usb/prompt"),
             source_extension_id: ExtensionId::builtin("builtin.usb"),
             content: ViewNode::text("USB", Default::default()),
@@ -199,7 +199,7 @@ mod tests {
             priority: 0,
             tooltip: None,
         };
-        let mut item = CompactItem::from(&view);
+        let mut item = CapsuleItem::from(&view);
         item.exclusive = true;
         item.prompt = Some(
             crate::extension::Prompt::new(
@@ -210,16 +210,16 @@ mod tests {
             )
             .with_width(230.0, 266.0),
         );
-        assert_eq!(width(&CompactPreferences::default(), &[item]), 266.0);
+        assert_eq!(width(&AppPreferences::default(), &[item]), 266.0);
     }
 
     #[test]
-    fn compact_width_tracks_available_view_content_without_feature_checks() {
+    fn capsule_width_tracks_available_view_content_without_feature_checks() {
         let views: Vec<_> = available_views()
             .into_iter()
             .filter(|view| view.id.as_str() != "builtin.downloads/status")
             .collect();
-        let mut preferences = CompactPreferences::default();
+        let mut preferences = AppPreferences::default();
         preferences.set_enabled(&ExtensionId::builtin("builtin.downloads/status"), true);
         preferences.set_enabled(
             &ExtensionId::builtin("builtin.system-monitor/network"),
@@ -227,10 +227,10 @@ mod tests {
         );
         let without_download = width(
             &preferences,
-            &views.iter().map(CompactItem::from).collect::<Vec<_>>(),
+            &views.iter().map(CapsuleItem::from).collect::<Vec<_>>(),
         );
         let mut active_views = views.clone();
-        active_views.push(CompactView {
+        active_views.push(CapsuleView {
             id: ExtensionId::builtin("builtin.downloads/status"),
             source_extension_id: ExtensionId::builtin("builtin.downloads/notifications"),
             content: ViewNode::text("download", Default::default()),
@@ -246,11 +246,11 @@ mod tests {
                 &preferences,
                 &active_views
                     .iter()
-                    .map(CompactItem::from)
+                    .map(CapsuleItem::from)
                     .collect::<Vec<_>>()
             ) > without_download
         );
-        for item in &mut preferences.compact_items {
+        for item in &mut preferences.capsule_items {
             item.enabled = false;
         }
         assert_eq!(
@@ -258,7 +258,7 @@ mod tests {
                 &preferences,
                 &active_views
                     .iter()
-                    .map(CompactItem::from)
+                    .map(CapsuleItem::from)
                     .collect::<Vec<_>>()
             ),
             64.0
@@ -266,26 +266,26 @@ mod tests {
     }
 
     #[test]
-    fn every_enabled_compact_item_fits_inside_its_capsule() {
-        let mut preferences = CompactPreferences::default();
-        for item in &mut preferences.compact_items {
+    fn every_enabled_capsule_item_fits_inside_its_capsule() {
+        let mut preferences = AppPreferences::default();
+        for item in &mut preferences.capsule_items {
             item.enabled = true;
         }
         let views = available_views();
         let widths = item_widths(
             &preferences,
-            &views.iter().map(CompactItem::from).collect::<Vec<_>>(),
+            &views.iter().map(CapsuleItem::from).collect::<Vec<_>>(),
         );
         let required =
             widths.iter().sum::<f32>() + ITEM_GAP * (widths.len() - 1) as f32 + HORIZONTAL_PADDING;
         assert_eq!(
             width(
                 &preferences,
-                &views.iter().map(CompactItem::from).collect::<Vec<_>>()
+                &views.iter().map(CapsuleItem::from).collect::<Vec<_>>()
             ),
             required.min(MAX_WIDTH)
         );
-        let items: Vec<_> = views.iter().map(CompactItem::from).collect();
+        let items: Vec<_> = views.iter().map(CapsuleItem::from).collect();
         let references: Vec<_> = items.iter().collect();
         let fitted: f32 = fitted_widths(&references, MAX_WIDTH).into_iter().sum();
         assert!(
@@ -294,14 +294,14 @@ mod tests {
     }
 
     #[test]
-    fn compact_item_order_follows_the_saved_preference_order() {
-        let mut preferences = CompactPreferences::default();
+    fn capsule_item_order_follows_the_saved_preference_order() {
+        let mut preferences = AppPreferences::default();
         let views = available_views();
-        preferences.move_compact_item(&ExtensionId::builtin("builtin.battery/status"), -1);
+        preferences.move_capsule_item(&ExtensionId::builtin("builtin.battery/status"), -1);
         assert_eq!(
             item_widths(
                 &preferences,
-                &views.iter().map(CompactItem::from).collect::<Vec<_>>()
+                &views.iter().map(CapsuleItem::from).collect::<Vec<_>>()
             ),
             [
                 64.0,
@@ -324,13 +324,13 @@ mod lyric_tests {
         let context = egui::Context::default();
         super::super::fonts::install(&context);
         let icons = Icons::load(&context);
-        // Exercise host layout with a Compact ID registered on every platform;
+        // Exercise host layout with a Capsule ID registered on every platform;
         // the music extension itself is intentionally unavailable on macOS.
         let id = ExtensionId::builtin("builtin.calendar/time");
-        let view = CompactView {
+        let view = CapsuleView {
             id: id.clone(),
             source_extension_id: id.clone(),
-            content: ViewNode::compact(
+            content: ViewNode::capsule(
                 ViewNode::icon("speaker-playing", 16.0),
                 ViewNode::text(
                     "♪把这一整句长长的歌词完整地显示出来，直到最后一个音符也不会省略♪".repeat(3),
@@ -339,7 +339,7 @@ mod lyric_tests {
                         ..Default::default()
                     },
                 ),
-                CompactLayout {
+                CapsuleLayout {
                     leading_size: [16.0, 20.0],
                     ..Default::default()
                 },
@@ -351,10 +351,10 @@ mod lyric_tests {
             priority: 0,
             tooltip: None,
         };
-        let mut preferences = CompactPreferences::default();
+        let mut preferences = AppPreferences::default();
         preferences.set_enabled(&id, true);
         let _ = context.run(egui::RawInput::default(), |context| {
-            let measured = measure_views(context, [&view], &icons, preferences.compact_text_size);
+            let measured = measure_views(context, [&view], &icons, preferences.capsule_text_size);
             let references = [&measured[0]];
             let capsule = width(&preferences, &measured);
             assert!(capsule > 600.0);
@@ -367,11 +367,11 @@ mod lyric_tests {
             let large = measure_views(context, [&view], &icons, 18.0);
             assert!(large[0].preferred_width > measured[0].preferred_width);
             let mut short = view.clone();
-            let Node::Compact(compact) = &mut short.content.kind else {
-                unreachable!("lyric fixture is a Compact node");
+            let Node::Capsule(capsule) = &mut short.content.kind else {
+                unreachable!("lyric fixture is a Capsule node");
             };
-            compact.content = ViewNode::text("♪短句♪", Default::default());
-            let short = measure_views(context, [&short], &icons, preferences.compact_text_size);
+            capsule.content = ViewNode::text("♪短句♪", Default::default());
+            let short = measure_views(context, [&short], &icons, preferences.capsule_text_size);
             assert_eq!(short[0].preferred_width, 360.0);
             assert_eq!(short[0].min_width, 360.0);
             assert_eq!(width(&preferences, &short), 360.0 + HORIZONTAL_PADDING);

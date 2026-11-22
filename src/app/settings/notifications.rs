@@ -3,7 +3,7 @@
 use super::{
     forms,
     theme::{ACCENT, BORDER, SECONDARY_TEXT, TEXT},
-    CompactPreferences,
+    AppPreferences,
 };
 use crate::extension::{ContributionDescriptor, ContributionKind, ExtensionId, SettingSchema, SettingValue};
 use eframe::egui::{self, Color32, Sense, Stroke};
@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 pub(super) fn options(
     ui: &mut egui::Ui,
-    prefs: &mut CompactPreferences,
+    prefs: &mut AppPreferences,
     number_drafts: &mut HashMap<(ExtensionId, String), String>,
 ) -> bool {
     // Snapshot the catalog so UI changes never mutate registration metadata.

@@ -4,7 +4,7 @@ mod view;
 
 use crate::{
     extension::{
-        Action, Capability, CompactView, CompactVisibility, ContributionDescriptor,
+        Action, Capability, CapsuleView, CapsuleVisibility, ContributionDescriptor,
         ContributionKind, ExtensionContext, ExtensionId, ExtensionOutput,
         NotificationPresentationProvider, RuntimeExtension, WidgetVisibility,
     },
@@ -20,10 +20,10 @@ use std::{
 
 const WIDGET_ID: &str = "builtin.music/now-playing";
 const SERVICE_ID: &str = "builtin.music/service.playback";
-const COMPACT_ID: &str = "builtin.music/lyrics";
+const CAPSULE_ID: &str = "builtin.music/lyrics";
 const WIDGET_SIZE: [f32; 2] = [280.0, 188.0];
-const COMPACT_WIDTH: f32 = 176.0;
-const COMPACT_LYRIC_MIN_WIDTH: f32 = 360.0;
+const CAPSULE_WIDTH: f32 = 176.0;
+const CAPSULE_LYRIC_MIN_WIDTH: f32 = 360.0;
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const IDLE_INTERVAL: Duration = Duration::from_millis(500);
 const DISCONNECTED_AFTER: Duration = Duration::from_secs(4);
@@ -43,15 +43,15 @@ pub(super) fn descriptors() -> Vec<ContributionDescriptor> {
         .with_widget_bounds(widget_bounds())
         .with_capabilities(vec![Capability::View, Capability::Action]),
         ContributionDescriptor::builtin(
-            COMPACT_ID,
-            ContributionKind::Compact,
+            CAPSULE_ID,
+            ContributionKind::Capsule,
             "歌词",
             "music",
             true,
             9,
         )
         .with_dependency(ExtensionId::builtin(SERVICE_ID))
-        .with_size_hint(COMPACT_WIDTH, 28.0),
+        .with_size_hint(CAPSULE_WIDTH, 28.0),
         ContributionDescriptor::builtin(
             SERVICE_ID,
             ContributionKind::BackgroundService,
@@ -222,7 +222,7 @@ impl RuntimeExtension for MusicExtension {
         ))
     }
 
-    fn compact_views(&self) -> Vec<CompactView> {
+    fn capsule_views(&self) -> Vec<CapsuleView> {
         let Some(playback) = self.playback.as_ref() else {
             return Vec::new();
         };
@@ -242,22 +242,22 @@ impl RuntimeExtension for MusicExtension {
             tooltip = format!("{lyric}\n{tooltip}");
         }
         let min_width = if lyric.is_some() {
-            COMPACT_LYRIC_MIN_WIDTH
+            CAPSULE_LYRIC_MIN_WIDTH
         } else {
             84.0
         };
-        vec![CompactView {
-            id: ExtensionId::builtin(COMPACT_ID),
+        vec![CapsuleView {
+            id: ExtensionId::builtin(CAPSULE_ID),
             source_extension_id: ExtensionId::builtin(WIDGET_ID),
-            content: view::compact(
+            content: view::capsule(
                 lyric.unwrap_or(title),
                 lyric.is_some(),
                 playback.playing,
                 playback.audio_level,
             ),
-            visibility: CompactVisibility::Visible,
+            visibility: CapsuleVisibility::Visible,
             min_width,
-            preferred_width: COMPACT_WIDTH.max(min_width),
+            preferred_width: CAPSULE_WIDTH.max(min_width),
             fit_width: true,
             priority: 0,
             tooltip: Some(tooltip),
@@ -505,7 +505,7 @@ fn invalidate() -> ExtensionOutput {
     ExtensionOutput {
         invalidated: vec![
             ExtensionId::builtin(WIDGET_ID),
-            ExtensionId::builtin(COMPACT_ID),
+            ExtensionId::builtin(CAPSULE_ID),
         ],
         ..Default::default()
     }
@@ -604,32 +604,32 @@ mod tests {
     }
 
     #[test]
-    fn player_must_be_detected_playing_before_its_widget_or_compact_appears() {
+    fn player_must_be_detected_playing_before_its_widget_or_capsule_appears() {
         let mut music = MusicExtension::default();
         let id = ExtensionId::builtin(WIDGET_ID);
         let now = Instant::now();
         assert!(!music.set_playback(Some(sample(false, 0.0, now))));
         assert_eq!(music.widget_visibility(&id), WidgetVisibility::Hidden);
         assert!(music.widget_view(&id).is_none());
-        assert!(music.compact_views().is_empty());
+        assert!(music.capsule_views().is_empty());
 
         assert!(music.set_playback(Some(sample(true, 1.0, now))));
         assert_eq!(music.widget_visibility(&id), WidgetVisibility::Visible);
         assert!(music.widget_view(&id).is_some());
         assert_eq!(
-            music.compact_views()[0].visibility,
-            CompactVisibility::Visible
+            music.capsule_views()[0].visibility,
+            CapsuleVisibility::Visible
         );
 
         assert!(music.set_playback(Some(sample(false, 2.0, now))));
         assert_eq!(music.widget_visibility(&id), WidgetVisibility::Visible);
         assert!(music.set_playback(None));
         assert_eq!(music.widget_visibility(&id), WidgetVisibility::Hidden);
-        assert!(music.compact_views().is_empty());
+        assert!(music.capsule_views().is_empty());
     }
 
     #[test]
-    fn compact_lyric_follows_playback_seek_and_pause() {
+    fn capsule_lyric_follows_playback_seek_and_pause() {
         let mut music = MusicExtension::default();
         let now = Instant::now();
         music.set_playback(Some(sample(true, 0.0, now)));
@@ -647,9 +647,9 @@ mod tests {
             music.poll(now + Duration::from_secs(1)).invalidated.len(),
             2
         );
-        assert_eq!(music.compact_views()[0].min_width, COMPACT_LYRIC_MIN_WIDTH);
-        assert!(music.compact_views()[0].fit_width);
-        assert!(music.compact_views()[0]
+        assert_eq!(music.capsule_views()[0].min_width, CAPSULE_LYRIC_MIN_WIDTH);
+        assert!(music.capsule_views()[0].fit_width);
+        assert!(music.capsule_views()[0]
             .tooltip
             .as_deref()
             .unwrap()
@@ -658,7 +658,7 @@ mod tests {
             music.poll(now + Duration::from_secs(2)).invalidated.len(),
             2
         );
-        assert!(music.compact_views()[0]
+        assert!(music.capsule_views()[0]
             .tooltip
             .as_deref()
             .unwrap()
