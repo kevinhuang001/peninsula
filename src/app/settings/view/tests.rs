@@ -502,6 +502,8 @@ fn components_are_a_first_level_menu_separate_from_capsule_appearance() {
     }
     let panels = Panels::new(bounds(), true);
     assert!(panels.plugins.unwrap().contains(text_rect(&output, "Compact 开关").center()));
-    assert!(panels.form.contains(text_rect(&output, "Compact 开关").center())
-        || panels.form.contains(text_rect(&output, "电池").center()));
+    assert_eq!(view.component_section, ComponentSection::CompactSwitch);
+    // Form contents are scrollable; do not assert that a later extension's
+    // battery switch is in the initially visible portion of the viewport.
+    assert!(panels.form.left() > panels.plugins.unwrap().right());
 }

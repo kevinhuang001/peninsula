@@ -260,7 +260,9 @@ impl SettingsView {
                 },
             )
         };
-        let navigation_height = Section::ALL.len() as f32 * 36.0 + 10.0;
+        // Menu rows allocate 32pt each; a 1pt gutter plus the usual inset
+        // is enough even after Components becomes a first-level item.
+        let navigation_height = Section::ALL.len() as f32 * 33.0 + 10.0;
         content_height.max(navigation_height) + 21.0
     }
 
