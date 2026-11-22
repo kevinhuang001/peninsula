@@ -368,9 +368,19 @@ fn component_submenus_only_contain_widget_switch_and_order() {
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "通知中心").width() > 0.0);
     // Clicking the disabled host-owned switch cannot mutate preferences.
-    let fixed_control = toggle_for(&output, "通知中心");
+    let fixed_label = text_rect(&output, "通知中心");
+    let row_rect = output.shapes.iter().filter_map(|shape| match &shape.shape {
+        egui::Shape::Rect(r)
+            if r.rect.contains(fixed_label.center()) && r.rect.width() > 160.0 =>
+        {
+            Some(r.rect)
+        }
+        _ => None,
+    }).min_by(|a, b| a.width().total_cmp(&b.width()))
+        .expect("fixed Notification Center control has a settings row");
     let before = prefs.clone();
-    click(&ctx, &mut view, &mut prefs, fixed_control.center());
+    click(&ctx, &mut view, &mut prefs,
+        egui::pos2(row_rect.right() - 24.0, row_rect.center().y));
     assert_eq!(prefs, before);
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 顺序").center());
     assert_eq!(view.component_section, ComponentSection::WidgetOrder);
@@ -457,6 +467,7 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
         },
     );
     for label in [
+        "市场",
         "统一最短提醒间隔",
         "AAPL 价格提醒",
         "启用提醒",
@@ -465,6 +476,15 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
     ] {
         assert!(text_rect(&output, label).width() > 0.0, "{label}");
     }
+    let group = text_rect(&output, "市场");
+    let item = text_rect(&output, "AAPL 价格提醒");
+    assert!(item.top() > group.bottom());
+    assert!(item.left() > group.left());
+    assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+        egui::Shape::Text(text) if text.galley.job.text.contains(
+            "所有市场价格通知共用上述间隔"
+        )
+    )));
     assert_eq!(prefs.contribution_values[&id]["condition"],
         SettingValue::Enum("高于".into()));
     assert_eq!(prefs.contribution_values[&id]["threshold"],
