@@ -448,13 +448,9 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
             ],
         ),
     );
-    prefs.contribution_values.insert(
-        id.clone(),
-        [
-            ("condition".into(), SettingValue::Enum("高于".into())),
-            ("threshold".into(), SettingValue::Float(0.0)),
-        ].into(),
-    );
+    // Reproduce a newly added stock that has never saved any notification
+    // settings: the entire form must still be shown and editable.
+    assert!(!prefs.contribution_values.contains_key(&id));
     let output = ctx.run(
         RawInput {
             screen_rect: Some(Rect::from_min_size(
@@ -477,6 +473,10 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
     ] {
         assert!(text_rect(&output, label).width() > 0.0, "{label}");
     }
+    assert_eq!(prefs.contribution_values[&id]["condition"],
+        SettingValue::Enum("高于".into()));
+    assert_eq!(prefs.contribution_values[&id]["threshold"],
+        SettingValue::Float(0.0));
 }
 
 #[test]

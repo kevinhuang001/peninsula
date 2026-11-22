@@ -1084,8 +1084,15 @@ fn notification_options(
                         );
                     }
                 }
-                if let Some(values) = prefs.contribution_values.get_mut(&entry.id) {
+                if !entry.settings.is_empty() {
+                    // Always render the typed configuration for dynamically
+                    // registered notifications, including before first save.
+                    let values = prefs.contribution_values
+                        .entry(entry.id.clone())
+                        .or_insert_with(|| crate::core::settings::SettingsStore::defaults(&entry));
                     for field in &entry.settings {
+                        values.entry(field.key.clone())
+                            .or_insert_with(|| field.default.clone().expect("validated setting schema"));
                         if let Some(value) = values.get_mut(&field.key) {
                             ui.push_id(&field.key, |ui| {
                                 if is_market && field.key == "threshold" {

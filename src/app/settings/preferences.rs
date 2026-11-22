@@ -331,9 +331,15 @@ impl CompactPreferences {
             .extensions()
             .iter()
             .flat_map(|entry| &entry.contributions)
-            .filter_map(|entry| {
-                host.configured_contribution_settings(&entry.id)
-                    .map(|values| (entry.id.clone(), values.clone()))
+            .filter(|entry| !entry.settings.is_empty())
+            .map(|entry| {
+                // Dynamic contributions may be visible before their first
+                // settings record was written. Seed the edit form from schema,
+                // then let the host persist it on the first change.
+                let values = host.configured_contribution_settings(&entry.id)
+                    .cloned()
+                    .unwrap_or_else(|| crate::core::settings::SettingsStore::defaults(entry));
+                (entry.id.clone(), values)
             })
             .collect();
     }
