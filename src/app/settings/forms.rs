@@ -247,6 +247,7 @@ pub(super) fn setting_control(
     value: &mut SettingValue,
 ) -> bool {
     let old = value.clone();
+    let is_boolean = matches!(value, SettingValue::Boolean(_));
     let render = |ui: &mut egui::Ui| {
         match value {
             SettingValue::Boolean(v) => {
@@ -293,7 +294,7 @@ pub(super) fn setting_control(
         }
         false
     };
-    if matches!(value, SettingValue::Boolean(_)) {
+    if is_boolean {
         row(ui, &field.description, render);
     } else {
         input_row(ui, &field.description, render);

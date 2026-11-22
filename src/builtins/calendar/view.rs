@@ -129,7 +129,11 @@ fn day_cell(
     } else {
         String::new()
     };
-    let mut cell = column(vec![
+    // The whole ActionArea, not just the intrinsic text Column, owns the
+    // visual surface. Grid Auto rows size to their tallest festival; the
+    // ActionArea is then stretched to the complete row height. Every day in
+    // the same week therefore has an equally tall background and hit target.
+    let content = column(vec![
         text(
             day.day().to_string(),
             15.0,
@@ -146,6 +150,14 @@ fn day_cell(
             else { ColorSpec::SecondaryText },
         ),
     ], 4.0);
+
+    let mut cell = ViewNode::new(Node::ActionArea {
+        action: Action::Custom(format!("calendar:select:{}", day.format("%Y-%m-%d"))),
+        label: format!("{} {}", day, festivals.join("、")),
+        content: Box::new(content),
+        context_menu: None,
+    })
+    .sized(Size::Fill(1.0), Size::Auto);
     cell.style.padding = [5.0, 9.0, 5.0, 8.0];
     cell.size.min_height = Some(54.0);
     cell.style.normal.background = Some(
@@ -161,14 +173,7 @@ fn day_cell(
     cell.style.normal.border_width = Some(if selected || is_today { 1.35 } else { 0.6 });
     cell.style.hovered.border_color = Some(ColorSpec::Accent);
     cell.style.hovered.border_width = Some(1.0);
-
-    ViewNode::new(Node::ActionArea {
-        action: Action::Custom(format!("calendar:select:{}", day.format("%Y-%m-%d"))),
-        label: format!("{} {}", day, festivals.join("、")),
-        content: Box::new(cell),
-        context_menu: None,
-    })
-    .sized(Size::Fill(1.0), Size::Auto)
+    cell
 }
 
 pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
@@ -217,6 +222,9 @@ pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
         .into_iter()
         .map(|(day, in_month)| day_cell(day, today, selected, locale, in_month))
         .collect::<Vec<_>>();
+    // All columns share the same 1fr track width. Each calendar week has
+    // one shared Auto track: a multi-line holiday expands the ENTIRE row.
+    grid.rows = vec![Track::Auto; cells.len() / 7];
     let calendar_grid = ViewNode::new(Node::Grid(grid, cells))
         .sized(Size::Fill(1.0), Size::Auto);
 
@@ -288,7 +296,10 @@ mod tests {
             panic!("calendar days must remain individually selectable");
         };
         assert!(matches!(content.size.height, Size::Auto));
-        assert!(content.size.min_height.unwrap_or_default() >= 54.0);
+        assert_eq!(cell.size.width, Size::Fill(1.0));
+        assert_eq!(cell.size.height, Size::Auto);
+        assert!(cell.size.min_height.unwrap_or_default() >= 54.0);
+        assert!(cell.style.normal.background.is_some());
     }
 
     #[test]
@@ -306,7 +317,22 @@ mod tests {
             panic!("calendar navigation stays together");
         };
         assert_eq!(actions.len(), 3);
-        assert!(matches!(children[2].kind, Node::Grid(_, _)));
+        let Node::Grid(grid, cells) = &children[2].kind else {
+            panic!("the month is a grid");
+        };
+        let Columns::Tracks(columns) = &grid.columns else {
+            panic!("calendar needs seven shared columns");
+        };
+        assert_eq!(columns, &vec![Track::Fraction(1.0); 7]);
+        assert_eq!(grid.rows, vec![Track::Auto; cells.len() / 7]);
+        for week in cells.chunks(7) {
+            assert_eq!(week.len(), 7);
+            for cell in week {
+                assert_eq!(cell.size.width, Size::Fill(1.0));
+                assert_eq!(cell.size.height, Size::Auto);
+                assert!(cell.style.normal.background.is_some());
+            }
+        }
         assert!(widget.bounds.fit_height);
         assert_eq!(widget.bounds.max[1], None);
     }
