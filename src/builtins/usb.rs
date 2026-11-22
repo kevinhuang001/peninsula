@@ -44,13 +44,12 @@ impl RuntimeExtension for UsbExtension {
         )
     }
 
-    fn on_start(&mut self, _: &ExtensionContext) -> Result<(), String> {
+    fn on_start(&mut self, ctx: &ExtensionContext) -> Result<(), String> {
         self.previous = None;
-        self.updates = Some(Worker::spawn_latest(
-            "usb",
-            sample_interval(),
-            sample_devices,
-        ));
+        self.updates = Some(
+            Worker::spawn_scoped_latest(&ctx.tasks(), "usb", sample_interval(), sample_devices)
+                .map_err(|error| error.to_string())?,
+        );
         Ok(())
     }
 
@@ -183,18 +182,21 @@ fn short_name(name: &str) -> String {
     }
 }
 
-fn sample_devices() -> Option<Devices> {
+fn sample_devices(cancel: &crate::sdk::tasks::CancellationToken) -> Option<Devices> {
+    if cancel.is_cancelled() {
+        return None;
+    }
     #[cfg(target_os = "linux")]
     {
         return linux_devices(Path::new("/sys/bus/usb/devices"));
     }
     #[cfg(target_os = "macos")]
     {
-        return mac_devices();
+        return mac_devices(cancel);
     }
     #[cfg(target_os = "windows")]
     {
-        return windows_devices();
+        return windows_devices(cancel);
     }
     #[allow(unreachable_code)]
     None
@@ -229,10 +231,15 @@ fn linux_devices(root: &Path) -> Option<Devices> {
 }
 
 #[cfg(target_os = "macos")]
-fn mac_devices() -> Option<Devices> {
-    let output = crate::core::external::process::command("system_profiler")
-        .args(["SPUSBDataType", "-json"])
-        .output()
+fn mac_devices(cancel: &crate::sdk::tasks::CancellationToken) -> Option<Devices> {
+    let output = crate::sdk::process::ProcessExecutor
+        .run_with(
+            crate::sdk::process::ProcessSpec::new("system_profiler")
+                .args(["SPUSBDataType", "-json"])
+                .timeout(Duration::from_secs(8)),
+            cancel,
+            |_, _| {},
+        )
         .ok()?;
     if !output.status.success() {
         return None;
@@ -277,11 +284,16 @@ fn collect_mac_devices(value: &serde_json::Value, devices: &mut Devices) {
 }
 
 #[cfg(target_os = "windows")]
-fn windows_devices() -> Option<Devices> {
+fn windows_devices(cancel: &crate::sdk::tasks::CancellationToken) -> Option<Devices> {
     let script = r#"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like 'USB\VID_*' -and $_.InstanceId -notlike '*&MI_*' -and $_.FriendlyName -notmatch 'Hub|Controller' } | Select-Object InstanceId,FriendlyName | ConvertTo-Json -Compress"#;
-    let output = crate::core::external::process::command("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .output()
+    let output = crate::sdk::process::ProcessExecutor
+        .run_with(
+            crate::sdk::process::ProcessSpec::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", script])
+                .timeout(Duration::from_secs(6)),
+            cancel,
+            |_, _| {},
+        )
         .ok()?;
     if !output.status.success() {
         return None;

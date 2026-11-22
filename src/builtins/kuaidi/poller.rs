@@ -30,9 +30,13 @@ impl Platform {
         }
     }
 
-    pub fn collect(self, program: &Path) -> Result<Vec<Parcel>, SyncError> {
+    pub fn collect(
+        self,
+        program: &Path,
+        cancellation: &crate::sdk::tasks::CancellationToken,
+    ) -> Result<Vec<Parcel>, SyncError> {
         let result = ProcessExecutor
-            .run(
+            .run_with(
                 ProcessSpec::new(program)
                     .args([
                         "kuaidi",
@@ -48,6 +52,8 @@ impl Platform {
                     ])
                     .timeout(Duration::from_secs(240))
                     .max_output_bytes(OUTPUT_LIMIT),
+                cancellation,
+                |_, _| {},
             )
             .map_err(|_| SyncError::Query)?;
         let value: Option<Value> = serde_json::from_slice(&result.stdout).ok();
@@ -99,12 +105,17 @@ fn parse_rows(mut value: Value) -> Result<Vec<Parcel>, SyncError> {
     Ok(parcels)
 }
 
-pub(super) fn check_plugin(program: &Path) -> Result<(), SyncError> {
+pub(super) fn check_plugin(
+    program: &Path,
+    cancellation: &crate::sdk::tasks::CancellationToken,
+) -> Result<(), SyncError> {
     let output = ProcessExecutor
-        .run(
+        .run_with(
             ProcessSpec::new(program)
                 .args(["plugin", "list"])
                 .timeout(Duration::from_secs(20)),
+            cancellation,
+            |_, _| {},
         )
         .map_err(|_| SyncError::OpenCli)?;
     if !output.success() {

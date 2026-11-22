@@ -7,6 +7,9 @@ use crate::extension::{
 use crate::ui::declarative::*;
 
 pub const ID: &str = "builtin.system-monitor/overview";
+const METRICS_SERVICE: &str = "builtin.system-monitor/service.metrics";
+const GPU_SERVICE: &str = "builtin.system-monitor/service.gpu";
+const GPU_ITEM: &str = "builtin.system-monitor/gpu";
 const NETWORK_WIDTH: f32 = 106.0;
 
 pub fn descriptors() -> Vec<ContributionDescriptor> {
@@ -19,6 +22,8 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             true,
             1,
         )
+        .with_dependency(ExtensionId::builtin(METRICS_SERVICE))
+        .with_dependency(ExtensionId::builtin(GPU_SERVICE))
         .with_size_hint(440.0, 410.0)
         .with_widget_bounds(WidgetBounds {
             min: [320.0, 200.0],
@@ -28,20 +33,13 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             fit_height: true,
             overflow: Overflow::Scroll(ScrollAxes::Vertical),
         })
-        .with_settings(
-            1,
-            vec![
-                SettingSchema::new("show_download", SettingValue::Boolean(true), "显示下载速率"),
-                SettingSchema::new("show_upload", SettingValue::Boolean(true), "显示上传速率"),
-            ],
-        )
         .with_capabilities(vec![
             crate::extension::Capability::View,
             crate::extension::Capability::Action,
             crate::extension::Capability::Event,
         ]),
         compact_descriptor("builtin.system-monitor/cpu", "CPU", "cpu", false, 2, 56.0),
-        compact_descriptor("builtin.system-monitor/gpu", "GPU", "gpu", false, 3, 56.0),
+        compact_descriptor(GPU_ITEM, "GPU", "gpu", false, 3, 56.0),
         compact_descriptor(
             "builtin.system-monitor/memory",
             "内存",
@@ -58,6 +56,28 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             4,
             NETWORK_WIDTH,
         ),
+        ContributionDescriptor::builtin(
+            METRICS_SERVICE,
+            ContributionKind::BackgroundService,
+            "系统采样",
+            "cpu",
+            true,
+            0,
+        )
+        .with_execution_policy(crate::extension::ExecutionPolicy::Interval(
+            std::time::Duration::from_millis(250),
+        )),
+        ContributionDescriptor::builtin(
+            GPU_SERVICE,
+            ContributionKind::BackgroundService,
+            "GPU 采样",
+            "gpu",
+            true,
+            0,
+        )
+        .with_execution_policy(crate::extension::ExecutionPolicy::Interval(
+            std::time::Duration::from_millis(250),
+        )),
     ]
 }
 
@@ -70,6 +90,11 @@ fn compact_descriptor(
     width: f32,
 ) -> ContributionDescriptor {
     ContributionDescriptor::builtin(id, ContributionKind::Compact, title, icon, enabled, order)
+        .with_dependency(ExtensionId::builtin(if id == GPU_ITEM {
+            GPU_SERVICE
+        } else {
+            METRICS_SERVICE
+        }))
         .with_size_hint(width, 28.0)
 }
 
@@ -78,6 +103,8 @@ pub struct PerformanceExtension {
     gpu_updates: Option<Worker<Option<f32>>>,
     sample_interval: std::time::Duration,
     gpu: Option<f32>,
+    process_details: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    widget_enabled: bool,
     snapshot: Snapshot,
     show_download: bool,
     show_upload: bool,
@@ -96,6 +123,8 @@ impl PerformanceExtension {
             gpu_updates: None,
             sample_interval: std::time::Duration::from_secs(1),
             gpu: None,
+            process_details: Default::default(),
+            widget_enabled: false,
             snapshot: Snapshot::default(),
             show_download: true,
             show_upload: true,
@@ -121,27 +150,96 @@ impl RuntimeExtension for PerformanceExtension {
             "CPU、GPU、内存、进程和网络",
             descriptors(),
         );
-        descriptor.settings.push(
-            SettingSchema::new("sample_seconds", SettingValue::Integer(1), "采样间隔（秒）")
-                .range(1.0, 60.0),
+        descriptor = descriptor.with_settings(
+            1,
+            vec![
+                SettingSchema::new("show_download", SettingValue::Boolean(true), "显示下载速率"),
+                SettingSchema::new("show_upload", SettingValue::Boolean(true), "显示上传速率"),
+            ],
         );
+        descriptor.settings.push(SettingSchema {
+            reload_policy: ReloadPolicy::Reload,
+            ..SettingSchema::new("sample_seconds", SettingValue::Integer(1), "采样间隔（秒）")
+                .range(1.0, 60.0)
+        });
+        descriptor.execution_policy = crate::extension::ExecutionPolicy::EventDriven;
         descriptor
     }
-    fn on_start(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {
-        self.snapshots = Some(MetricsSampler::start(self.sample_interval));
-        self.gpu_updates = Some(super::sampler::start_gpu(self.sample_interval));
-        Ok(())
-    }
-    fn on_stop(&mut self, _: &crate::extension::ExtensionContext) -> Result<(), String> {
-        self.snapshots = None;
-        self.gpu_updates = None;
+
+    fn on_contribution_start(
+        &mut self,
+        ctx: &crate::extension::ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        match id.as_str() {
+            METRICS_SERVICE => {
+                self.snapshots = Some(
+                    MetricsSampler::start(
+                        &ctx.tasks(),
+                        self.sample_interval,
+                        self.process_details.clone(),
+                    )
+                    .map_err(|error| error.to_string())?,
+                )
+            }
+            GPU_SERVICE => {
+                self.gpu_updates = Some(
+                    super::sampler::start_gpu(&ctx.tasks(), self.sample_interval)
+                        .map_err(|error| error.to_string())?,
+                )
+            }
+            ID => self
+                .process_details
+                .store(true, std::sync::atomic::Ordering::Relaxed),
+            _ => {}
+        }
         Ok(())
     }
 
-    fn update(&mut self, _now: std::time::Instant) -> ExtensionOutput {
+    fn on_contribution_stop(
+        &mut self,
+        _: &crate::extension::ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        match id.as_str() {
+            METRICS_SERVICE => self.snapshots = None,
+            GPU_SERVICE => {
+                self.gpu_updates = None;
+                self.gpu = None;
+            }
+            ID => {
+                self.process_details
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+                self.cpu_history.clear();
+                self.memory_history.clear();
+                self.snapshot.top_cpu.clear();
+                self.snapshot.top_memory.clear();
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn on_contribution_state(
+        &mut self,
+        _: &crate::extension::ExtensionContext,
+        active: &std::collections::BTreeMap<ExtensionId, Settings>,
+    ) {
+        self.widget_enabled = active.contains_key(&ExtensionId::builtin(ID));
+    }
+
+    fn on_contribution_update(
+        &mut self,
+        _: &crate::extension::ExtensionContext,
+        id: &ExtensionId,
+        _: std::time::Instant,
+    ) -> ExtensionOutput {
+        if !matches!(id.as_str(), METRICS_SERVICE | GPU_SERVICE) {
+            return ExtensionOutput::default();
+        }
         let mut changed = false;
         while let Some(snapshot) = self.snapshots.as_ref().and_then(Worker::take) {
-            if snapshot.ready {
+            if self.widget_enabled && snapshot.ready {
                 self.cpu_history.push(snapshot.cpu_percent);
                 self.memory_history
                     .push(super::view::memory_percent(&snapshot));
@@ -301,18 +399,7 @@ impl RuntimeExtension for PerformanceExtension {
         _policy: ReloadPolicy,
     ) -> ExtensionOutput {
         if let Some(SettingValue::Integer(seconds)) = settings.get("sample_seconds") {
-            let interval = std::time::Duration::from_secs(*seconds as u64);
-            if interval != self.sample_interval {
-                self.sample_interval = interval;
-                if self.snapshots.is_some() {
-                    self.snapshots = None;
-                    self.snapshots = Some(MetricsSampler::start(interval));
-                }
-                if self.gpu_updates.is_some() {
-                    self.gpu_updates = None;
-                    self.gpu_updates = Some(super::sampler::start_gpu(interval));
-                }
-            }
+            self.sample_interval = std::time::Duration::from_secs(*seconds as u64);
         }
         self.show_download = settings.get("show_download") != Some(&SettingValue::Boolean(false));
         self.show_upload = settings.get("show_upload") != Some(&SettingValue::Boolean(false));

@@ -9,8 +9,10 @@ pub(crate) struct PowerSnapshot {
     pub charging: bool,
 }
 
-pub(super) fn start() -> Worker<PowerSnapshot> {
-    Worker::spawn_latest("battery", Duration::from_millis(250), sample)
+pub(super) fn start(
+    tasks: &crate::sdk::tasks::TaskScope,
+) -> std::io::Result<Worker<PowerSnapshot>> {
+    Worker::spawn_scoped_latest(tasks, "battery", Duration::from_millis(250), |_| sample())
 }
 
 fn sample() -> PowerSnapshot {

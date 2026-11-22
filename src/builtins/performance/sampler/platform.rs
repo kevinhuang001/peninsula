@@ -8,12 +8,20 @@ pub(super) fn parse_gpu_utilization(text: &str) -> Option<f32> {
     (0.0..=100.0).contains(&value).then_some(value)
 }
 
-pub(super) fn gpu_utilization() -> Option<f32> {
+pub(super) fn gpu_utilization(cancel: &crate::sdk::tasks::CancellationToken) -> Option<f32> {
+    if cancel.is_cancelled() {
+        return None;
+    }
     #[cfg(target_os = "macos")]
     {
-        let output = crate::core::external::process::command("ioreg")
-            .args(["-r", "-c", "IOAccelerator", "-d", "1"])
-            .output()
+        let output = crate::sdk::process::ProcessExecutor
+            .run_with(
+                crate::sdk::process::ProcessSpec::new("ioreg")
+                    .args(["-r", "-c", "IOAccelerator", "-d", "1"])
+                    .timeout(std::time::Duration::from_secs(2)),
+                cancel,
+                |_, _| {},
+            )
             .ok()?;
         return parse_gpu_utilization(&String::from_utf8_lossy(&output.stdout));
     }
@@ -36,12 +44,16 @@ pub(super) fn gpu_utilization() -> Option<f32> {
     }
     #[cfg(target_os = "windows")]
     {
-        let output = crate::core::external::process::command("nvidia-smi")
-            .args([
-                "--query-gpu=utilization.gpu",
-                "--format=csv,noheader,nounits",
-            ])
-            .output();
+        let output = crate::sdk::process::ProcessExecutor.run_with(
+            crate::sdk::process::ProcessSpec::new("nvidia-smi")
+                .args([
+                    "--query-gpu=utilization.gpu",
+                    "--format=csv,noheader,nounits",
+                ])
+                .timeout(std::time::Duration::from_secs(3)),
+            cancel,
+            |_, _| {},
+        );
         if let Ok(output) = output {
             if let Some(value) = String::from_utf8_lossy(&output.stdout)
                 .lines()
@@ -52,9 +64,14 @@ pub(super) fn gpu_utilization() -> Option<f32> {
             }
         }
         let script = "$s=Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction Stop; ($s.CounterSamples | Where-Object {$_.InstanceName -match 'engtype_3D'} | Measure-Object -Property CookedValue -Maximum).Maximum";
-        let output = crate::core::external::process::command("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", script])
-            .output()
+        let output = crate::sdk::process::ProcessExecutor
+            .run_with(
+                crate::sdk::process::ProcessSpec::new("powershell")
+                    .args(["-NoProfile", "-NonInteractive", "-Command", script])
+                    .timeout(std::time::Duration::from_secs(5)),
+                cancel,
+                |_, _| {},
+            )
             .ok()?;
         return String::from_utf8_lossy(&output.stdout)
             .trim()

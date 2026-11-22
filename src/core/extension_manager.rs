@@ -1,6 +1,6 @@
 use crate::ui::declarative::{RefreshHint, WidgetBounds};
 use crate::{
-    core::{settings::SettingsStore, views::ViewCache},
+    core::{contribution_catalog::ContributionCatalog, settings::SettingsStore, views::ViewCache},
     extension::{
         Action, ContributionKind, DiagnosticCheck, ExtensionContext, ExtensionId,
         ExtensionLifecycleRecord, ExtensionOutput, ExtensionRegistry, LifecycleManager,
@@ -10,15 +10,22 @@ use crate::{
     },
 };
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     path::PathBuf,
     sync::{mpsc, Arc},
     time::{Duration, Instant},
 };
 
 struct SettingSearchJob {
+    cancellation: crate::sdk::tasks::CancellationToken,
     query: String,
     receiver: mpsc::Receiver<Result<Vec<SearchOption>, String>>,
+}
+
+impl Drop for SettingSearchJob {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+    }
 }
 
 struct ActivePrompt {
@@ -44,8 +51,22 @@ pub enum LifecycleState {
     Stopped,
     Failed,
 }
+struct ContributionRun {
+    context: ExtensionContext,
+    last_update: Option<Instant>,
+}
+
 pub struct ExtensionManager {
     registry: ExtensionRegistry,
+    catalog: ContributionCatalog,
+    registration_errors: HashMap<ExtensionId, String>,
+    settings_errors: HashMap<ExtensionId, String>,
+    contribution_settings: SettingsStore,
+    contribution_preferences: BTreeMap<ExtensionId, bool>,
+    active_contributions: Vec<BTreeMap<ExtensionId, Settings>>,
+    contribution_runs: HashMap<ExtensionId, ContributionRun>,
+    contribution_failures: HashMap<ExtensionId, String>,
+    contribution_generation: u64,
     states: Vec<LifecycleState>,
     generations: Vec<u64>,
     last_updates: Vec<Option<Instant>>,
@@ -68,25 +89,51 @@ pub struct ExtensionManager {
 }
 
 impl ExtensionManager {
-    pub fn new(extensions: Vec<Box<dyn RuntimeExtension>>) -> Self {
+    pub fn new(
+        extensions: Vec<Box<dyn RuntimeExtension>>,
+        preferences: BTreeMap<ExtensionId, bool>,
+    ) -> Self {
         let context = ExtensionContext::new(user_data_dir(), user_config_dir());
-        Self::with_context(extensions, context, Some(lifecycle_path()))
+        Self::initialize(extensions, context, Some(lifecycle_path()), preferences)
     }
+    #[cfg(test)]
     fn with_context(
         extensions: Vec<Box<dyn RuntimeExtension>>,
         context: ExtensionContext,
         lifecycle_path: Option<PathBuf>,
     ) -> Self {
+        Self::initialize(extensions, context, lifecycle_path, BTreeMap::new())
+    }
+
+    fn initialize(
+        extensions: Vec<Box<dyn RuntimeExtension>>,
+        context: ExtensionContext,
+        lifecycle_path: Option<PathBuf>,
+        contribution_preferences: BTreeMap<ExtensionId, bool>,
+    ) -> Self {
+        let mut registry = ExtensionRegistry::default();
+        for runtime in &extensions {
+            registry
+                .register(runtime.registration_descriptor())
+                .expect("valid extension descriptor");
+        }
+        let catalog_path = lifecycle_path
+            .as_ref()
+            .map(|_| context.config_dir().join("contribution-catalog.json"));
+        let catalog = ContributionCatalog::load(catalog_path, &mut registry);
         let mut host = Self {
-            registry: {
-                let mut registry = ExtensionRegistry::default();
-                for runtime in &extensions {
-                    registry
-                        .register(runtime.registration_descriptor())
-                        .expect("valid extension descriptor");
-                }
-                registry
-            },
+            registry,
+            catalog,
+            registration_errors: HashMap::new(),
+            settings_errors: HashMap::new(),
+            contribution_settings: SettingsStore::open(
+                context.config_dir().join("contribution-settings.json"),
+            ),
+            contribution_preferences,
+            active_contributions: vec![BTreeMap::new(); extensions.len()],
+            contribution_runs: HashMap::new(),
+            contribution_failures: HashMap::new(),
+            contribution_generation: 0,
             states: vec![LifecycleState::Registered; extensions.len()],
             generations: vec![0; extensions.len()],
             last_updates: vec![None; extensions.len()],
@@ -107,26 +154,373 @@ impl ExtensionManager {
             active_prompt: None,
             prompt_visible: false,
         };
-        for (index, extension) in host.extensions.iter_mut().enumerate() {
-            for descriptor in [extension.registration_descriptor()] {
-                for c in &descriptor.contributions {
-                    host.owners.insert(c.id.clone(), index);
-                }
-                host.owners.insert(descriptor.id.clone(), index);
-                if descriptor.settings.is_empty() {
+        for (index, descriptor) in host.registry.extensions().iter().enumerate() {
+            for entry in &descriptor.contributions {
+                host.owners.insert(entry.id.clone(), index);
+            }
+            host.owners.insert(descriptor.id.clone(), index);
+            if let Some((_, values)) = host.settings.snapshot(&descriptor.id) {
+                host.extensions[index].import_legacy_settings(&values);
+                let migrated = host.extensions[index].contribution_preference_migration(&values);
+                if let Err(error) = host.catalog.import_preferences(&host.registry, migrated) {
+                    host.settings_errors
+                        .insert(descriptor.id.clone(), error.to_string());
                     continue;
                 }
-                let settings = host.settings.load(&descriptor).unwrap_or_else(|error| {
-                    host.context
-                        .log(&descriptor.id, &format!("Unable to load settings: {error}"));
-                    SettingsStore::defaults(&descriptor)
-                });
-                host.effective_settings
-                    .insert(descriptor.id.clone(), settings);
             }
+            if descriptor.settings.is_empty() {
+                continue;
+            }
+            match host
+                .settings
+                .load_with_migration(descriptor, |version, values| {
+                    host.extensions[index].migrate_settings(&descriptor.id, version, values)
+                }) {
+                Ok(settings) => {
+                    host.effective_settings
+                        .insert(descriptor.id.clone(), settings);
+                }
+                Err(error) => {
+                    host.settings_errors.insert(descriptor.id.clone(), error);
+                }
+            }
+        }
+        for index in 0..host.extensions.len() {
+            host.load_contribution_settings(index);
         }
         host.start_enabled_extensions();
         host
+    }
+
+    pub fn registry(&self) -> &ExtensionRegistry {
+        &self.registry
+    }
+
+    fn sync_dynamic_contributions(&mut self, index: usize) {
+        let Some(snapshot) = self.extensions[index].dynamic_contributions() else {
+            return;
+        };
+        self.replace_dynamic_snapshot(index, snapshot);
+    }
+
+    pub(crate) fn sync_external_contributions(
+        &mut self,
+        owner: &ExtensionId,
+        snapshot: Vec<crate::extension::ContributionDescriptor>,
+    ) {
+        let Some(&index) = self.owners.get(owner) else {
+            return;
+        };
+        if self.registry.extensions()[index].id == *owner {
+            self.replace_dynamic_snapshot(index, snapshot);
+            self.reconcile_contributions(index);
+        }
+    }
+
+    fn replace_dynamic_snapshot(
+        &mut self,
+        index: usize,
+        snapshot: Vec<crate::extension::ContributionDescriptor>,
+    ) {
+        let owner = self.registry.extensions()[index].id.clone();
+        if self.registry.dynamic_entries(&owner) == snapshot {
+            self.registration_errors.remove(&owner);
+            return;
+        }
+
+        let mut next = self.registry.clone();
+        let result = next
+            .sync_dynamic(&owner, snapshot)
+            .map_err(|error| error.to_string())
+            .and_then(|_| self.catalog.save(&next).map_err(|error| error.to_string()));
+        if let Err(error) = result {
+            if self.registration_errors.get(&owner) != Some(&error) {
+                self.context.log(
+                    &owner,
+                    &format!("Unable to synchronize contributions: {error}"),
+                );
+                self.registration_errors.insert(owner, error);
+            }
+            return;
+        }
+
+        let previous: Vec<_> = self
+            .registry
+            .dynamic_entries(&owner)
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect();
+        for id in previous {
+            if next.get(&id).is_none() {
+                self.stop_contribution(index, &id);
+                self.contribution_failures.remove(&id);
+                self.contribution_preferences.remove(&id);
+            }
+            self.owners.remove(&id);
+            self.widget_cache.invalidate(&id);
+        }
+        for entry in next.dynamic_entries(&owner) {
+            self.owners.insert(entry.id.clone(), index);
+            self.widget_cache.invalidate(&entry.id);
+        }
+        self.compact_cache.invalidate(&index);
+        self.registry = next;
+        self.registration_errors.remove(&owner);
+        self.settings_errors
+            .retain(|id, _| self.registry.owner(id).is_some());
+        if let Err(error) = self
+            .contribution_settings
+            .retain_contributions(&self.registry)
+        {
+            self.context.log(
+                &owner,
+                &format!("Unable to remove orphaned contribution settings: {error}"),
+            );
+        }
+        self.load_contribution_settings(index);
+    }
+
+    fn load_contribution_settings(&mut self, index: usize) {
+        for entry in &self.registry.extensions()[index].contributions {
+            if !entry.settings.is_empty() {
+                match self
+                    .contribution_settings
+                    .load_with_migration(entry, |version, values| {
+                        self.extensions[index].migrate_settings(&entry.id, version, values)
+                    }) {
+                    Ok(_) => {
+                        self.settings_errors.remove(&entry.id);
+                    }
+                    Err(error) => {
+                        self.settings_errors.insert(entry.id.clone(), error);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn configured_contribution_settings(&self, id: &ExtensionId) -> Option<&Settings> {
+        if self.settings_errors.contains_key(id) {
+            return None;
+        }
+        self.contribution_settings.values(id)
+    }
+
+    pub fn update_contribution_settings(
+        &mut self,
+        id: &ExtensionId,
+        values: Settings,
+    ) -> Result<(), String> {
+        if let Some(error) = self.settings_errors.get(id) {
+            return Err(error.clone());
+        }
+        let descriptor = self
+            .registry
+            .get(id)
+            .ok_or("contribution is not registered")?;
+        self.contribution_settings.update(descriptor, values)?;
+        if let Some(&owner) = self.owners.get(id) {
+            self.reconcile_contributions(owner);
+        }
+        Ok(())
+    }
+
+    pub fn apply_contribution_preferences(&mut self, preferences: BTreeMap<ExtensionId, bool>) {
+        if self.contribution_preferences != preferences {
+            self.contribution_failures
+                .retain(|id, _| self.contribution_preferences.get(id) == preferences.get(id));
+            self.contribution_preferences = preferences;
+            for owner in 0..self.extensions.len() {
+                self.reconcile_contributions(owner);
+            }
+        }
+    }
+
+    fn reconcile_contributions(&mut self, owner: usize) {
+        let descriptor = &self.registry.extensions()[owner];
+        let extension_id = descriptor.id.clone();
+        let mut consumers = BTreeMap::new();
+        let mut resources = std::collections::BTreeSet::new();
+        if self.states[owner] == LifecycleState::Running {
+            for entry in descriptor.contributions.iter().filter(|entry| {
+                matches!(
+                    entry.kind,
+                    ContributionKind::Compact
+                        | ContributionKind::Widget
+                        | ContributionKind::Notification
+                ) && self
+                    .contribution_preferences
+                    .get(&entry.id)
+                    .copied()
+                    .or_else(|| self.catalog.migrated_preference(&entry.id))
+                    .unwrap_or(entry.default_enabled)
+                    && !self.settings_errors.contains_key(&entry.id)
+                    && !self.contribution_failures.contains_key(&entry.id)
+                    && (!entry.requires_setup
+                        || self.extensions[owner].contribution_setup_complete(
+                            &entry.id,
+                            self.contribution_settings
+                                .values(&entry.id)
+                                .unwrap_or(&Settings::new()),
+                        ))
+            }) {
+                consumers.insert(entry.id.clone(), entry.dependencies.clone());
+                resources.extend(entry.dependencies.iter().cloned());
+            }
+        }
+        let mut removed: Vec<_> = self.active_contributions[owner]
+            .keys()
+            .filter(|id| !consumers.contains_key(*id) && !resources.contains(*id))
+            .cloned()
+            .collect();
+        removed.sort_by_key(|id| {
+            self.registry
+                .get(id)
+                .is_some_and(|entry| entry.kind == ContributionKind::BackgroundService)
+        });
+        for id in removed {
+            self.stop_contribution(owner, &id);
+        }
+
+        let mut next = BTreeMap::new();
+        for id in resources {
+            if self.start_contribution(owner, &id) {
+                next.insert(
+                    id.clone(),
+                    self.contribution_settings
+                        .values(&id)
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+            }
+        }
+        let mut used_resources = std::collections::BTreeSet::new();
+        for (id, dependencies) in consumers {
+            if dependencies
+                .iter()
+                .all(|resource| next.contains_key(resource))
+                && self.start_contribution(owner, &id)
+            {
+                used_resources.extend(dependencies);
+                next.insert(
+                    id.clone(),
+                    self.contribution_settings
+                        .values(&id)
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+            }
+        }
+        let idle_resources: Vec<_> = next
+            .keys()
+            .filter(|id| {
+                self.registry
+                    .get(id)
+                    .is_some_and(|entry| entry.kind == ContributionKind::BackgroundService)
+                    && !used_resources.contains(*id)
+            })
+            .cloned()
+            .collect();
+        for id in idle_resources {
+            self.stop_contribution(owner, &id);
+            next.remove(&id);
+        }
+        let previous = &mut self.active_contributions[owner];
+        if *previous != next {
+            for id in previous.keys().chain(next.keys()) {
+                self.widget_cache.invalidate(id);
+            }
+            self.compact_cache.invalidate(&owner);
+            *previous = next;
+            self.extensions[owner].on_contribution_state(
+                &self
+                    .context
+                    .scoped_at(&extension_id, self.generations[owner]),
+                previous,
+            );
+        }
+    }
+
+    fn start_contribution(&mut self, owner: usize, id: &ExtensionId) -> bool {
+        if self.contribution_runs.contains_key(id) {
+            return true;
+        }
+        if !self.context.can_start_tasks(id) || self.contribution_failures.contains_key(id) {
+            return false;
+        }
+        self.contribution_generation += 1;
+        let context = self.context.scoped_contribution(
+            &self.registry.extensions()[owner].id,
+            id,
+            self.contribution_generation,
+        );
+        match self.extensions[owner].on_contribution_start(&context, id) {
+            Ok(()) => {
+                self.contribution_runs.insert(
+                    id.clone(),
+                    ContributionRun {
+                        context,
+                        last_update: None,
+                    },
+                );
+                true
+            }
+            Err(error) => {
+                context.tasks().cancel();
+                let _ = self.extensions[owner].on_contribution_stop(&context, id);
+                context.shutdown_tasks();
+                self.contribution_failures.insert(id.clone(), error);
+                false
+            }
+        }
+    }
+
+    fn stop_contribution(&mut self, owner: usize, id: &ExtensionId) {
+        let Some(run) = self.contribution_runs.remove(id) else {
+            return;
+        };
+        let prefix = format!("{id}::{}::", run.context.generation());
+        let mut canceled = Vec::new();
+        self.owned_tasks[owner].retain(|key| {
+            if key.starts_with(&prefix) {
+                canceled.push(key.clone());
+                false
+            } else {
+                true
+            }
+        });
+        if !canceled.is_empty() {
+            self.startup_output.push(ExtensionOutput {
+                cancel_tasks: canceled,
+                ..Default::default()
+            });
+        }
+        run.context.tasks().cancel();
+        let stopped = self.extensions[owner].on_contribution_stop(&run.context, id);
+        if !run.context.shutdown_tasks() {
+            self.contribution_failures
+                .insert(id.clone(), "后台任务未在停止时限内退出".into());
+        } else if let Err(error) = stopped {
+            self.contribution_failures.insert(id.clone(), error);
+        }
+    }
+
+    pub fn default_contribution_enabled(&self, id: &ExtensionId) -> Option<bool> {
+        self.catalog
+            .migrated_preference(id)
+            .or_else(|| self.registry.get(id).map(|entry| entry.default_enabled))
+    }
+
+    pub fn contribution_running(&self, id: &ExtensionId) -> bool {
+        self.contribution_runs.contains_key(id)
+    }
+
+    pub fn accepts_notification(&self, id: &ExtensionId) -> bool {
+        self.contribution_running(id)
+            && self
+                .registry
+                .get(id)
+                .is_some_and(|entry| entry.kind == ContributionKind::Notification)
     }
 
     pub fn configured_settings(&self, id: &ExtensionId) -> Option<&Settings> {
@@ -160,6 +554,41 @@ impl ExtensionManager {
                 "扩展当前未运行，依赖项尚未完成检查。",
             ),
         }];
+        if let Some(error) = self
+            .registration_errors
+            .get(&self.registry.extensions()[owner].id)
+        {
+            checks.push(DiagnosticCheck::new(
+                "contribution-registration",
+                "动态能力注册",
+                crate::extension::DiagnosticStatus::Failed,
+                error.clone(),
+                Some("检查扩展提供的能力 ID、配置结构和目录写入权限。"),
+            ));
+        }
+        let descriptor = &self.registry.extensions()[owner];
+        for id in std::iter::once(&descriptor.id)
+            .chain(descriptor.contributions.iter().map(|entry| &entry.id))
+        {
+            if let Some(error) = self.contribution_failures.get(id) {
+                checks.push(DiagnosticCheck::new(
+                    &format!("runtime:{id}"),
+                    "能力运行状态",
+                    crate::extension::DiagnosticStatus::Failed,
+                    error.clone(),
+                    Some("检查后台任务，关闭后重新启用对应能力。"),
+                ));
+            }
+            if let Some(error) = self.settings_errors.get(id) {
+                checks.push(DiagnosticCheck::new(
+                    &format!("settings:{id}"),
+                    "配置迁移",
+                    crate::extension::DiagnosticStatus::Failed,
+                    error.clone(),
+                    Some("保留原始配置并安装支持此配置版本的扩展。"),
+                ));
+            }
+        }
         checks.extend(self.extensions[owner].doctor());
         checks
     }
@@ -196,16 +625,27 @@ impl ExtensionManager {
         let task = self.extensions[owner]
             .setting_search(&search.provider, query)
             .ok_or_else(|| format!("search provider {} is unavailable", search.provider))?;
+        if self.states[owner] != LifecycleState::Running {
+            return Err("扩展已停用".into());
+        }
+        let key = (id.clone(), setting_key.to_owned());
+        self.setting_searches.remove(&key);
+        let cancellation = crate::sdk::tasks::CancellationToken::default();
+        let cancel = cancellation.clone();
         let (sender, receiver) = mpsc::channel();
-        std::thread::Builder::new()
-            .name(format!("settings-search-{}", id.as_str()))
-            .spawn(move || {
-                let _ = sender.send(task());
+        self.context
+            .scoped_at(id, self.generations[owner])
+            .tasks()
+            .spawn(format!("settings-search-{id}"), move |scope| {
+                if !scope.is_cancelled() {
+                    let _ = sender.send(task(cancel));
+                }
             })
             .map_err(|error| format!("unable to start setting search: {error}"))?;
         self.setting_searches.insert(
-            (id.clone(), setting_key.to_owned()),
+            key,
             SettingSearchJob {
+                cancellation,
                 query: query.to_owned(),
                 receiver,
             },
@@ -324,11 +764,19 @@ impl ExtensionManager {
         let Some(policy) = policy else {
             return Ok(ExtensionOutput::default());
         };
+        let effective = effective.clone();
+        if policy == ReloadPolicy::Reload && self.states[owner] == LifecycleState::Running {
+            let ids: Vec<_> = self.active_contributions[owner].keys().cloned().collect();
+            for active_id in ids {
+                self.stop_contribution(owner, &active_id);
+                self.contribution_failures.remove(&active_id);
+            }
+        }
         let mut output = if self.states[owner] == LifecycleState::Running {
             self.extensions[owner].on_settings_changed(
                 &self.context.scoped_at(id, self.generations[owner]),
                 id,
-                effective,
+                &effective,
                 policy,
             )
         } else {
@@ -408,11 +856,32 @@ impl ExtensionManager {
                     .min();
             }
         }
+        for (id, run) in &self.contribution_runs {
+            use crate::extension::ExecutionPolicy::*;
+            let due = match self.registry.get(id).map(|entry| entry.execution_policy) {
+                Some(Interval(interval)) => Some(run.last_update.unwrap_or(now) + interval),
+                Some(WhenVisible) if self.visible => Some(now + Duration::from_secs(1)),
+                Some(OnEnable) if run.last_update.is_none() => Some(now),
+                _ => None,
+            };
+            wake = wake.into_iter().chain(due).min();
+        }
         wake
     }
     pub fn state(&self, id: &ExtensionId) -> Option<LifecycleState> {
         self.owners.get(id).map(|&owner| self.states[owner])
     }
+    pub fn desired_enabled(&self, id: &ExtensionId) -> bool {
+        self.lifecycle
+            .record(id)
+            .map(|record| record.enabled)
+            .unwrap_or_else(|| {
+                self.registry
+                    .extension(id)
+                    .is_some_and(|descriptor| descriptor.default_enabled)
+            })
+    }
+
     pub fn running(&self, id: &ExtensionId) -> bool {
         self.owners
             .get(id)
@@ -476,10 +945,16 @@ impl ExtensionManager {
         let owner = *self.owners.get(id).ok_or("unknown extension")?;
         let descriptor = self.registry.extensions()[owner].clone();
         let id = descriptor.id.clone();
-        if self.running(&id) == enabled {
+        if self.running(&id) == enabled && self.desired_enabled(&id) == enabled {
             return Ok(());
         }
         if enabled {
+            if !self.context.can_start_tasks(&id) {
+                return Err("上一代扩展任务尚未退出".into());
+            }
+            for entry in &descriptor.contributions {
+                self.contribution_failures.remove(&entry.id);
+            }
             self.generations[owner] += 1;
         }
         let context = self.context.scoped_at(&id, self.generations[owner]);
@@ -489,9 +964,14 @@ impl ExtensionManager {
         } else {
             LifecycleState::Stopping
         };
+        if !enabled {
+            self.setting_searches
+                .retain(|(search_owner, _), _| search_owner != &id);
+            self.reconcile_contributions(owner);
+        }
         let extension = &mut self.extensions[owner];
         let mut configured = None;
-        let result = if enabled {
+        let mut result = if enabled {
             if let Some(settings) = self.effective_settings.get(&id) {
                 let output =
                     extension.on_settings_changed(&context, &id, settings, ReloadPolicy::Live);
@@ -519,8 +999,8 @@ impl ExtensionManager {
             let _ = extension.on_stop(&context);
             let _ = extension.on_disable(&context);
         }
-        if !enabled || result.is_err() {
-            context.shutdown_tasks();
+        if (!enabled || result.is_err()) && !context.shutdown_tasks() {
+            result = Err("扩展后台任务未在停止时限内退出".into());
         }
         self.states[owner] = if result.is_err() {
             LifecycleState::Failed
@@ -544,6 +1024,8 @@ impl ExtensionManager {
                 .retain(|(search_owner, _), _| search_owner != &owner_id);
         }
         if self.states[owner] == LifecycleState::Running {
+            self.sync_dynamic_contributions(owner);
+            self.reconcile_contributions(owner);
             if let Some(output) = configured {
                 let output = self.track_output(owner, output);
                 self.startup_output.push(output);
@@ -562,7 +1044,7 @@ impl ExtensionManager {
         self.compact_cache.invalidate(&owner);
         let record = ExtensionLifecycleRecord {
             version: descriptor.version,
-            enabled: self.states[owner] == LifecycleState::Running,
+            enabled,
             initialized: result.is_ok() || previous.as_ref().is_some_and(|r| r.initialized),
             last_result: if enabled { "on_start" } else { "on_stop" }.into(),
             last_failure: result.as_ref().err().cloned(),
@@ -579,7 +1061,7 @@ impl ExtensionManager {
                     .into_iter()
                     .filter(|d| {
                         self.owners.get(&d.id).is_some_and(|&owner| {
-                            self.states[owner] == LifecycleState::Running
+                            self.contribution_running(&d.id)
                                 && self.extensions[owner].widget_visibility(&d.id)
                                     == WidgetVisibility::Visible
                         })
@@ -651,7 +1133,7 @@ impl ExtensionManager {
             .get(id)
             .filter(|d| d.kind == ContributionKind::Widget)?;
         let owner = *self.owners.get(id)?;
-        if self.states[owner] != LifecycleState::Running {
+        if !self.contribution_running(id) {
             return None;
         }
         let extension = self.extensions.get(owner)?;
@@ -680,39 +1162,13 @@ impl ExtensionManager {
             .clone()
     }
 
-    pub fn dynamic_compact_items(&self) -> Vec<(ExtensionId, Vec<(ExtensionId, String)>)> {
-        self.extensions
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| self.states[*index] == LifecycleState::Running)
-            .filter_map(|(index, extension)| {
-                extension
-                    .dynamic_compact_items()
-                    .map(|items| (self.registry.extensions()[index].id.clone(), items))
-            })
-            .collect()
-    }
-
     pub fn compact_views(&mut self, now: Instant) -> Vec<Arc<crate::extension::CompactView>> {
-        // Build only stale sources, then borrow the resulting snapshots for this frame.
-        // The cache borrows cannot overlap insertion, so do this in two passes.
-        let registered_dynamic_ids: HashSet<_> = self
-            .dynamic_compact_items()
-            .into_iter()
-            .flat_map(|(_, items)| items.into_iter().map(|(id, _)| id))
-            .collect();
         for (index, extension) in self
             .extensions
             .iter()
             .enumerate()
-            .filter(|(i, _)| self.states[*i] == LifecycleState::Running)
+            .filter(|(index, _)| self.states[*index] == LifecycleState::Running)
         {
-            let dynamic_ids: HashSet<_> = extension
-                .dynamic_compact_items()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(id, _)| id)
-                .collect();
             self.compact_cache.get_or_build(index, now, || {
                 (
                     extension
@@ -720,7 +1176,11 @@ impl ExtensionManager {
                         .into_iter()
                         .filter(|view| {
                             self.owners.get(&view.id) == Some(&index)
-                                || dynamic_ids.contains(&view.id)
+                                && self.active_contributions[index].contains_key(&view.id)
+                                && self
+                                    .registry
+                                    .get(&view.id)
+                                    .is_some_and(|entry| entry.kind == ContributionKind::Compact)
                         })
                         .map(Arc::new)
                         .collect(),
@@ -731,33 +1191,48 @@ impl ExtensionManager {
         self.extensions
             .iter()
             .enumerate()
-            .filter(|(i, _)| self.states[*i] == LifecycleState::Running)
+            .filter(|(index, _)| self.states[*index] == LifecycleState::Running)
             .flat_map(|(index, _)| self.compact_cache.get(&index).into_iter().flatten())
             .filter(|view| view.visibility == crate::extension::CompactVisibility::Visible)
-            .filter(|view| {
-                self.registry
-                    .get(&view.id)
-                    .is_some_and(|d| d.kind == ContributionKind::Compact)
-                    || registered_dynamic_ids.contains(&view.id)
-            })
             .cloned()
             .collect()
     }
 
-    fn track_output(&mut self, owner: usize, mut output: ExtensionOutput) -> ExtensionOutput {
+    fn track_output(&mut self, owner: usize, output: ExtensionOutput) -> ExtensionOutput {
         let id = self.registry.extensions()[owner].id.clone();
+        self.track_scoped_output(owner, &id, self.generations[owner], output)
+    }
+
+    fn track_scoped_output(
+        &mut self,
+        owner: usize,
+        source: &ExtensionId,
+        generation: u64,
+        mut output: ExtensionOutput,
+    ) -> ExtensionOutput {
+        let id = self.registry.extensions()[owner].id.clone();
+        if self.states[owner] == LifecycleState::Running {
+            self.sync_dynamic_contributions(owner);
+            self.reconcile_contributions(owner);
+        }
+        if source != &id
+            && !self
+                .contribution_runs
+                .get(source)
+                .is_some_and(|run| run.context.generation() == generation)
+        {
+            return ExtensionOutput::default();
+        }
         for task in &mut output.schedule {
-            task.task_id = format!("{id}::{}::{}", self.generations[owner], task.task_id);
+            task.task_id = format!("{source}::{generation}::{}", task.task_id);
             self.owned_tasks[owner].insert(task.task_id.clone());
         }
         for task in &mut output.cancel_tasks {
-            *task = format!("{id}::{}::{task}", self.generations[owner]);
+            *task = format!("{source}::{generation}::{task}");
             self.owned_tasks[owner].remove(task);
         }
         output.notifications.retain(|n| {
-            self.registry
-                .get(&n.source_id)
-                .is_some_and(|c| c.kind == ContributionKind::Notification)
+            self.accepts_notification(&n.source_id)
                 && self
                     .registry
                     .owner(&n.source_id)
@@ -794,6 +1269,7 @@ impl ExtensionManager {
         output
     }
     pub fn update(&mut self, now: Instant) -> Vec<ExtensionOutput> {
+        self.context.reap_tasks();
         let mut outputs = std::mem::take(&mut self.startup_output);
         for owner in 0..self.extensions.len() {
             if self.states[owner] != LifecycleState::Running {
@@ -812,6 +1288,36 @@ impl ExtensionManager {
                 outputs.push(self.track_output(owner, output));
             }
         }
+        let due: Vec<_> = self
+            .contribution_runs
+            .iter_mut()
+            .filter_map(|(id, run)| {
+                use crate::extension::ExecutionPolicy::*;
+                let due = match self.registry.get(id)?.execution_policy {
+                    EventDriven => false,
+                    WhenVisible => self.visible,
+                    OnEnable => run.last_update.is_none(),
+                    Interval(duration) => run
+                        .last_update
+                        .is_none_or(|last| now.saturating_duration_since(last) >= duration),
+                };
+                if !due {
+                    return None;
+                }
+                run.last_update = Some(now);
+                Some((self.owners[id], id.clone(), run.context.clone()))
+            })
+            .collect();
+        for (owner, id, context) in due {
+            if self
+                .contribution_runs
+                .get(&id)
+                .is_some_and(|run| run.context.generation() == context.generation())
+            {
+                let output = self.extensions[owner].on_contribution_update(&context, &id, now);
+                outputs.push(self.track_scoped_output(owner, &id, context.generation(), output));
+            }
+        }
         outputs
     }
     pub fn on_event(
@@ -819,38 +1325,77 @@ impl ExtensionManager {
         event: &crate::extension::Event,
         now: Instant,
     ) -> Vec<ExtensionOutput> {
-        let mut outputs = Vec::new();
-        for owner in 0..self.extensions.len() {
-            if self.states[owner] != LifecycleState::Running {
-                continue;
+        use crate::extension::Event;
+        if let Event::Custom(task) = event {
+            if let Some((id, generation, local)) = task_owner(task) {
+                let Some(&owner) = self.owners.get(&id) else {
+                    return Vec::new();
+                };
+                if self.states[owner] != LifecycleState::Running
+                    || !self.owned_tasks[owner].remove(task)
+                {
+                    return Vec::new();
+                }
+                let local = Event::Custom(local.into());
+                if self.registry.extensions()[owner].id == id
+                    && self.generations[owner] == generation
+                {
+                    let output = self.extensions[owner].on_event(&local, now);
+                    return vec![self.track_output(owner, output)];
+                }
+                return self
+                    .contribution_event(&id, Some(generation), &local, now)
+                    .into_iter()
+                    .collect();
             }
-            let is_task =
-                matches!(event, crate::extension::Event::Custom(task) if task.contains("::"));
-            if !is_task
-                && !self.registry.extensions()[owner]
+        }
+
+        let mut outputs = Vec::new();
+        let subscribers: Vec<_> = self
+            .contribution_runs
+            .keys()
+            .filter(|id| {
+                self.registry
+                    .get(id)
+                    .is_some_and(|entry| entry.events.contains(event))
+            })
+            .cloned()
+            .collect();
+        for id in subscribers {
+            outputs.extend(self.contribution_event(&id, None, event, now));
+        }
+        for owner in 0..self.extensions.len() {
+            if self.states[owner] == LifecycleState::Running
+                && self.registry.extensions()[owner]
                     .contributions
                     .iter()
-                    .any(|c| c.kind == ContributionKind::EventHandler)
+                    .any(|entry| {
+                        entry.kind == ContributionKind::EventHandler && entry.events.is_empty()
+                    })
             {
-                continue;
+                let output = self.extensions[owner].on_event(event, now);
+                outputs.push(self.track_output(owner, output));
             }
-            let event = if let crate::extension::Event::Custom(task) = event {
-                if let Some(local) = task.splitn(3, "::").nth(2) {
-                    if !self.owned_tasks[owner].remove(task) {
-                        continue;
-                    }
-                    crate::extension::Event::Custom(local.into())
-                } else {
-                    event.clone()
-                }
-            } else {
-                event.clone()
-            };
-            let output = self.extensions[owner].on_event(&event, now);
-            outputs.push(self.track_output(owner, output));
         }
         outputs
     }
+
+    fn contribution_event(
+        &mut self,
+        id: &ExtensionId,
+        expected_generation: Option<u64>,
+        event: &crate::extension::Event,
+        now: Instant,
+    ) -> Option<ExtensionOutput> {
+        let &owner = self.owners.get(id)?;
+        let context = self.contribution_runs.get(id)?.context.clone();
+        if expected_generation.is_some_and(|expected| expected != context.generation()) {
+            return None;
+        }
+        let output = self.extensions[owner].on_contribution_event(&context, id, event, now);
+        Some(self.track_scoped_output(owner, id, context.generation(), output))
+    }
+
     pub fn on_action(
         &mut self,
         source_id: &ExtensionId,
@@ -861,20 +1406,45 @@ impl ExtensionManager {
         if self.states[owner] != LifecycleState::Running {
             return Err("extension stopped".into());
         }
+        if self.registry.get(source_id).is_some_and(|entry| {
+            matches!(
+                entry.kind,
+                ContributionKind::Widget | ContributionKind::Compact
+            )
+        }) && !self.contribution_running(source_id)
+        {
+            return Err("contribution stopped".into());
+        }
+        if let Some(run) = self.contribution_runs.get(source_id) {
+            let context = run.context.clone();
+            let output =
+                self.extensions[owner].on_contribution_action(&context, source_id, action, now);
+            return Ok(self.track_scoped_output(owner, source_id, context.generation(), output));
+        }
         let output = self.extensions[owner].on_action(action, now);
         Ok(self.track_output(owner, output))
     }
 
     pub fn drain_context_tasks(&mut self) -> ExtensionOutput {
         let (scheduled, mut canceled) = self.context.drain_tasks();
+        for key in &canceled {
+            if let Some(owner) = task_owner(key).and_then(|(id, _, _)| self.owners.get(&id)) {
+                self.owned_tasks[*owner].remove(key);
+            }
+        }
         let schedule = scheduled
             .into_iter()
             .filter_map(|(task_id, deadline)| {
-                let owner = task_id
-                    .split_once("::")
-                    .and_then(|(id, _)| ExtensionId::new(id).ok())
-                    .and_then(|id| self.owners.get(&id).copied())?;
-                if self.states[owner] == LifecycleState::Running {
+                let (id, generation, _) = task_owner(&task_id)?;
+                let owner = *self.owners.get(&id)?;
+                let active = if self.registry.extensions()[owner].id == id {
+                    self.generations[owner] == generation
+                } else {
+                    self.contribution_runs
+                        .get(&id)
+                        .is_some_and(|run| run.context.generation() == generation)
+                };
+                if self.states[owner] == LifecycleState::Running && active {
                     self.owned_tasks[owner].insert(task_id.clone());
                     Some(crate::extension::ScheduledTask { task_id, deadline })
                 } else {
@@ -950,19 +1520,33 @@ impl ExtensionManager {
 
 impl Drop for ExtensionManager {
     fn drop(&mut self) {
-        for (i, extension) in self.extensions.iter_mut().enumerate() {
-            if self.states[i] != LifecycleState::Running {
+        self.setting_searches.clear();
+        for owner in 0..self.extensions.len() {
+            if self.states[owner] != LifecycleState::Running {
                 continue;
             }
-            let context = self
-                .context
-                .scoped_at(&extension.descriptor().id, self.generations[i]);
-            if let Err(error) = extension.on_stop(&context) {
-                eprintln!("Extension on_stop failed: {error}");
+            self.states[owner] = LifecycleState::Stopping;
+            self.reconcile_contributions(owner);
+            let id = &self.registry.extensions()[owner].id;
+            let context = self.context.scoped_at(id, self.generations[owner]);
+            context.tasks().cancel();
+            if let Err(error) = self.extensions[owner].on_stop(&context) {
+                context.log(id, &format!("Extension on_stop failed: {error}"));
             }
-            context.shutdown_tasks();
+            if !context.shutdown_tasks() {
+                context.log(id, "Extension tasks exceeded the shutdown deadline");
+            }
         }
     }
+}
+
+fn task_owner(key: &str) -> Option<(ExtensionId, u64, &str)> {
+    let mut parts = key.splitn(3, "::");
+    Some((
+        ExtensionId::new(parts.next()?).ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?,
+    ))
 }
 
 fn user_data_dir() -> PathBuf {
@@ -1156,6 +1740,149 @@ mod tests {
             Some(root.join("lifecycle.tsv")),
         )
     }
+    struct DynamicProbe;
+    impl crate::extension::NotificationPresentationProvider for DynamicProbe {}
+    impl RuntimeExtension for DynamicProbe {
+        fn descriptor(&self) -> crate::extension::ExtensionDescriptor {
+            use crate::extension::{ContributionDescriptor, ExecutionPolicy, ExtensionDescriptor};
+            let service = ContributionDescriptor::builtin(
+                "test.dynamic/service",
+                ContributionKind::BackgroundService,
+                "Service",
+                "",
+                true,
+                0,
+            )
+            .with_execution_policy(ExecutionPolicy::OnEnable);
+            let mut descriptor =
+                ExtensionDescriptor::builtin("test.dynamic", "Dynamic", "", vec![service]);
+            descriptor.default_enabled = true;
+            descriptor.execution_policy = ExecutionPolicy::EventDriven;
+            descriptor
+        }
+
+        fn dynamic_contributions(&self) -> Option<Vec<crate::extension::ContributionDescriptor>> {
+            use crate::extension::{ContributionDescriptor, SettingSchema, SettingValue};
+            let service = ExtensionId::builtin("test.dynamic/service");
+            Some(vec![
+                ContributionDescriptor::builtin(
+                    "test.dynamic/widget",
+                    ContributionKind::Widget,
+                    "Widget",
+                    "",
+                    true,
+                    0,
+                )
+                .with_dependency(service.clone()),
+                ContributionDescriptor::builtin(
+                    "test.dynamic/alerts",
+                    ContributionKind::Notification,
+                    "Alert",
+                    "",
+                    true,
+                    0,
+                )
+                .with_dependency(service)
+                .with_settings(
+                    1,
+                    vec![SettingSchema::new(
+                        "price",
+                        SettingValue::Float(1.0),
+                        "Price",
+                    )],
+                ),
+            ])
+        }
+
+        fn on_contribution_start(
+            &mut self,
+            ctx: &ExtensionContext,
+            id: &ExtensionId,
+        ) -> Result<(), String> {
+            if id.as_str() == "test.dynamic/service" {
+                ctx.schedule_at("service-timer", Instant::now());
+            }
+            Ok(())
+        }
+
+        fn on_contribution_event(
+            &mut self,
+            _: &ExtensionContext,
+            id: &ExtensionId,
+            _: &crate::extension::Event,
+            _: Instant,
+        ) -> ExtensionOutput {
+            ExtensionOutput {
+                invalidated: vec![id.clone()],
+                ..Default::default()
+            }
+        }
+    }
+
+    #[test]
+    fn shared_service_survives_one_consumer_and_old_timers_cannot_cross_generations() {
+        let dir = tempfile::tempdir().unwrap();
+        let context = ExtensionContext::new(dir.path().into(), dir.path().into());
+        let mut host = ExtensionManager::with_context(vec![Box::new(DynamicProbe)], context, None);
+        let service = ExtensionId::builtin("test.dynamic/service");
+        let widget = ExtensionId::builtin("test.dynamic/widget");
+        let alerts = ExtensionId::builtin("test.dynamic/alerts");
+        let previous = host.drain_context_tasks().schedule[0].task_id.clone();
+        host.apply_contribution_preferences([(widget.clone(), false)].into());
+        assert!(!host.contribution_running(&widget));
+        assert!(host.contribution_running(&service));
+        assert!(host
+            .on_action(&widget, Action::Toggle, Instant::now())
+            .is_err());
+        host.apply_contribution_preferences([(widget.clone(), false), (alerts, false)].into());
+        assert!(!host.contribution_running(&service));
+        assert!(host
+            .update(Instant::now())
+            .iter()
+            .any(|output| output.cancel_tasks.contains(&previous)));
+        host.apply_contribution_preferences(BTreeMap::new());
+        let fresh = host.drain_context_tasks().schedule[0].task_id.clone();
+        assert_ne!(previous, fresh);
+        assert!(host
+            .on_event(&crate::extension::Event::Custom(previous), Instant::now())
+            .is_empty());
+        let outputs = host.on_event(&crate::extension::Event::Custom(fresh), Instant::now());
+        assert_eq!(outputs[0].invalidated, vec![service]);
+    }
+
+    #[test]
+    fn stopped_catalog_survives_restart_and_unregistering_drops_configuration() {
+        let dir = tempfile::tempdir().unwrap();
+        let context = || ExtensionContext::new(dir.path().into(), dir.path().into());
+        let lifecycle = || Some(dir.path().join("lifecycle.tsv"));
+        let owner = ExtensionId::builtin("test.dynamic");
+        let alert = ExtensionId::builtin("test.dynamic/alerts");
+        {
+            let mut host = ExtensionManager::with_context(
+                vec![Box::new(DynamicProbe)],
+                context(),
+                lifecycle(),
+            );
+            host.update_contribution_settings(
+                &alert,
+                [("price".into(), SettingValue::Float(5.0))].into(),
+            )
+            .unwrap();
+            host.set_enabled(&owner, false).unwrap();
+        }
+        let mut host =
+            ExtensionManager::with_context(vec![Box::new(DynamicProbe)], context(), lifecycle());
+        assert!(!host.running(&owner));
+        assert!(host.registry().get(&alert).is_some());
+        assert_eq!(
+            host.configured_contribution_settings(&alert).unwrap()["price"],
+            SettingValue::Float(5.0)
+        );
+        host.sync_external_contributions(&owner, vec![]);
+        assert!(host.registry().get(&alert).is_none());
+        assert!(host.configured_contribution_settings(&alert).is_none());
+    }
+
     #[test]
     fn stop_is_idempotent_and_removes_all_contributions_subscriptions_and_tasks() {
         let dir = tempfile::tempdir().unwrap();
@@ -1231,7 +1958,7 @@ mod tests {
         assert_eq!(log.lock().unwrap().events, 1);
     }
     #[test]
-    fn failed_start_rolls_back_and_disabled_configuration_survives_restart() {
+    fn failed_start_rolls_back_and_preserves_the_desired_state() {
         let dir = tempfile::tempdir().unwrap();
         let log = Arc::new(Mutex::new(Observations::default()));
         let id = ExtensionId::builtin("test.module");
@@ -1254,10 +1981,10 @@ mod tests {
                 fail: false,
             },
         );
-        assert!(!h.running(&id));
-        assert_eq!(log.lock().unwrap().starts, 1);
-        assert!(h.drain_context_tasks().schedule.is_empty());
-        h.set_enabled(&id, true).unwrap();
         assert!(h.running(&id));
+        assert!(h.desired_enabled(&id));
+        assert_eq!(log.lock().unwrap().starts, 2);
+        h.set_enabled(&id, false).unwrap();
+        assert!(!h.desired_enabled(&id));
     }
 }

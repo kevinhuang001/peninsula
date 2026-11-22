@@ -1,8 +1,7 @@
 use super::model::{parse_snapshot, Location, Snapshot};
 use super::preferences::WeatherPreferences;
-use crate::sdk::http;
 use serde_json::Value;
-use std::{io::Read, time::Duration};
+use std::time::Duration;
 
 const USER_AGENT: &str = "island-lab/0.1 weather extension";
 const FORECAST_URL: &str = "https://api.open-meteo.com/v1/forecast";
@@ -29,7 +28,7 @@ impl CityResult {
     }
 }
 
-pub fn fetch(
+pub async fn fetch(
     preferences: &WeatherPreferences,
     cached_auto_location: Option<&Location>,
 ) -> Result<Snapshot, String> {
@@ -37,7 +36,7 @@ pub fn fetch(
         if let Some(location) = cached_auto_location {
             location.clone()
         } else {
-            match locate_by_ip() {
+            match locate_by_ip().await {
                 Ok(location) => location,
                 Err(error) => preferences
                     .selected_location()
@@ -53,7 +52,8 @@ pub fn fetch(
     };
     let location =
         if !preferences.auto_locate && location.latitude == 0.0 && location.longitude == 0.0 {
-            let city = search_cities(&location.name)?
+            let city = search_cities(&location.name)
+                .await?
                 .into_iter()
                 .next()
                 .ok_or("没有找到天气城市")?;
@@ -66,11 +66,11 @@ pub fn fetch(
         } else {
             location
         };
-    let body = get(&forecast_url(&location))?;
+    let body = get(&forecast_url(&location)).await?;
     parse_snapshot(&body, location)
 }
 
-pub fn search_cities(query: &str) -> Result<Vec<CityResult>, String> {
+pub async fn search_cities(query: &str) -> Result<Vec<CityResult>, String> {
     let query = query.trim();
     if query.is_empty() {
         return Ok(Vec::new());
@@ -81,7 +81,7 @@ pub fn search_cities(query: &str) -> Result<Vec<CityResult>, String> {
         .append_pair("language", "zh")
         .append_pair("format", "json")
         .finish();
-    let body = get(&format!("{GEOCODING_URL}?{params}"))?;
+    let body = get(&format!("{GEOCODING_URL}?{params}")).await?;
     parse_cities(&body)
 }
 
@@ -173,8 +173,8 @@ pub fn parse_ip_location(body: &str) -> Result<Location, String> {
     })
 }
 
-fn locate_by_ip() -> Result<Location, String> {
-    let body = get(IP_LOCATION_URL)?;
+async fn locate_by_ip() -> Result<Location, String> {
+    let body = get(IP_LOCATION_URL).await?;
     parse_ip_location(&body)
 }
 
@@ -241,18 +241,30 @@ fn forecast_url(location: &Location) -> String {
     )
 }
 
-fn get(url: &str) -> Result<String, String> {
+async fn get(url: &str) -> Result<String, String> {
     const MAX_RESPONSE: usize = 10 * 1024 * 1024;
     let mut body = Vec::new();
-    http::client(Duration::from_secs(6), Duration::from_secs(15), USER_AGENT)
-        .and_then(|client| client.get(url).send())
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .map_err(|error| format!("天气网络请求失败：{error}"))?
-        .take((MAX_RESPONSE + 1) as u64)
-        .read_to_end(&mut body)
-        .map_err(|error| format!("天气数据读取失败：{error}"))?;
-    if body.len() > MAX_RESPONSE {
-        return Err("天气服务返回的数据过大".into());
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(6))
+        .timeout(Duration::from_secs(15))
+        .user_agent(USER_AGENT)
+        .build()
+        .map_err(|error| format!("天气网络请求初始化失败：{error}"))?;
+    let mut response = client
+        .get(url)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|error| format!("天气网络请求失败：{error}"))?;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("天气数据读取失败：{error}"))?
+    {
+        if body.len().saturating_add(chunk.len()) > MAX_RESPONSE {
+            return Err("天气服务返回的数据过大".into());
+        }
+        body.extend_from_slice(&chunk);
     }
     Ok(String::from_utf8_lossy(&body).into_owned())
 }

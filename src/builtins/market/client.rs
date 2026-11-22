@@ -1,14 +1,14 @@
 use super::model::{Asset, MarketKind, MarketQuote};
 use crate::ui::declarative::RasterImage;
-use reqwest::blocking::{Client, Response};
+use reqwest::{Client, Response};
 use serde_json::Value;
-use std::{collections::HashMap, thread, time::Duration};
+use std::{collections::HashMap, time::Duration};
 use url::Url;
 
 const MAX_LOGO_BYTES: u64 = 2 * 1024 * 1024;
 const LOGO_SIZE: u32 = 96;
 
-pub(super) fn fetch_quotes(
+pub(super) async fn fetch_quotes(
     assets: &[Asset],
     cached_logos: &HashMap<String, RasterImage>,
 ) -> Vec<MarketQuote> {
@@ -24,32 +24,36 @@ pub(super) fn fetch_quotes(
             .collect();
     };
 
-    thread::scope(|scope| {
-        let jobs = assets
-            .iter()
-            .map(|asset| {
-                let client = client.clone();
-                let logo = cached_logos.get(&asset.cache_key()).cloned();
-                let asset = asset.clone();
-                scope.spawn(move || match asset.kind {
-                    MarketKind::Stock => fetch_stock(&client, asset, logo),
-                    MarketKind::Crypto => fetch_crypto(&client, asset, logo),
-                })
-            })
-            .collect::<Vec<_>>();
-        jobs.into_iter().filter_map(|job| job.join().ok()).collect()
-    })
+    futures_util::future::join_all(assets.iter().map(|asset| {
+        let logo = cached_logos.get(&asset.cache_key()).cloned();
+        let asset = asset.clone();
+        let client = &client;
+        async move {
+            match asset.kind {
+                MarketKind::Stock => fetch_stock(client, asset, logo).await,
+                MarketKind::Crypto => fetch_crypto(client, asset, logo).await,
+            }
+        }
+    }))
+    .await
 }
 
-fn fetch_stock(client: &Client, asset: Asset, cached_logo: Option<RasterImage>) -> MarketQuote {
-    let quote = fetch_stock_quote(client, &asset.symbol);
+async fn fetch_stock(
+    client: &Client,
+    asset: Asset,
+    cached_logo: Option<RasterImage>,
+) -> MarketQuote {
+    let quote = fetch_stock_quote(client, &asset.symbol).await;
     let name = quote
         .as_ref()
         .map(|data| data.name.clone())
         .unwrap_or_else(|_| asset.symbol.clone());
     // Yahoo Finance's search endpoint no longer includes logoUrl. Resolve the
     // company name from the chart response and load its actual TradingView logo.
-    let logo = cached_logo.or_else(|| stock_logo(client, &asset.symbol, &name));
+    let logo = match cached_logo {
+        Some(logo) => Some(logo),
+        None => stock_logo(client, &asset.symbol, &name).await,
+    };
     match quote {
         Ok(data) => MarketQuote {
             asset,
@@ -71,12 +75,12 @@ struct StockQuote {
     change_percent: Option<f64>,
 }
 
-fn fetch_stock_quote(client: &Client, symbol: &str) -> Result<StockQuote, String> {
+async fn fetch_stock_quote(client: &Client, symbol: &str) -> Result<StockQuote, String> {
     let url = format!(
         "https://query1.finance.yahoo.com/v8/finance/chart/{}?range=1d&interval=1m&includePrePost=true",
         symbol
     );
-    let data = get_json(client, &url)?;
+    let data = get_json(client, &url).await?;
     if let Some(message) = data
         .pointer("/chart/error/description")
         .and_then(Value::as_str)
@@ -124,14 +128,19 @@ fn fetch_stock_quote(client: &Client, symbol: &str) -> Result<StockQuote, String
     })
 }
 
-fn fetch_crypto(client: &Client, asset: Asset, cached_logo: Option<RasterImage>) -> MarketQuote {
+async fn fetch_crypto(
+    client: &Client,
+    asset: Asset,
+    cached_logo: Option<RasterImage>,
+) -> MarketQuote {
     let product = format!("{}-USD", asset.symbol);
     let stats = get_json(
         client,
         &format!("https://api.exchange.coinbase.com/products/{product}/stats"),
-    );
+    )
+    .await;
     let metadata = if cached_logo.is_none() {
-        fetch_crypto_metadata(client, &asset.symbol)
+        fetch_crypto_metadata(client, &asset.symbol).await
     } else {
         (crypto_name(&asset.symbol), None)
     };
@@ -160,7 +169,7 @@ fn fetch_crypto(client: &Client, asset: Asset, cached_logo: Option<RasterImage>)
     }
 }
 
-fn stock_logo(client: &Client, symbol: &str, company_name: &str) -> Option<RasterImage> {
+async fn stock_logo(client: &Client, symbol: &str, company_name: &str) -> Option<RasterImage> {
     let mut candidates = vec![known_stock_slug(symbol).map(str::to_owned)];
     let normalized = company_slug(company_name);
     if !normalized.is_empty() {
@@ -179,7 +188,7 @@ fn stock_logo(client: &Client, symbol: &str, company_name: &str) -> Option<Raste
         }
         attempted.push(slug.clone());
         let url = format!("https://s3-symbol-logo.tradingview.com/{slug}.svg");
-        if let Some(logo) = download_svg(client, &url) {
+        if let Some(logo) = download_svg(client, &url).await {
             return Some(logo);
         }
     }
@@ -247,8 +256,8 @@ fn company_slug(name: &str) -> String {
     words.join("-")
 }
 
-fn download_svg(client: &Client, url: &str) -> Option<RasterImage> {
-    let bytes = bounded_bytes(client.get(url).send().ok()?)?;
+async fn download_svg(client: &Client, url: &str) -> Option<RasterImage> {
+    let bytes = bounded_bytes(client.get(url).send().await.ok()?).await?;
     if !String::from_utf8_lossy(&bytes[..bytes.len().min(512)]).contains("<svg") {
         return None;
     }
@@ -270,15 +279,18 @@ fn download_svg(client: &Client, url: &str) -> Option<RasterImage> {
     })
 }
 
-fn fetch_crypto_metadata(client: &Client, symbol: &str) -> (String, Option<RasterImage>) {
+async fn fetch_crypto_metadata(client: &Client, symbol: &str) -> (String, Option<RasterImage>) {
     let result = client
         .get("https://api.coingecko.com/api/v3/search")
         .query(&[("query", symbol)])
         .send()
+        .await
         .ok()
-        .and_then(|response| response.error_for_status().ok())
-        .and_then(|response| response.bytes().ok())
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+        .and_then(|response| response.error_for_status().ok());
+    let result = match result {
+        Some(response) => response.json::<Value>().await.ok(),
+        None => None,
+    };
     let coin = result
         .as_ref()
         .and_then(|data| data.get("coins"))
@@ -298,21 +310,21 @@ fn fetch_crypto_metadata(client: &Client, symbol: &str) -> (String, Option<Raste
         .and_then(Value::as_str)
         .unwrap_or(symbol)
         .to_owned();
-    let logo = coin
-        .get("thumb")
-        .and_then(Value::as_str)
-        .and_then(|url| download_raster(client, url));
+    let logo = match coin.get("thumb").and_then(Value::as_str) {
+        Some(url) => download_raster(client, url).await,
+        None => None,
+    };
     (name, logo)
 }
 
-fn download_raster(client: &Client, url: &str) -> Option<RasterImage> {
+async fn download_raster(client: &Client, url: &str) -> Option<RasterImage> {
     let parsed = Url::parse(url).ok()?;
     let host = parsed.host_str()?;
     if parsed.scheme() != "https" || !(host == "coingecko.com" || host.ends_with(".coingecko.com"))
     {
         return None;
     }
-    let bytes = bounded_bytes(client.get(parsed).send().ok()?)?;
+    let bytes = bounded_bytes(client.get(parsed).send().await.ok()?).await?;
     let image = image::load_from_memory(&bytes)
         .ok()?
         .thumbnail(64, 64)
@@ -327,7 +339,7 @@ fn download_raster(client: &Client, url: &str) -> Option<RasterImage> {
     })
 }
 
-fn bounded_bytes(response: Response) -> Option<Vec<u8>> {
+async fn bounded_bytes(response: Response) -> Option<Vec<u8>> {
     let response = response.error_for_status().ok()?;
     if response
         .content_length()
@@ -335,18 +347,20 @@ fn bounded_bytes(response: Response) -> Option<Vec<u8>> {
     {
         return None;
     }
-    let bytes = response.bytes().ok()?;
+    let bytes = response.bytes().await.ok()?;
     (bytes.len() as u64 <= MAX_LOGO_BYTES).then(|| bytes.to_vec())
 }
 
-fn get_json(client: &Client, url: &str) -> Result<Value, String> {
+async fn get_json(client: &Client, url: &str) -> Result<Value, String> {
     let response = client
         .get(url)
         .send()
+        .await
         .and_then(Response::error_for_status)
         .map_err(|error| friendly_request_error(&error))?;
     let bytes = response
         .bytes()
+        .await
         .map_err(|_| "行情数据读取失败".to_owned())?;
     serde_json::from_slice(&bytes).map_err(|_| "行情数据格式无效".to_owned())
 }

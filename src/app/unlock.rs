@@ -1,4 +1,4 @@
-use super::{compact_layout, IslandApp};
+use super::{capsule, compact_layout, IslandApp, WINDOW_TOP_PADDING};
 use crate::{
     core::mascot::{MascotMotion, MotionPolicy, UnlockMascotState},
     sdk::secrets::{SecretStore, SecretsError},
@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const WIDTH: f32 = 270.0;
+pub(super) const WIDTH: f32 = 270.0;
 const TYPING_TIMEOUT: Duration = Duration::from_millis(1500);
 
 #[derive(Default)]
@@ -19,18 +19,33 @@ pub(super) struct UnlockView {
     focused_once: bool,
     last_edit: Option<Instant>,
     failed: Option<(Instant, &'static str)>,
-    success_until: Option<Instant>,
+    success_at: Option<Instant>,
 }
 
 impl UnlockView {
-    pub(super) fn visible(&self, locked: bool, now: Instant) -> bool {
-        locked || self.task.is_some() || self.success_until.is_some_and(|until| now < until)
+    pub(super) fn visible(&self, locked: bool) -> bool {
+        locked || self.task.is_some()
+    }
+
+    pub(super) fn handoff(&self, now: Instant, policy: MotionPolicy) -> Option<UnlockHandoff> {
+        self.success_at.map(|start| {
+            let duration = match policy {
+                MotionPolicy::Full => Duration::from_millis(440),
+                MotionPolicy::Reduced => Duration::from_millis(200),
+                MotionPolicy::Off => Duration::ZERO,
+            };
+            let amount = if duration.is_zero() {
+                1.0
+            } else {
+                (now.saturating_duration_since(start).as_secs_f32() / duration.as_secs_f32())
+                    .min(1.0)
+            };
+            UnlockHandoff { amount }
+        })
     }
 
     fn mascot_state(&self, focused: bool, now: Instant) -> UnlockMascotState {
-        if self.success_until.is_some() {
-            UnlockMascotState::Succeeded
-        } else if self.task.is_some() {
+        if self.task.is_some() {
             UnlockMascotState::Verifying
         } else if self.failed.is_some() {
             UnlockMascotState::Failed
@@ -49,6 +64,48 @@ impl UnlockView {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct UnlockHandoff {
+    amount: f32,
+}
+
+impl UnlockHandoff {
+    pub(super) fn finished(self) -> bool {
+        self.amount >= 1.0
+    }
+
+    pub(super) fn width(self, compact_width: f32) -> f32 {
+        egui::lerp(WIDTH..=compact_width, self.travel())
+    }
+
+    pub(super) fn travel(self) -> f32 {
+        ease(self.amount)
+    }
+
+    pub(super) fn status_opacity(self) -> f32 {
+        1.0 - ease((self.amount - 0.12) / 0.55)
+    }
+
+    pub(super) fn items_opacity(self) -> f32 {
+        ease((self.amount - 0.24) / 0.76)
+    }
+}
+
+fn ease(amount: f32) -> f32 {
+    let amount = amount.clamp(0.0, 1.0);
+    amount * amount * (3.0 - 2.0 * amount)
+}
+
+pub(super) fn mascot_rect(rect: egui::Rect) -> egui::Rect {
+    egui::Rect::from_center_size(
+        rect.left_center() + egui::vec2(27.0, 0.0),
+        egui::vec2(
+            crate::core::mascot::SLOT_WIDTH - 6.0,
+            compact_layout::CHIP_HEIGHT,
+        ),
+    )
+}
+
 impl IslandApp {
     pub(super) fn mascot_policy(&self) -> MotionPolicy {
         if self.preferences.motion_off || self.preferences.mascot_motion == "Off" {
@@ -61,22 +118,13 @@ impl IslandApp {
     }
 
     pub(super) fn poll_unlock_task(&mut self, context: &egui::Context, now: Instant) {
-        if let Some(until) = self.unlock.success_until {
-            if now >= until {
-                self.unlock = UnlockView::default();
-                self.state.begin_unlock_transition(WIDTH);
-            } else {
-                context.request_repaint_after(until - now);
-            }
-        }
         let Some(receiver) = &self.unlock.task else {
             return;
         };
         let message = match receiver.try_recv() {
             Ok(Ok(())) => {
                 self.unlock.password.clear();
-                self.unlock.success_until = Some(now + MascotMotion::Success.duration());
-                context.request_repaint_after(MascotMotion::Success.duration());
+                self.unlock.success_at = Some(now);
                 None
             }
             Ok(Err(SecretsError::InvalidPassword)) => Some("密码错误或验证数据已损坏"),
@@ -96,13 +144,12 @@ impl IslandApp {
         let state = &mut self.unlock;
         let height = compact_layout::CAPSULE_HEIGHT;
         let verifying = state.task.is_some();
-        let succeeded = state.success_until.is_some();
-        let editable = !verifying && !succeeded;
+        let editable = !verifying;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(context, |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.add_space(8.0);
+                    ui.add_space(WINDOW_TOP_PADDING);
                     let (base, _) =
                         ui.allocate_exact_size(egui::vec2(WIDTH, height), egui::Sense::hover());
                     let mut rect = base;
@@ -128,14 +175,7 @@ impl IslandApp {
                             }
                         }
                     }
-                    ui.painter()
-                        .rect_filled(rect, height * 0.5, ui.visuals().panel_fill);
-                    ui.painter().rect_stroke(
-                        rect,
-                        height * 0.5,
-                        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(43, 56, 76)),
-                        egui::StrokeKind::Inside,
-                    );
+                    capsule::paint_shell(ui, rect, 0.0, false);
                     let input_rect = egui::Rect::from_center_size(
                         rect.center() + egui::vec2(-16.0, 0.0),
                         egui::vec2(130.0, 24.0),
@@ -150,11 +190,7 @@ impl IslandApp {
                             .interactive(editable)
                             .font(egui::FontId::proportional(12.0))
                             .frame(false)
-                            .hint_text(if succeeded {
-                                "已解锁"
-                            } else {
-                                "输入密码解锁"
-                            }),
+                            .hint_text("输入密码解锁"),
                     );
                     if !state.focused_once {
                         state.focused_once = true;
@@ -195,14 +231,8 @@ impl IslandApp {
                     let button = controls.put(
                         confirm,
                         egui::Button::new(
-                            egui::RichText::new(if verifying {
-                                "验证中"
-                            } else if succeeded {
-                                "已解锁"
-                            } else {
-                                "确认"
-                            })
-                            .size(12.0),
+                            egui::RichText::new(if verifying { "验证中" } else { "确认" })
+                                .size(12.0),
                         ),
                     );
                     let enter = (response.has_focus() || response.lost_focus())
@@ -233,14 +263,9 @@ impl IslandApp {
                                 (edit + TYPING_TIMEOUT).saturating_duration_since(now),
                             );
                         }
-                        let size = (crate::core::mascot::SLOT_WIDTH - 6.0).min(height - 6.0);
-                        let mascot_rect = egui::Rect::from_center_size(
-                            rect.left_center() + egui::vec2(27.0, 0.0),
-                            egui::Vec2::splat(size),
-                        );
                         let _ = crate::ui::renderer::show_compact(
                             ui,
-                            mascot_rect,
+                            mascot_rect(rect),
                             &crate::extension::ExtensionId::builtin(
                                 crate::core::mascot::MASCOT_SLOT_ID,
                             ),
@@ -288,12 +313,35 @@ mod tests {
         assert_eq!(view.mascot_state(true, now), UnlockMascotState::Failed);
         let (_sender, receiver) = mpsc::channel();
         view.task = Some(receiver);
-        assert!(view.visible(false, now));
+        assert!(view.visible(false));
         assert_eq!(view.mascot_state(true, now), UnlockMascotState::Verifying);
         view.task = None;
-        view.success_until = Some(now + MascotMotion::Success.duration());
-        assert!(view.visible(false, now));
-        assert_eq!(view.mascot_state(true, now), UnlockMascotState::Succeeded);
-        assert!(!view.visible(false, now + MascotMotion::Success.duration()));
+        assert!(!view.visible(false));
+    }
+
+    #[test]
+    fn handoff_uses_the_unlock_and_compact_endpoints_and_respects_motion_off() {
+        let now = Instant::now();
+        let view = UnlockView {
+            success_at: Some(now),
+            ..UnlockView::default()
+        };
+        let start = view.handoff(now, MotionPolicy::Full).unwrap();
+        assert_eq!(start.width(190.0), WIDTH);
+        assert_eq!(start.items_opacity(), 0.0);
+        assert_eq!(start.status_opacity(), 1.0);
+        let middle = view
+            .handoff(now + Duration::from_millis(220), MotionPolicy::Full)
+            .unwrap();
+        assert!(middle.width(190.0) < WIDTH && middle.width(190.0) > 190.0);
+        assert!(middle.items_opacity() > 0.0 && middle.status_opacity() > 0.0);
+        let end = view
+            .handoff(now + Duration::from_millis(440), MotionPolicy::Full)
+            .unwrap();
+        assert!(end.finished());
+        assert_eq!(end.width(190.0), 190.0);
+        let off = view.handoff(now, MotionPolicy::Off).unwrap();
+        assert!(off.finished());
+        assert_eq!(off.width(190.0), 190.0);
     }
 }

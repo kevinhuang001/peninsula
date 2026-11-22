@@ -6,7 +6,7 @@ use crate::{
     builtins::registry,
     extension::{ContributionKind, DiagnosticCheck, ExtensionDescriptor, ExtensionId, Settings},
 };
-use std::{fs, io, path::PathBuf};
+use std::{collections::BTreeMap, fs, io, path::PathBuf};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompactItemPreference {
@@ -36,7 +36,8 @@ pub struct CompactPreferences {
     pub compact_text_size: f32,
     pub compact_text_color: Option<[u8; 3]>,
     pub widget_order: Vec<ExtensionId>,
-    pub widget_disabled: Vec<ExtensionId>,
+    contribution_enabled: BTreeMap<ExtensionId, bool>,
+    pub contribution_values: BTreeMap<ExtensionId, Settings>,
     pub pages: Vec<ExtensionPage>,
 }
 impl Default for CompactPreferences {
@@ -66,7 +67,8 @@ impl Default for CompactPreferences {
                 .into_iter()
                 .map(|d| d.id.clone())
                 .collect(),
-            widget_disabled: Vec::new(),
+            contribution_enabled: BTreeMap::new(),
+            contribution_values: BTreeMap::new(),
             pages: registry
                 .extensions()
                 .iter()
@@ -130,23 +132,16 @@ impl CompactPreferences {
                     settings.widget_order = value
                         .split(',')
                         .filter_map(|v| ExtensionId::new(v.trim()).ok())
-                        .filter(|id| {
-                            registry()
-                                .get(id)
-                                .is_some_and(|d| d.kind == ContributionKind::Widget)
-                        })
                         .collect()
                 }
-                "widget_disabled" => {
-                    settings.widget_disabled = value
-                        .split(',')
-                        .filter_map(|value| ExtensionId::new(value.trim()).ok())
-                        .filter(|id| {
-                            registry()
-                                .get(id)
-                                .is_some_and(|descriptor| descriptor.kind == ContributionKind::Widget)
-                        })
-                        .collect();
+                "contribution_enabled" => {
+                    if let Some((id, enabled)) = value.split_once('|') {
+                        if let (Ok(id), Some(enabled)) =
+                            (ExtensionId::new(id.trim()), parse_bool(enabled))
+                        {
+                            settings.contribution_enabled.insert(id, enabled);
+                        }
+                    }
                 }
                 "extension" => {
                     let fields: Vec<_> = value.split('|').collect();
@@ -164,7 +159,7 @@ impl CompactPreferences {
                     {
                         item.enabled = enabled;
                         item.order = order;
-                    } else if id.as_str().starts_with("builtin.market/assets/") {
+                    } else {
                         settings
                             .compact_items
                             .push(CompactItemPreference { id, enabled, order });
@@ -190,6 +185,11 @@ impl CompactPreferences {
             .into_iter()
             .map(|i| format!("extension={}|{}|{}", i.id, i.enabled, i.order))
             .collect();
+        lines.extend(
+            self.contribution_enabled
+                .iter()
+                .map(|(id, enabled)| format!("contribution_enabled={id}|{enabled}")),
+        );
         lines.extend([
             format!("reduced_motion={}", self.reduced_motion),
             format!("motion_off={}", self.motion_off),
@@ -213,14 +213,6 @@ impl CompactPreferences {
             format!(
                 "widget_order={}",
                 self.widget_order
-                    .iter()
-                    .map(|id| id.as_str())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            format!(
-                "widget_disabled={}",
-                self.widget_disabled
                     .iter()
                     .map(|id| id.as_str())
                     .collect::<Vec<_>>()
@@ -251,7 +243,7 @@ impl CompactPreferences {
                 page.values = values.clone();
             }
             page.running = host.running(&page.descriptor.id);
-            page.enabled = page.running;
+            page.enabled = host.desired_enabled(&page.descriptor.id);
             page.status = host.status(&page.descriptor.id);
             page.doctor = host.doctor(&page.descriptor.id);
         }
@@ -281,62 +273,121 @@ impl CompactPreferences {
             .is_some_and(|item| item.enabled)
     }
 
-    pub fn sync_data_source_items(&mut self, ids: &[ExtensionId]) -> bool {
-        let valid: std::collections::HashSet<_> = ids.iter().cloned().collect();
-        let before = self.compact_items.len();
+    pub fn contribution_preferences(&self) -> BTreeMap<ExtensionId, bool> {
+        let mut enabled = self.contribution_enabled.clone();
+        enabled.extend(
+            self.compact_items
+                .iter()
+                .map(|item| (item.id.clone(), item.enabled)),
+        );
+        enabled
+    }
+
+    pub fn contribution_enabled(
+        &self,
+        descriptor: &crate::extension::ContributionDescriptor,
+    ) -> bool {
+        self.contribution_enabled
+            .get(&descriptor.id)
+            .copied()
+            .unwrap_or(descriptor.default_enabled)
+    }
+
+    pub fn set_contribution_enabled(&mut self, id: ExtensionId, enabled: bool) {
+        self.contribution_enabled.insert(id, enabled);
+    }
+
+    pub fn read_contribution_defaults(
+        &mut self,
+        host: &crate::core::extension_manager::ExtensionManager,
+    ) {
+        for entry in self
+            .pages
+            .iter_mut()
+            .flat_map(|page| &mut page.descriptor.contributions)
+        {
+            if let Some(enabled) = host.default_contribution_enabled(&entry.id) {
+                entry.default_enabled = enabled;
+            }
+        }
+    }
+
+    pub fn read_contribution_settings(
+        &mut self,
+        host: &crate::core::extension_manager::ExtensionManager,
+    ) {
+        self.contribution_values = host
+            .registry()
+            .extensions()
+            .iter()
+            .flat_map(|entry| &entry.contributions)
+            .filter_map(|entry| {
+                host.configured_contribution_settings(&entry.id)
+                    .map(|values| (entry.id.clone(), values.clone()))
+            })
+            .collect();
+    }
+
+    pub fn sync_contributions(&mut self, registry: &crate::extension::ExtensionRegistry) -> bool {
+        let old_counts = (
+            self.compact_items.len(),
+            self.widget_order.len(),
+            self.contribution_enabled.len(),
+        );
         self.compact_items.retain(|item| {
-            !item.id.as_str().starts_with("datasource/") || valid.contains(&item.id)
+            registry
+                .get(&item.id)
+                .is_some_and(|c| c.kind == ContributionKind::Compact)
         });
-        let mut changed = before != self.compact_items.len();
-        for id in ids {
-            if !self.compact_items.iter().any(|item| item.id == *id) {
-                let order = self
-                    .compact_items
-                    .iter()
-                    .map(|item| item.order)
-                    .max()
-                    .unwrap_or(0)
-                    .saturating_add(1);
+        self.widget_order.retain(|id| {
+            registry
+                .get(id)
+                .is_some_and(|c| c.kind == ContributionKind::Widget)
+        });
+        self.contribution_enabled.retain(|id, _| {
+            registry.get(id).is_some_and(|c| {
+                matches!(
+                    c.kind,
+                    ContributionKind::Widget | ContributionKind::Notification
+                )
+            })
+        });
+        let mut changed = old_counts
+            != (
+                self.compact_items.len(),
+                self.widget_order.len(),
+                self.contribution_enabled.len(),
+            );
+        let mut order = self
+            .compact_items
+            .iter()
+            .map(|item| item.order)
+            .max()
+            .map_or(0, |last| last.saturating_add(1));
+        for c in registry.by_kind(ContributionKind::Compact) {
+            if !self.compact_items.iter().any(|item| item.id == c.id) {
                 self.compact_items.push(CompactItemPreference {
-                    id: id.clone(),
-                    enabled: false,
+                    id: c.id.clone(),
+                    enabled: c.default_enabled,
                     order,
                 });
+                order = order.saturating_add(1);
                 changed = true;
             }
         }
-        if changed {
-            self.normalize_order();
-        }
-        changed
-    }
-
-    pub fn sync_dynamic_compact_items(
-        &mut self,
-        owner: &ExtensionId,
-        items: &[(ExtensionId, String)],
-    ) -> bool {
-        let prefix = format!("{}/assets/", owner.as_str());
-        let valid: std::collections::HashSet<_> = items.iter().map(|(id, _)| id.clone()).collect();
-        let before = self.compact_items.len();
-        self.compact_items
-            .retain(|item| !item.id.as_str().starts_with(&prefix) || valid.contains(&item.id));
-        let mut changed = before != self.compact_items.len();
-        for (id, _) in items {
-            if !self.compact_items.iter().any(|item| item.id == *id) {
-                let order = self
-                    .compact_items
-                    .iter()
-                    .map(|item| item.order)
-                    .max()
-                    .unwrap_or(0)
-                    .saturating_add(1);
-                self.compact_items.push(CompactItemPreference {
-                    id: id.clone(),
-                    enabled: false,
-                    order,
-                });
+        for c in registry.by_kind(ContributionKind::Widget) {
+            if !self.widget_order.contains(&c.id) {
+                self.widget_order.push(c.id.clone());
                 changed = true;
+            }
+        }
+        for page in &mut self.pages {
+            if let Some(descriptor) = registry.extension(&page.descriptor.id) {
+                if page.descriptor.contributions != descriptor.contributions {
+                    page.descriptor
+                        .contributions
+                        .clone_from(&descriptor.contributions);
+                }
             }
         }
         if changed {
@@ -356,57 +407,11 @@ impl CompactPreferences {
         true
     }
 
-    pub fn remove_compact_item(&mut self, id: &ExtensionId) {
-        self.compact_items.retain(|item| &item.id != id);
-        self.normalize_order();
-    }
-
     #[cfg(test)]
     pub fn set_enabled(&mut self, id: &ExtensionId, enabled: bool) {
         if let Some(item) = self.compact_items.iter_mut().find(|item| &item.id == id) {
             item.enabled = enabled;
         }
-    }
-
-    pub fn widget_enabled(&self, id: &ExtensionId) -> bool {
-        !self.widget_disabled.contains(id)
-    }
-
-    pub fn set_widget_enabled(&mut self, id: &ExtensionId, enabled: bool) -> bool {
-        if !self.widget_order.contains(id) || self.widget_enabled(id) == enabled {
-            return false;
-        }
-        if enabled {
-            self.widget_disabled.retain(|disabled| disabled != id);
-        } else {
-            self.widget_disabled.push(id.clone());
-        }
-        true
-    }
-
-    pub fn ordered_enabled_widgets(&self) -> Vec<ExtensionId> {
-        self.widget_order
-            .iter()
-            .filter(|id| self.widget_enabled(id))
-            .cloned()
-            .collect()
-    }
-
-    pub fn move_widget(&mut self, id: &ExtensionId, offset: isize) -> bool {
-        let enabled = self.ordered_enabled_widgets();
-        let Some(index) = enabled.iter().position(|candidate| candidate == id) else {
-            return false;
-        };
-        let target = index
-            .saturating_add_signed(offset)
-            .min(enabled.len().saturating_sub(1));
-        if target == index {
-            return false;
-        }
-        let left = self.widget_order.iter().position(|item| item == id).unwrap();
-        let right = self.widget_order.iter().position(|item| item == &enabled[target]).unwrap();
-        self.widget_order.swap(left, right);
-        true
     }
 
     pub fn ordered_compact_items(&self) -> Vec<&CompactItemPreference> {
@@ -419,7 +424,6 @@ impl CompactPreferences {
         let ordered: Vec<_> = self
             .ordered_compact_items()
             .into_iter()
-            .filter(|item| item.enabled)
             .map(|item| item.id.clone())
             .collect();
         let Some(index) = ordered.iter().position(|candidate| candidate == id) else {

@@ -4,27 +4,30 @@ mod view;
 
 use crate::{
     extension::{
-        Action, CompactView, ContributionDescriptor, ContributionKind, ExtensionContext,
-        ExtensionDescriptor, ExtensionId, ExtensionOutput, Notification, NotificationAlertView,
-        NotificationCenterItemView, NotificationPresentationProvider, NotificationPriority,
-        ReloadPolicy, RuntimeExtension, SettingSchema, SettingValue, Settings,
+        Action, CompactView, ContributionDescriptor, ContributionKind, ExecutionPolicy,
+        ExtensionContext, ExtensionDescriptor, ExtensionId, ExtensionOutput, Notification,
+        NotificationAlertView, NotificationCenterItemView, NotificationPresentationProvider,
+        NotificationPriority, RuntimeExtension, SettingSchema, SettingValue, Settings,
     },
     ui::declarative::{Overflow, ScrollAxes, WidgetBounds},
 };
 use model::{Asset, MarketKind, MarketQuote};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs,
     path::PathBuf,
     sync::mpsc::{self, Receiver, TryRecvError},
-    thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const ID: &str = "builtin.market";
 const WIDGET_ID: &str = "builtin.market/overview";
-const ALERT_ID: &str = "builtin.market/price-alerts";
+const LEGACY_ALERT_ID: &str = "builtin.market/price-alerts";
+const SERVICE_ID: &str = "builtin.market/service.quotes";
+const CONDITION: &str = "condition";
+const THRESHOLD: &str = "threshold";
+const COOLDOWN: &str = "cooldown";
 const ADD_KEY: &str = "market-symbol";
 const ADD_ACTION: &str = "market:add";
 const ADD_OPEN_ACTION: &str = "market:add-open";
@@ -42,6 +45,8 @@ struct Watchlist {
     assets: Vec<Asset>,
     #[serde(default)]
     alert_rules: HashMap<String, PriceAlertRule>,
+    #[serde(default = "default_alert_interval")]
+    alert_interval_minutes: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -63,11 +68,16 @@ struct AlertSettingsRule {
     price: Option<String>,
 }
 
+fn default_alert_interval() -> u32 {
+    DEFAULT_ALERT_INTERVAL_MINUTES
+}
+
 impl Default for Watchlist {
     fn default() -> Self {
         Self {
             assets: default_assets(),
             alert_rules: HashMap::new(),
+            alert_interval_minutes: DEFAULT_ALERT_INTERVAL_MINUTES,
         }
     }
 }
@@ -96,7 +106,8 @@ pub struct MarketExtension {
     error: Option<String>,
     pending: Option<Receiver<Vec<MarketQuote>>>,
     watchlist_path: Option<PathBuf>,
-    alert_interval_minutes: u32,
+    legacy_settings: Settings,
+    active: BTreeMap<ExtensionId, Settings>,
     next_refresh: Instant,
     refresh_requested: bool,
     refreshing: bool,
@@ -116,7 +127,8 @@ impl MarketExtension {
             error: None,
             pending: None,
             watchlist_path: None,
-            alert_interval_minutes: DEFAULT_ALERT_INTERVAL_MINUTES,
+            legacy_settings: Settings::new(),
+            active: BTreeMap::new(),
             next_refresh: Instant::now(),
             refresh_requested: false,
             refreshing: false,
@@ -127,22 +139,41 @@ impl MarketExtension {
         }
     }
 
-    fn start_fetch(&mut self) {
+    fn start_fetch(&mut self, context: &ExtensionContext) {
         if self.pending.is_some() {
             return;
         }
-        let assets = self.watchlist.assets.clone();
+        let full_watchlist = self.active.contains_key(&ExtensionId::builtin(WIDGET_ID));
+        let assets: Vec<_> = self
+            .watchlist
+            .assets
+            .iter()
+            .filter(|asset| {
+                full_watchlist
+                    || self.active.contains_key(&compact_item_id(asset))
+                    || self.active.contains_key(&alert_id(asset))
+            })
+            .cloned()
+            .collect();
+        if assets.is_empty() {
+            self.refresh_requested = false;
+            self.next_refresh = Instant::now() + REFRESH_INTERVAL;
+            return;
+        }
         let cached_logos = self
             .quotes
             .iter()
             .filter_map(|(key, quote)| quote.logo.clone().map(|logo| (key.clone(), logo)))
             .collect();
         let (sender, receiver) = mpsc::channel();
-        match thread::Builder::new()
-            .name("market-quotes".into())
-            .spawn(move || {
-                let _ = sender.send(client::fetch_quotes(&assets, &cached_logos));
-            }) {
+        match context.tasks().spawn("market-quotes", move |cancel| {
+            if let Ok(Some(quotes)) = crate::sdk::http::run_cancellable(
+                &cancel,
+                client::fetch_quotes(&assets, &cached_logos),
+            ) {
+                let _ = sender.send(quotes);
+            }
+        }) {
             Ok(_) => {
                 self.pending = Some(receiver);
                 self.refresh_requested = false;
@@ -166,26 +197,31 @@ impl MarketExtension {
                 self.refreshing = false;
                 for quote in quotes {
                     let key = quote.asset.cache_key();
-                    let rule = self.watchlist.alert_rules.get(&key);
-                    if let (Some(current), Some(rule), Some(threshold)) =
-                        (quote.price, rule, rule.and_then(|rule| rule.price))
+                    if let (Some(current), Some(settings)) =
+                        (quote.price, self.active.get(&alert_id(&quote.asset)))
                     {
-                        let triggered = match rule.condition {
+                        let threshold = threshold(settings);
+                        let condition = if matches!(settings.get(CONDITION), Some(SettingValue::Enum(value)) if value == "低于")
+                        {
+                            AlertCondition::Less
+                        } else {
+                            AlertCondition::Greater
+                        };
+                        let cooldown = match settings.get(COOLDOWN) {
+                            Some(SettingValue::Duration(ms)) => Duration::from_millis(*ms),
+                            _ => Duration::from_secs(30 * 60),
+                        };
+                        let triggered = match condition {
                             AlertCondition::Greater => current > threshold,
                             AlertCondition::Less => current < threshold,
                         };
-                        let cooling_down = self.last_alerts.get(&key).is_some_and(|last| {
-                            now.duration_since(*last)
-                                < Duration::from_secs(
-                                    u64::from(self.alert_interval_minutes) * 60,
-                                )
-                        });
-                        if triggered && !cooling_down {
-                            self.pending_notifications.push(price_alert(
-                                &quote,
-                                threshold,
-                                rule.condition,
-                            ));
+                        let cooling_down = self
+                            .last_alerts
+                            .get(&key)
+                            .is_some_and(|last| now.saturating_duration_since(*last) < cooldown);
+                        if threshold > 0.0 && triggered && !cooling_down {
+                            self.pending_notifications
+                                .push(price_alert(&quote, threshold, condition));
                             self.last_alerts.insert(key.clone(), now);
                         }
                     }
@@ -248,15 +284,18 @@ impl MarketExtension {
 
     fn remove_asset(&mut self, kind: MarketKind, symbol: &str) {
         let key = format!("{}:{symbol}", kind.key());
+        let previous = self.watchlist.clone();
         self.watchlist
             .assets
             .retain(|asset| asset.kind != kind || asset.symbol != symbol);
-        self.quotes.remove(&key);
         self.watchlist.alert_rules.remove(&key);
-        self.last_alerts.remove(&key);
         if let Err(error) = self.save_watchlist() {
+            self.watchlist = previous;
             self.error = Some(format!("自选列表保存失败：{error}"));
+            return;
         }
+        self.quotes.remove(&key);
+        self.last_alerts.remove(&key);
     }
 
     fn save_watchlist(&self) -> Result<(), String> {
@@ -283,9 +322,26 @@ impl MarketExtension {
     }
 }
 
+fn asset_id(asset: &Asset) -> String {
+    // Underscores are not valid market symbols. This mapping is injective for
+    // normalized symbols, including index symbols that begin with a caret.
+    let symbol = asset.symbol.replace('^', "_");
+    format!("{ID}/assets/{}/{symbol}", asset.kind.key())
+}
+
 pub(in crate::builtins::market) fn compact_item_id(asset: &Asset) -> ExtensionId {
-    ExtensionId::new(format!("{ID}/assets/{}/{}", asset.kind.key(), asset.symbol))
-        .expect("normalized market asset IDs are valid")
+    ExtensionId::new(asset_id(asset)).expect("normalized market asset IDs are valid")
+}
+
+fn alert_id(asset: &Asset) -> ExtensionId {
+    ExtensionId::new(format!("{}/price-alert", asset_id(asset))).expect("normalized alert ID")
+}
+
+fn threshold(settings: &Settings) -> f64 {
+    match settings.get(THRESHOLD) {
+        Some(SettingValue::Float(value)) => *value,
+        _ => 0.0,
+    }
 }
 
 impl Default for MarketExtension {
@@ -313,87 +369,56 @@ impl RuntimeExtension for MarketExtension {
             overflow: Overflow::Scroll(ScrollAxes::Vertical),
             ..Default::default()
         });
-        let alerts = ContributionDescriptor::builtin(
-            ALERT_ID,
-            ContributionKind::Notification,
-            "股票价格提醒",
+        let service_id = ExtensionId::builtin(SERVICE_ID);
+        let service = ContributionDescriptor::builtin(
+            SERVICE_ID,
+            ContributionKind::BackgroundService,
+            "行情服务",
             "chart",
             true,
-            10,
-        );
-        let interval = SettingSchema::new(
-            SETTINGS_ALERT_INTERVAL,
-            SettingValue::Integer(i64::from(DEFAULT_ALERT_INTERVAL_MINUTES)),
-            "最短提醒间隔（分钟）",
+            0,
         )
-        .range(1.0, 10_080.0);
-        let mut rules = SettingSchema::new(
-            SETTINGS_ALERT_RULES,
-            SettingValue::String(String::new()),
-            "价格提醒规则",
-        );
-        rules.constraints.max_length = Some(8192);
+        .with_execution_policy(ExecutionPolicy::Interval(Duration::from_millis(250)));
         let mut descriptor = ExtensionDescriptor::builtin(
             ID,
             "市场",
             "股票与加密资产行情自选表格",
-            vec![widget, alerts],
+            vec![widget.with_dependency(service_id), service],
         );
-        descriptor.settings_version = 1;
-        descriptor.settings = vec![interval, rules];
+        descriptor.execution_policy = ExecutionPolicy::EventDriven;
         descriptor
     }
 
-    fn on_settings_changed(
+    fn import_legacy_settings(&mut self, settings: &Settings) {
+        self.legacy_settings.clone_from(settings);
+    }
+
+    fn contribution_setup_complete(&self, id: &ExtensionId, settings: &Settings) -> bool {
+        id.as_str().ends_with("/price-alert") && threshold(settings) > 0.0
+    }
+
+    fn on_contribution_state(
         &mut self,
-        _context: &ExtensionContext,
-        _id: &ExtensionId,
-        settings: &Settings,
-        _policy: ReloadPolicy,
-    ) -> ExtensionOutput {
-        if let Some(SettingValue::Integer(minutes)) = settings.get(SETTINGS_ALERT_INTERVAL) {
-            let minutes = (*minutes).clamp(1, 10_080) as u32;
-            self.alert_interval_minutes = minutes;
+        _: &ExtensionContext,
+        active: &BTreeMap<ExtensionId, Settings>,
+    ) {
+        if self.active.keys().ne(active.keys()) {
+            self.refresh_requested = true;
         }
-        if let Some(SettingValue::String(source)) = settings.get(SETTINGS_ALERT_RULES) {
-            if !source.trim().is_empty() {
-                if let Ok(rules) =
-                    serde_json::from_str::<HashMap<String, AlertSettingsRule>>(source)
-                {
-                    self.watchlist.alert_rules = rules
-                        .into_iter()
-                        .filter(|(key, _)| {
-                            self.watchlist
-                                .assets
-                                .iter()
-                                .any(|asset| asset.cache_key() == *key)
-                        })
-                        .map(|(key, rule)| {
-                            let price = rule
-                                .price
-                                .and_then(|value| value.trim().parse::<f64>().ok())
-                                .filter(|price| price.is_finite() && *price > 0.0);
-                            (
-                                key,
-                                PriceAlertRule {
-                                    condition: rule.condition,
-                                    price,
-                                },
-                            )
-                        })
-                        .collect();
-                }
-            }
+        self.active.clone_from(active);
+    }
+
+    fn on_contribution_stop(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == SERVICE_ID {
+            self.pending = None;
+            self.pending_notifications.clear();
+            self.refreshing = false;
         }
-        if self.watchlist_path.is_some() {
-            if let Err(error) = self.save_watchlist() {
-                eprintln!("Unable to save market settings: {error}");
-            }
-        }
-        ExtensionOutput {
-            invalidated: vec![ExtensionId::builtin(WIDGET_ID)],
-            ..Default::default()
-        }
+        Ok(())
     }
 
     fn on_start(&mut self, context: &ExtensionContext) -> Result<(), String> {
@@ -416,6 +441,38 @@ impl RuntimeExtension for MarketExtension {
                 });
             }
         }
+        if let Some(SettingValue::Integer(minutes)) =
+            self.legacy_settings.get(SETTINGS_ALERT_INTERVAL)
+        {
+            self.watchlist.alert_interval_minutes = (*minutes).clamp(1, 10_080) as u32;
+        }
+        if let Some(SettingValue::String(source)) = self.legacy_settings.get(SETTINGS_ALERT_RULES) {
+            if let Ok(rules) = serde_json::from_str::<HashMap<String, AlertSettingsRule>>(source) {
+                self.watchlist.alert_rules = self
+                    .watchlist
+                    .assets
+                    .iter()
+                    .filter_map(|asset| {
+                        let key = asset.cache_key();
+                        let rule = rules.get(&key)?;
+                        let price = rule
+                            .price
+                            .as_deref()?
+                            .trim()
+                            .parse::<f64>()
+                            .ok()
+                            .filter(|price| price.is_finite() && *price > 0.0)?;
+                        Some((
+                            key,
+                            PriceAlertRule {
+                                condition: rule.condition,
+                                price: Some(price),
+                            },
+                        ))
+                    })
+                    .collect();
+            }
+        }
         self.watchlist_path = Some(path);
         self.quotes = loading_quotes(&self.watchlist.assets);
         self.next_refresh = Instant::now();
@@ -428,10 +485,18 @@ impl RuntimeExtension for MarketExtension {
         Ok(())
     }
 
-    fn update(&mut self, now: Instant) -> ExtensionOutput {
+    fn on_contribution_update(
+        &mut self,
+        context: &ExtensionContext,
+        id: &ExtensionId,
+        now: Instant,
+    ) -> ExtensionOutput {
+        if id.as_str() != SERVICE_ID {
+            return ExtensionOutput::default();
+        }
         let mut changed = self.poll_fetch(now);
         if self.pending.is_none() && (self.refresh_requested || now >= self.next_refresh) {
-            self.start_fetch();
+            self.start_fetch(context);
             changed = true;
         }
         ExtensionOutput {
@@ -456,12 +521,77 @@ impl RuntimeExtension for MarketExtension {
         view::compact(self)
     }
 
-    fn dynamic_compact_items(&self) -> Option<Vec<(ExtensionId, String)>> {
+    fn dynamic_contributions(&self) -> Option<Vec<ContributionDescriptor>> {
+        let service = ExtensionId::builtin(SERVICE_ID);
         Some(
             self.watchlist
                 .assets
                 .iter()
-                .map(|asset| (compact_item_id(asset), asset.symbol.clone()))
+                .flat_map(|asset| {
+                    let legacy = self.watchlist.alert_rules.get(&asset.cache_key());
+                    let price = legacy.and_then(|rule| rule.price).unwrap_or(0.0);
+                    let condition = if legacy
+                        .is_some_and(|rule| matches!(rule.condition, AlertCondition::Less))
+                    {
+                        "低于"
+                    } else {
+                        "高于"
+                    };
+                    let compact = ContributionDescriptor::new(
+                        compact_item_id(asset),
+                        ContributionKind::Compact,
+                        asset.symbol.clone(),
+                        "chart",
+                        false,
+                        100,
+                    )
+                    .with_dependency(service.clone());
+                    let notification = ContributionDescriptor::new(
+                        alert_id(asset),
+                        ContributionKind::Notification,
+                        format!("{} 价格提醒", asset.symbol),
+                        "bell",
+                        price > 0.0,
+                        100,
+                    )
+                    .with_dependency(service.clone())
+                    .with_setup(true)
+                    .with_settings(
+                        1,
+                        vec![
+                            SettingSchema {
+                                options: vec!["高于".into(), "低于".into()],
+                                ..SettingSchema::new(
+                                    CONDITION,
+                                    SettingValue::Enum(condition.into()),
+                                    "触发条件",
+                                )
+                            },
+                            SettingSchema {
+                                constraints: crate::extension::Constraints {
+                                    min: Some(0.0),
+                                    ..Default::default()
+                                },
+                                ..SettingSchema::new(
+                                    THRESHOLD,
+                                    SettingValue::Float(price),
+                                    "目标价格",
+                                )
+                            },
+                            SettingSchema::new(
+                                COOLDOWN,
+                                SettingValue::Duration(
+                                    u64::from(self.watchlist.alert_interval_minutes)
+                                        .clamp(1, 10080)
+                                        * 60_000,
+                                ),
+                                "最短提醒间隔",
+                            )
+                            .range(60_000.0, 604_800_000.0),
+                        ],
+                    );
+                    [compact, notification]
+                })
                 .collect(),
         )
     }
@@ -531,7 +661,12 @@ impl NotificationPresentationProvider for MarketExtension {
     }
 
     fn handles_notification(&self, source_id: &ExtensionId) -> bool {
-        source_id.as_str() == ALERT_ID
+        source_id.as_str() == LEGACY_ALERT_ID
+            || self
+                .watchlist
+                .assets
+                .iter()
+                .any(|asset| alert_id(asset) == *source_id)
     }
 }
 
@@ -546,7 +681,7 @@ fn price_alert(quote: &MarketQuote, threshold: f64, condition: AlertCondition) -
         .unwrap_or_default()
         .as_nanos();
     Notification {
-        source_id: ExtensionId::builtin(ALERT_ID),
+        source_id: alert_id(&quote.asset),
         id: format!("{}:{nonce}", quote.asset.cache_key()),
         title: format!("{} 价格提醒", quote.asset.symbol),
         body: format!(

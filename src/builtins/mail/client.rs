@@ -1,11 +1,13 @@
 use super::{Account, EmailMessage, OpenedMessage};
+use crate::sdk::tasks::CancellationToken;
 use imap::{types::Flag, Session};
 use mailparse::{MailHeaderMap, ParsedMail};
 use native_tls::{TlsConnector, TlsStream};
 use std::{
     collections::{BTreeSet, HashMap},
-    net::{TcpStream, ToSocketAddrs},
-    time::Duration,
+    io::{self, Read, Write},
+    net::TcpStream,
+    time::{Duration, Instant},
 };
 
 const MESSAGE_WINDOW: usize = 80;
@@ -22,23 +24,89 @@ pub(super) struct MailboxSnapshot {
     pub next_uid: Option<u32>,
 }
 
-fn connect(account: &Account, password: &str) -> Result<Session<TlsStream<TcpStream>>, String> {
+#[derive(Debug)]
+struct CancellableStream {
+    socket: TcpStream,
+    cancellation: CancellationToken,
+}
+
+impl CancellableStream {
+    fn attempt<T>(
+        &mut self,
+        mut operation: impl FnMut(&mut TcpStream) -> io::Result<T>,
+    ) -> io::Result<T> {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            if self.cancellation.is_cancelled() {
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "IMAP request canceled",
+                ));
+            }
+            match operation(&mut self.socket) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) && Instant::now() < deadline =>
+                {
+                    continue
+                }
+                result => return result,
+            }
+        }
+    }
+}
+
+impl Read for CancellableStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.attempt(|socket| socket.read(buffer))
+    }
+}
+
+impl Write for CancellableStream {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.attempt(|socket| socket.write(buffer))
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.attempt(TcpStream::flush)
+    }
+}
+
+fn connect(
+    account: &Account,
+    password: &str,
+    cancellation: &CancellationToken,
+) -> Result<Session<TlsStream<CancellableStream>>, String> {
     let tls = TlsConnector::builder()
         .build()
         .map_err(|error| format!("无法初始化 TLS：{error}"))?;
-    let address = (account.server.as_str(), account.port)
-        .to_socket_addrs()
-        .map_err(|error| format!("解析 IMAP 服务器失败：{error}"))?
-        .next()
-        .ok_or_else(|| "无法解析 IMAP 服务器地址".to_owned())?;
-    let socket = TcpStream::connect_timeout(&address, Duration::from_secs(15))
-        .map_err(|error| format!("连接 IMAP 服务器失败：{error}"))?;
+    let socket = crate::sdk::http::run_cancellable(cancellation, async {
+        tokio::time::timeout(
+            Duration::from_secs(15),
+            tokio::net::TcpStream::connect((account.server.as_str(), account.port)),
+        )
+        .await
+        .map_err(io::Error::other)??
+        .into_std()
+    })
+    .map_err(|error| error.to_string())?
+    .ok_or("IMAP 连接已取消")?
+    .map_err(|error| format!("连接 IMAP 服务器失败：{error}"))?;
     socket
-        .set_read_timeout(Some(Duration::from_secs(20)))
+        .set_nonblocking(false)
         .map_err(|error| error.to_string())?;
     socket
-        .set_write_timeout(Some(Duration::from_secs(20)))
+        .set_read_timeout(Some(Duration::from_millis(100)))
         .map_err(|error| error.to_string())?;
+    socket
+        .set_write_timeout(Some(Duration::from_millis(100)))
+        .map_err(|error| error.to_string())?;
+    let socket = CancellableStream {
+        socket,
+        cancellation: cancellation.clone(),
+    };
     let stream = tls
         .connect(&account.server, socket)
         .map_err(|error| format!("建立 IMAP 加密连接失败：{error}"))?;
@@ -55,8 +123,10 @@ pub(super) fn fetch_mailbox(
     account: &Account,
     password: &str,
     last_uid: Option<u32>,
+    cancellation: &CancellationToken,
+    notification_enabled: &std::sync::atomic::AtomicBool,
 ) -> Result<MailboxSnapshot, String> {
-    let mut session = connect(account, password)?;
+    let mut session = connect(account, password, cancellation)?;
     let result = (|| {
         session
             .select("INBOX")
@@ -126,7 +196,7 @@ pub(super) fn fetch_mailbox(
             scan_bytes += size;
             otp_uids.push(*uid);
         }
-        if !otp_uids.is_empty() {
+        if !otp_uids.is_empty() && notification_enabled.load(std::sync::atomic::Ordering::Relaxed) {
             for chunk in otp_uids.chunks(UID_FETCH_BATCH) {
                 let uid_set = chunk
                     .iter()
@@ -178,8 +248,9 @@ pub(super) fn open_message(
     account: &Account,
     password: &str,
     uid: u32,
+    cancellation: &CancellationToken,
 ) -> Result<OpenedMessage, String> {
-    let mut session = connect(account, password)?;
+    let mut session = connect(account, password, cancellation)?;
     let result = (|| {
         session
             .select("INBOX")

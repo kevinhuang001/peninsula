@@ -76,6 +76,7 @@ pub fn runtimes() -> Vec<Box<dyn RuntimeExtension>> {
         Box::new(clock::ClockExtension::default()),
         Box::new(battery::BatteryExtension::default()),
         Box::new(usb::UsbExtension::default()),
+        Box::new(crate::core::datasource::DataSourceCatalog),
     ]
 }
 pub fn registry() -> ExtensionRegistry {

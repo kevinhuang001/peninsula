@@ -5,7 +5,7 @@ use super::{
     theme::{WidgetTheme, ACCENT, ACCENT_SELECTED, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT},
     CompactPreferences,
 };
-use crate::extension::{ContributionKind, ExtensionId, SettingValue};
+use crate::extension::{ContributionDescriptor, ContributionKind, ExtensionId};
 use crate::sdk::secrets::SecretStore;
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
 use std::{
@@ -225,7 +225,7 @@ impl SettingsView {
                 },
             )
         };
-        let navigation_height = Section::ALL.len() as f32 * 40.0 + 10.0;
+        let navigation_height = Section::ALL.len() as f32 * 36.0 + 10.0;
         content_height.max(navigation_height) + 21.0
     }
 
@@ -234,6 +234,7 @@ impl SettingsView {
             Section::General => self.general(ui, prefs),
             Section::Capsule => capsule_options(ui, prefs, self.capsule_section),
             Section::Extensions => self.extension_form(ui, prefs),
+            Section::Notifications => notification_options(ui, prefs),
             Section::Secrets => self.secrets(ui),
             Section::About => {
                 about(ui);
@@ -789,15 +790,6 @@ impl SettingsView {
             forms::empty(ui, "没有已注册的扩展");
             return false;
         };
-        let market_items: Vec<_> = prefs
-            .compact_items
-            .iter()
-            .filter_map(|item| {
-                let suffix = item.id.as_str().strip_prefix("builtin.market/assets/")?;
-                let (kind, symbol) = suffix.split_once('/')?;
-                Some((format!("{kind}:{symbol}"), symbol.to_owned()))
-            })
-            .collect();
         let Some(page) = prefs.pages.iter_mut().find(|p| &p.descriptor.id == id) else {
             return false;
         };
@@ -809,11 +801,7 @@ impl SettingsView {
             forms::value(ui, "配置", "无需额外配置");
         }
         let extension_id = page.descriptor.id.clone();
-        let is_market = extension_id.as_str() == "builtin.market";
         for field in &page.descriptor.settings {
-            if is_market && field.key == "alert_rules" {
-                continue;
-            }
             if let Some(value) = page.values.get_mut(&field.key) {
                 ui.push_id((id, &field.key), |ui| {
                     if field.search.is_some() {
@@ -826,12 +814,6 @@ impl SettingsView {
                         changed |= forms::setting_control(ui, field, value);
                     }
                 });
-            }
-        }
-        if is_market {
-            forms::section(ui, "价格提醒");
-            if let Some(SettingValue::String(value)) = page.values.get_mut("alert_rules") {
-                changed |= market_alert_rules(ui, &market_items, value);
             }
         }
         forms::section(ui, "Doctor 自检");
@@ -962,55 +944,47 @@ impl SettingsView {
     }
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct MarketAlertPreference {
-    condition: String,
-    price: Option<String>,
+fn contribution_groups(
+    prefs: &CompactPreferences,
+    kind: ContributionKind,
+) -> Vec<(String, Vec<ContributionDescriptor>)> {
+    prefs
+        .pages
+        .iter()
+        .filter_map(|page| {
+            let entries: Vec<_> = page
+                .descriptor
+                .contributions
+                .iter()
+                .filter(|entry| entry.kind == kind)
+                .cloned()
+                .collect();
+            (!entries.is_empty()).then(|| (page.descriptor.name.clone(), entries))
+        })
+        .collect()
 }
 
-fn market_alert_rules(ui: &mut egui::Ui, items: &[(String, String)], source: &mut String) -> bool {
-    let mut rules =
-        serde_json::from_str::<HashMap<String, MarketAlertPreference>>(source).unwrap_or_default();
+fn notification_options(ui: &mut egui::Ui, prefs: &mut CompactPreferences) -> bool {
     let mut changed = false;
-    if items.is_empty() {
-        ui.label(egui::RichText::new("添加自选后可配置价格提醒").color(SECONDARY_TEXT));
-        return false;
-    }
-
-    for (key, symbol) in items {
-        let rule = rules
-            .entry(key.clone())
-            .or_insert_with(|| MarketAlertPreference {
-                condition: "Greater".into(),
-                price: None,
+    for (name, entries) in contribution_groups(prefs, ContributionKind::Notification) {
+        forms::section(ui, &name);
+        for entry in entries {
+            ui.push_id(&entry.id, |ui| {
+                let mut enabled = prefs.contribution_enabled(&entry);
+                if forms::boolean(ui, &entry.title, &mut enabled) {
+                    prefs.set_contribution_enabled(entry.id.clone(), enabled);
+                    changed = true;
+                }
+                if let Some(values) = prefs.contribution_values.get_mut(&entry.id) {
+                    for field in &entry.settings {
+                        if let Some(value) = values.get_mut(&field.key) {
+                            ui.push_id(&field.key, |ui| {
+                                changed |= forms::setting_control(ui, field, value);
+                            });
+                        }
+                    }
+                }
             });
-        let mut price = rule.price.clone().unwrap_or_default();
-        ui.horizontal(|ui| {
-            ui.label(symbol);
-            egui::ComboBox::from_id_salt(("market-alert-condition", key))
-                .width(54.0)
-                .selected_text(if rule.condition == "Less" { "<" } else { ">" })
-                .show_ui(ui, |ui| {
-                    changed |= ui
-                        .selectable_value(&mut rule.condition, "Greater".into(), ">")
-                        .changed();
-                    changed |= ui
-                        .selectable_value(&mut rule.condition, "Less".into(), "<")
-                        .changed();
-                });
-            let response = ui.add_sized(
-                [ui.available_width(), 24.0],
-                egui::TextEdit::singleline(&mut price).hint_text("价格"),
-            );
-            if response.changed() {
-                changed = true;
-                rule.price = (!price.is_empty()).then_some(price.clone());
-            }
-        });
-    }
-    if changed {
-        if let Ok(encoded) = serde_json::to_string(&rules) {
-            *source = encoded;
         }
     }
     changed
@@ -1130,148 +1104,77 @@ fn capsule_options(
             }
             changed
         });
-        forms::section(ui, "显示开关（按扩展分组）");
-        for (group, items) in compact_groups(prefs) {
-            forms::section(ui, &group);
-            for (id, name) in items {
-                let mut enabled = prefs.is_enabled(&id);
-                ui.push_id(("compact-toggle", &id), |ui| {
-                    if forms::row(ui, &name, |ui| {
-                        forms::toggle(ui, &mut enabled, &format!("{name} 显示在 Compact"))
-                    }) {
-                        changed |= prefs.set_compact_item_enabled(&id, enabled);
-                    }
-                });
-            }
-        }
-        forms::section(ui, "排列顺序（仅已开启）");
-        let active: Vec<_> = prefs
+        let order: Vec<_> = prefs
             .ordered_compact_items()
             .into_iter()
-            .filter(|item| item.enabled)
             .map(|item| item.id.clone())
             .collect();
-        if active.is_empty() {
-            ui.label("没有已开启的 Compact");
-        }
-        for id in active {
-            let name = compact_name(prefs, &id);
-            let mut direction = 0;
-            ui.push_id(("compact-sort", &id), |ui| {
-                forms::row(ui, &name, |ui| {
-                    direction = forms::reorder(ui);
-                    false
+        for (group, mut entries) in contribution_groups(prefs, ContributionKind::Compact) {
+            forms::section(ui, &group);
+            entries.sort_by_key(|entry| order.iter().position(|id| id == &entry.id));
+            for (index, entry) in entries.iter().enumerate() {
+                let mut direction = 0;
+                let mut enabled = prefs.is_enabled(&entry.id);
+                ui.push_id(&entry.id, |ui| {
+                    if forms::row(ui, &entry.title, |ui| {
+                        let toggled = forms::toggle(ui, &mut enabled, &entry.title);
+                        direction = forms::reorder(ui);
+                        toggled
+                    }) {
+                        changed |= prefs.set_compact_item_enabled(&entry.id, enabled);
+                    }
                 });
-            });
-            if direction != 0 {
-                changed |= prefs.move_compact_item(&id, direction as isize);
+                if let Some(target) = index
+                    .checked_add_signed(direction as isize)
+                    .and_then(|index| entries.get(index))
+                {
+                    if let (Some(from), Some(to)) = (
+                        order.iter().position(|id| id == &entry.id),
+                        order.iter().position(|id| id == &target.id),
+                    ) {
+                        changed |= prefs.move_compact_item(&entry.id, to as isize - from as isize);
+                    }
+                }
             }
         }
         return changed;
     }
-    forms::section(ui, "显示开关（按扩展分组）");
-    let widget_groups: Vec<_> = prefs
-        .pages
-        .iter()
-        .filter_map(|page| {
-            let widgets: Vec<_> = page
-                .descriptor
-                .contributions
-                .iter()
-                .filter(|contribution| contribution.kind == ContributionKind::Widget)
-                .map(|contribution| (contribution.id.clone(), contribution.title.clone()))
-                .collect();
-            (!widgets.is_empty()).then(|| (page.descriptor.name.clone(), widgets))
-        })
-        .collect();
-    for (group, widgets) in widget_groups {
+    forms::section(ui, "通知中心固定第一位");
+    let order = prefs.widget_order.clone();
+    for (group, mut entries) in contribution_groups(prefs, ContributionKind::Widget) {
         forms::section(ui, &group);
-        for (id, name) in widgets {
-            let mut enabled = prefs.widget_enabled(&id);
-            ui.push_id(("widget-toggle", &id), |ui| {
-                if forms::row(ui, &name, |ui| {
-                    forms::toggle(ui, &mut enabled, &format!("{name} 显示在 Widget"))
+        entries.sort_by_key(|entry| order.iter().position(|id| id == &entry.id));
+        for (index, entry) in entries.iter().enumerate() {
+            let mut direction = 0;
+            let mut enabled = prefs.contribution_enabled(entry);
+            ui.push_id(&entry.id, |ui| {
+                if forms::row(ui, &entry.title, |ui| {
+                    let toggled = forms::toggle(ui, &mut enabled, &entry.title);
+                    direction = forms::reorder(ui);
+                    toggled
                 }) {
-                    changed |= prefs.set_widget_enabled(&id, enabled);
+                    prefs.set_contribution_enabled(entry.id.clone(), enabled);
+                    changed = true;
                 }
             });
-        }
-    }
-    forms::section(ui, "排列顺序（仅已开启；通知中心固定第一位）");
-    let active = prefs.ordered_enabled_widgets();
-    if active.is_empty() {
-        ui.label("没有已开启的 Widget");
-    }
-    for id in active {
-        let name = prefs
-            .pages
-            .iter()
-            .flat_map(|page| &page.descriptor.contributions)
-            .find(|contribution| contribution.id == id)
-            .map_or_else(|| id.to_string(), |contribution| contribution.title.clone());
-        let mut direction = 0;
-        ui.push_id(("widget-sort", &id), |ui| {
-            forms::row(ui, &name, |ui| {
-                direction = forms::reorder(ui);
-                false
-            });
-        });
-        if direction != 0 {
-            changed |= prefs.move_widget(&id, direction as isize);
+            if let Some(target) = index
+                .checked_add_signed(direction as isize)
+                .and_then(|index| entries.get(index))
+            {
+                if let (Some(from), Some(to)) = (
+                    order.iter().position(|id| id == &entry.id),
+                    order.iter().position(|id| id == &target.id),
+                ) {
+                    if from != to {
+                        prefs.widget_order.swap(from, to);
+                        changed = true;
+                    }
+                }
+            }
         }
     }
     changed
 }
-fn compact_name(prefs: &CompactPreferences, id: &ExtensionId) -> String {
-    if let Some(asset) = id.as_str().strip_prefix("builtin.market/assets/") {
-        return asset.rsplit('/').next().unwrap_or(asset).to_owned();
-    }
-    if let Some(source) = id
-        .as_str()
-        .strip_prefix("datasource/")
-        .and_then(|value| value.strip_suffix("/value"))
-    {
-        return source.to_owned();
-    }
-    prefs
-        .pages
-        .iter()
-        .flat_map(|page| &page.descriptor.contributions)
-        .find(|contribution| &contribution.id == id)
-        .map_or_else(|| id.to_string(), |contribution| contribution.title.clone())
-}
-
-fn compact_groups(prefs: &CompactPreferences) -> Vec<(String, Vec<(ExtensionId, String)>)> {
-    let mut groups: Vec<(String, Vec<(ExtensionId, String)>)> = Vec::new();
-    for item in prefs.ordered_compact_items() {
-        let owner = if item.id.as_str().starts_with("datasource/") {
-            "数据源".to_owned()
-        } else if item.id.as_str().starts_with("builtin.market/assets/") {
-            "市场".to_owned()
-        } else {
-            prefs
-                .pages
-                .iter()
-                .find(|page| {
-                    page.descriptor
-                        .contributions
-                        .iter()
-                        .any(|contribution| contribution.id == item.id)
-                })
-                .map_or_else(|| "其他".to_owned(), |page| page.descriptor.name.clone())
-        };
-        let index = groups.iter().position(|(group, _)| group == &owner);
-        let index = index.unwrap_or_else(|| {
-            groups.push((owner, Vec::new()));
-            groups.len() - 1
-        });
-        groups[index]
-            .1
-            .push((item.id.clone(), compact_name(prefs, &item.id)));
-    }
-    groups
-}
-
 fn motion_picker(ui: &mut egui::Ui, id: &str, value: &mut &str) {
     let label = |mode| match mode {
         "Reduced" => "减少",

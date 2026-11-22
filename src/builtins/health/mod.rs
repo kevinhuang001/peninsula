@@ -69,6 +69,7 @@ pub struct HealthExtension {
     daily_goal_ml: u64,
     sip_ml: u64,
     context: Option<ExtensionContext>,
+    reminder_context: Option<ExtensionContext>,
     storage_error: Option<String>,
     resolved_notifications: Vec<NotificationKey>,
 }
@@ -81,6 +82,7 @@ impl Default for HealthExtension {
             daily_goal_ml: 2000,
             sip_ml: 100,
             context: None,
+            reminder_context: None,
             storage_error: None,
             resolved_notifications: Vec::new(),
         }
@@ -205,6 +207,22 @@ impl HealthExtension {
         }
     }
 
+    fn scoped_schedule(&mut self, now: SystemTime, instant: Instant) -> ExtensionOutput {
+        let mut output = self.schedule(now, instant);
+        if let Some(context) = &self.reminder_context {
+            for task in output.cancel_tasks.drain(..) {
+                context.cancel_task(task);
+            }
+            for task in output.schedule.drain(..) {
+                context.schedule_at(task.task_id, task.deadline);
+            }
+        } else if self.context.is_some() {
+            output.cancel_tasks.clear();
+            output.schedule.clear();
+        }
+        output
+    }
+
     fn remind(&mut self, now: SystemTime, instant: Instant) -> ExtensionOutput {
         let mut changed = self.state.roll_day(now);
         let mut notifications = Vec::new();
@@ -316,9 +334,6 @@ impl RuntimeExtension for HealthExtension {
             self.resolve_reminders(WATER);
         }
         self.save_status();
-        for task in self.schedule(now, Instant::now()).schedule {
-            ctx.schedule_at(task.task_id, task.deadline);
-        }
         Ok(())
     }
 
@@ -326,6 +341,42 @@ impl RuntimeExtension for HealthExtension {
         let result = self.save();
         self.context = None;
         result
+    }
+
+    fn on_contribution_start(
+        &mut self,
+        context: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == NOTIFICATION_ID {
+            self.reminder_context = Some(context.clone());
+            self.scoped_schedule(SystemTime::now(), Instant::now());
+        }
+        Ok(())
+    }
+    fn on_contribution_stop(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == NOTIFICATION_ID {
+            self.reminder_context = None;
+        }
+        Ok(())
+    }
+
+    fn on_contribution_event(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+        event: &Event,
+        instant: Instant,
+    ) -> ExtensionOutput {
+        if id.as_str() == NOTIFICATION_ID {
+            self.on_event(event, instant)
+        } else {
+            ExtensionOutput::default()
+        }
     }
 
     fn widget_view(&self, id: &ExtensionId) -> Option<WidgetView> {
@@ -341,7 +392,7 @@ impl RuntimeExtension for HealthExtension {
         };
         let now = SystemTime::now();
         self.record(index, now);
-        self.schedule(now, instant)
+        self.scoped_schedule(now, instant)
     }
 
     fn on_event(&mut self, event: &Event, instant: Instant) -> ExtensionOutput {
@@ -349,6 +400,9 @@ impl RuntimeExtension for HealthExtension {
             Event::Custom(task)
                 if TASKS.contains(&task.as_str()) || task == MIDNIGHT_TASK || task == SYNC_TASK =>
             {
+                if self.context.is_some() && self.reminder_context.is_none() {
+                    return ExtensionOutput::default();
+                }
                 self.remind(SystemTime::now(), instant)
             }
             _ => ExtensionOutput::default(),
@@ -379,7 +433,7 @@ impl RuntimeExtension for HealthExtension {
         }
         // Initial configuration precedes on_start and restoration of saved state.
         if self.context.is_some() {
-            self.schedule(SystemTime::now(), Instant::now())
+            self.scoped_schedule(SystemTime::now(), Instant::now())
         } else {
             ExtensionOutput::default()
         }
@@ -409,7 +463,7 @@ impl NotificationPresentationProvider for HealthExtension {
             .ok_or("未知的健康操作")?;
         let now = SystemTime::now();
         self.record(index, now);
-        if let Some(ctx) = &self.context {
+        if let Some(ctx) = &self.reminder_context {
             ctx.schedule_at(SYNC_TASK, Instant::now());
         }
         self.storage_error.clone().map_or(Ok(()), Err)
@@ -444,7 +498,7 @@ mod tests {
 
     #[test]
     fn goal_suppresses_water_notifications_and_midnight_restores_them() {
-        let start = SystemTime::now();
+        let start = next_midnight(SystemTime::now()) + Duration::from_secs(3600);
         let mut health = HealthExtension {
             state: SavedState::new(start),
             daily_goal_ml: 200,
@@ -518,6 +572,8 @@ mod tests {
         let ctx = context(root.path());
         let mut health = HealthExtension::default();
         health.on_start(&ctx).unwrap();
+        let id = ExtensionId::builtin(NOTIFICATION_ID);
+        health.on_contribution_start(&ctx, &id).unwrap();
         ctx.drain_tasks();
         let notification = health.notification(WATER, SystemTime::now());
         health
@@ -527,7 +583,12 @@ mod tests {
         let (scheduled, canceled) = ctx.drain_tasks();
         assert!(scheduled.iter().any(|(id, _)| id == SYNC_TASK));
         assert!(!canceled.contains(&TASKS[WATER].into()));
-        let output = health.on_event(&Event::Custom(SYNC_TASK.into()), Instant::now());
+        let output = health.on_contribution_event(
+            &ctx,
+            &id,
+            &Event::Custom(SYNC_TASK.into()),
+            Instant::now(),
+        );
         assert!(output
             .schedule
             .iter()

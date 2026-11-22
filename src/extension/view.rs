@@ -3,7 +3,9 @@ use super::{
     NotificationCenterItemView, ReloadPolicy, SearchOption, Settings, WidgetView,
 };
 
-pub type SettingSearchTask = Box<dyn FnOnce() -> Result<Vec<SearchOption>, String> + Send>;
+pub type SettingSearchTask = Box<
+    dyn FnOnce(crate::sdk::tasks::CancellationToken) -> Result<Vec<SearchOption>, String> + Send,
+>;
 
 /// Runtime visibility is evaluated separately from the user's Compact preference.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -71,7 +73,7 @@ pub struct ActionInvocation {
     pub action: Action,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Event {
     NotificationPublished,
     Custom(String),
@@ -270,8 +272,9 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
     fn compact_views(&self) -> Vec<CompactView> {
         Vec::new()
     }
-    /// Optional dynamic Compact entries for user-controlled collections such as watchlists.
-    fn dynamic_compact_items(&self) -> Option<Vec<(ExtensionId, String)>> {
+    /// Complete dynamic registration snapshot. None retains the last snapshot;
+    /// an empty snapshot explicitly unregisters all dynamic contributions.
+    fn dynamic_contributions(&self) -> Option<Vec<super::ContributionDescriptor>> {
         None
     }
     fn on_action(&mut self, _action: Action, _now: std::time::Instant) -> ExtensionOutput {
@@ -287,6 +290,80 @@ pub trait RuntimeExtension: NotificationPresentationProvider {
         _policy: ReloadPolicy,
     ) -> ExtensionOutput {
         ExtensionOutput::default()
+    }
+    /// Read retired extension-level settings during a contribution migration.
+    fn import_legacy_settings(&mut self, _settings: &Settings) {}
+
+    fn contribution_preference_migration(
+        &self,
+        _previous: &Settings,
+    ) -> std::collections::BTreeMap<ExtensionId, bool> {
+        Default::default()
+    }
+
+    /// Upgrade saved settings for the extension or one of its contributions.
+    fn migrate_settings(
+        &self,
+        _id: &ExtensionId,
+        old_version: u32,
+        _old: Settings,
+    ) -> Result<Settings, String> {
+        Err(format!("no migration for settings version {old_version}"))
+    }
+
+    fn contribution_setup_complete(&self, _id: &ExtensionId, _settings: &Settings) -> bool {
+        false
+    }
+
+    fn on_contribution_start(
+        &mut self,
+        _ctx: &super::ExtensionContext,
+        _id: &ExtensionId,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn on_contribution_stop(
+        &mut self,
+        _ctx: &super::ExtensionContext,
+        _id: &ExtensionId,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn on_contribution_update(
+        &mut self,
+        _ctx: &super::ExtensionContext,
+        _id: &ExtensionId,
+        _now: std::time::Instant,
+    ) -> ExtensionOutput {
+        ExtensionOutput::default()
+    }
+
+    fn on_contribution_event(
+        &mut self,
+        _ctx: &super::ExtensionContext,
+        _id: &ExtensionId,
+        _event: &Event,
+        _now: std::time::Instant,
+    ) -> ExtensionOutput {
+        ExtensionOutput::default()
+    }
+    fn on_contribution_action(
+        &mut self,
+        _ctx: &super::ExtensionContext,
+        _id: &ExtensionId,
+        action: Action,
+        now: std::time::Instant,
+    ) -> ExtensionOutput {
+        self.on_action(action, now)
+    }
+
+    /// Receive the host's current active contributions and validated settings.
+    /// Inactive or unconfigured contributions are absent from the snapshot.
+    fn on_contribution_state(
+        &mut self,
+        _ctx: &super::ExtensionContext,
+        _active: &std::collections::BTreeMap<ExtensionId, Settings>,
+    ) {
     }
     fn status_message(&self) -> Option<String> {
         None

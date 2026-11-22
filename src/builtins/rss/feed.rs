@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeSet, HashSet},
-    io::Read,
     time::Duration,
 };
 use url::Url;
@@ -104,17 +103,18 @@ pub(super) fn normalize_url(value: &str) -> Result<String, String> {
     Ok(url.into())
 }
 
-pub(super) fn fetch(url: &str) -> Result<Feed, String> {
-    let client = crate::sdk::http::client(
-        Duration::from_secs(5),
-        Duration::from_secs(15),
-        "Peninsula/0.1 RSS",
-    )
-    .map_err(|error| error.to_string())?;
-    let response = client
+pub(super) async fn fetch(url: &str) -> Result<Feed, String> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
+        .user_agent("Peninsula/0.1 RSS")
+        .build()
+        .map_err(|error| error.to_string())?;
+    let mut response = client
         .get(url)
         .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
+        .await
+        .and_then(reqwest::Response::error_for_status)
         .map_err(|error| format!("读取订阅失败：{error}"))?;
     let base = normalize_url(response.url().as_str())?;
     if response
@@ -124,12 +124,11 @@ pub(super) fn fetch(url: &str) -> Result<Feed, String> {
         return Err("订阅内容超过 8 MB".into());
     }
     let mut bytes = Vec::new();
-    response
-        .take(MAX_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err("订阅内容超过 8 MB".into());
+    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+        if bytes.len().saturating_add(chunk.len()) as u64 > MAX_BYTES {
+            return Err("订阅内容超过 8 MB".into());
+        }
+        bytes.extend_from_slice(&chunk);
     }
     let mut feed = parse(&bytes, &base)?;
     feed.url = url.into();

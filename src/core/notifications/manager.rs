@@ -57,6 +57,29 @@ impl NotificationManager {
             }
         }
     }
+    pub fn publish_if_enabled(
+        &mut self,
+        notification: Notification,
+        enabled: impl FnOnce(&crate::extension::ExtensionId) -> bool,
+    ) -> bool {
+        enabled(&notification.source_id) && self.publish(notification)
+    }
+
+    pub fn retain_alert_sources(
+        &mut self,
+        enabled: impl Fn(&crate::extension::ExtensionId) -> bool,
+    ) {
+        self.alert_queue
+            .retain(|key| enabled(&key.source_extension_id));
+        if self
+            .presentation
+            .current_key()
+            .is_some_and(|key| !enabled(&key.source_extension_id))
+        {
+            self.presentation.current = None;
+        }
+    }
+
     pub fn try_publish(&mut self, notification: Notification) -> Result<bool, String> {
         let key = notification.key();
         if !self.store.try_insert(notification)? {
@@ -169,23 +192,6 @@ impl NotificationManager {
         changed
     }
 
-    pub fn remove_source(&mut self, source: &crate::extension::ExtensionId) -> usize {
-        self.alert_queue
-            .retain(|key| &key.source_extension_id != source);
-        if self
-            .presentation
-            .current_key()
-            .is_some_and(|key| &key.source_extension_id == source)
-        {
-            self.presentation.current = None;
-        }
-        let removed = self.store.remove_source(source);
-        if removed > 0 {
-            self.revision = self.revision.wrapping_add(1);
-        }
-        removed
-    }
-
     pub fn record_action(&mut self, key: NotificationKey, action: NotificationAction) {
         self.action_log
             .push(RecordedNotificationAction { key, action });
@@ -241,6 +247,19 @@ mod tests {
             }],
             created_at: SystemTime::now(),
         }
+    }
+
+    #[test]
+    fn disabling_a_source_rejects_new_items_and_removes_popups_without_losing_history() {
+        let mut manager = NotificationManager::default();
+        let first = item("first");
+        let key = first.key();
+        assert!(manager.publish_if_enabled(first, |_| true));
+        manager.retain_alert_sources(|_| false);
+        assert!(!manager.update(Instant::now(), true, false));
+        assert_eq!(manager.status(&key), Some(NotificationStatus::Pending));
+        assert!(!manager.publish_if_enabled(item("late"), |_| false));
+        assert_eq!(manager.pending_count(), 1);
     }
 
     #[test]

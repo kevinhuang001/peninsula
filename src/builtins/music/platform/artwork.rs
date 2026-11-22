@@ -7,77 +7,65 @@ use std::{
 
 pub(super) const MAX_BYTES: u64 = 2 * 1024 * 1024;
 
-type Load = Box<dyn FnOnce() -> Option<Vec<u8>> + Send>;
 type Artwork = Option<Arc<RasterImage>>;
 
-type ArtworkWorker = (
-    std::sync::mpsc::Sender<(String, Load)>,
-    std::sync::mpsc::Receiver<(String, Artwork)>,
-);
 #[derive(Default)]
 pub(super) struct Cache {
     key: String,
     result: Artwork,
     retry_at: Option<Instant>,
-    loading: bool,
-    worker: Option<ArtworkWorker>,
-    worker_thread: Option<std::thread::JoinHandle<()>>,
+    pending: Option<std::sync::mpsc::Receiver<Artwork>>,
 }
 
 impl Cache {
     pub fn get(
         &mut self,
+        tasks: &crate::sdk::tasks::TaskScope,
         key: &str,
-        load: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
+        load: impl FnOnce(&crate::sdk::tasks::CancellationToken) -> Option<Vec<u8>> + Send + 'static,
     ) -> Artwork {
-        if self.worker.is_none() {
-            let (tx, requests) = std::sync::mpsc::channel::<(String, Load)>();
-            let (results, rx) = std::sync::mpsc::channel();
-            let worker = std::thread::spawn(move || {
-                while let Ok(first) = requests.recv() {
-                    let (key, load) = requests.try_iter().last().unwrap_or(first);
-                    let image = load().and_then(|bytes| decode(&bytes)).map(Arc::new);
-                    if results.send((key, image)).is_err() {
-                        break;
-                    }
-                }
-            });
-            self.worker = Some((tx, rx));
-            self.worker_thread = Some(worker);
-        }
         if self.key != key {
-            self.key = key.into();
-            self.result = None;
-            self.retry_at = None;
-            self.loading = false;
+            *self = Self {
+                key: key.into(),
+                ..Default::default()
+            };
         }
-        let (tx, rx) = self.worker.as_ref().unwrap();
-        while let Ok((finished, image)) = rx.try_recv() {
-            if finished == self.key {
-                self.result = image;
-                self.loading = false;
-                self.retry_at = Some(Instant::now() + Duration::from_secs(10));
+        if let Some(result) = self.pending.as_ref().map(|pending| pending.try_recv()) {
+            match result {
+                Ok(image) => {
+                    self.result = image;
+                    self.pending = None;
+                    self.retry_at = Some(Instant::now() + Duration::from_secs(10));
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.pending = None;
+                    self.retry_at = Some(Instant::now() + Duration::from_secs(10));
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
         if self.result.is_none()
-            && !self.loading
+            && self.pending.is_none()
             && self.retry_at.is_none_or(|retry| Instant::now() >= retry)
         {
-            self.loading = tx.send((key.into(), Box::new(load))).is_ok();
-            if !self.loading {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            if tasks
+                .spawn("music-artwork", move |cancel| {
+                    if !cancel.is_cancelled() {
+                        let image = load(&cancel).and_then(|bytes| decode(&bytes)).map(Arc::new);
+                        if !cancel.is_cancelled() {
+                            let _ = sender.send(image);
+                        }
+                    }
+                })
+                .is_ok()
+            {
+                self.pending = Some(receiver);
+            } else {
                 self.retry_at = Some(Instant::now() + Duration::from_secs(10));
             }
         }
         self.result.clone()
-    }
-}
-
-impl Drop for Cache {
-    fn drop(&mut self) {
-        self.worker = None;
-        if let Some(worker) = self.worker_thread.take() {
-            let _ = worker.join();
-        }
     }
 }
 
@@ -102,33 +90,50 @@ fn decode(data: &[u8]) -> Option<RasterImage> {
 }
 
 #[cfg(target_os = "linux")]
-pub(super) fn read_url(raw: &str) -> Option<Vec<u8>> {
+pub(super) fn read_url(
+    raw: &str,
+    cancellation: &crate::sdk::tasks::CancellationToken,
+) -> Option<Vec<u8>> {
     use std::{fs::File, io::Read};
     let url = url::Url::parse(raw).ok()?;
-    let input: Box<dyn Read> = match url.scheme() {
+    match url.scheme() {
         "file" => {
             let path = url.to_file_path().ok()?;
             let metadata = std::fs::metadata(&path).ok()?;
             if !metadata.is_file() || metadata.len() > MAX_BYTES {
                 return None;
             }
-            Box::new(File::open(path).ok()?)
+            let mut bytes = Vec::new();
+            File::open(path)
+                .ok()?
+                .take(MAX_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .ok()?;
+            (bytes.len() as u64 <= MAX_BYTES).then_some(bytes)
         }
-        "http" | "https" => {
+        "http" | "https" => crate::sdk::http::run_cancellable(cancellation, async {
             let timeout = Duration::from_secs(2);
-            let client = crate::sdk::http::client(
-                timeout,
-                timeout,
-                concat!("Peninsula/", env!("CARGO_PKG_VERSION")),
-            )
-            .ok()?;
-            Box::new(client.get(url).send().ok()?.error_for_status().ok()?)
-        }
-        _ => return None,
-    };
-    let mut bytes = Vec::new();
-    input.take(MAX_BYTES + 1).read_to_end(&mut bytes).ok()?;
-    (bytes.len() as u64 <= MAX_BYTES).then_some(bytes)
+            let client = reqwest::Client::builder()
+                .connect_timeout(timeout)
+                .timeout(timeout)
+                .user_agent(concat!("Peninsula/", env!("CARGO_PKG_VERSION")))
+                .build()
+                .ok()?;
+            let mut response = client.get(url).send().await.ok()?.error_for_status().ok()?;
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await.ok()? {
+                if bytes.len().saturating_add(chunk.len()) as u64 > MAX_BYTES {
+                    return None;
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            Some(bytes)
+        })
+        .ok()
+        .flatten()
+        .flatten(),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -137,15 +142,17 @@ mod freshness_tests {
     #[test]
     fn slow_artwork_loader_never_blocks_media_observation() {
         let mut cache = Cache::default();
+        let tasks = crate::sdk::tasks::TaskScope::default();
         let (release, wait) = std::sync::mpsc::channel();
         let start = Instant::now();
         assert!(cache
-            .get("slow", move || {
+            .get(&tasks, "slow", move |_| {
                 let _ = wait.recv_timeout(Duration::from_secs(2));
                 None
             })
             .is_none());
         assert!(start.elapsed() < Duration::from_millis(200));
         release.send(()).unwrap();
+        assert!(tasks.shutdown());
     }
 }

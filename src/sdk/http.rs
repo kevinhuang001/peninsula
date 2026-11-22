@@ -36,6 +36,35 @@ pub fn client(
         .build()
 }
 
+/// Run an asynchronous HTTP transaction on an SDK worker. Cancellation drops
+/// the transaction future, including any requests still reading headers or bodies.
+pub fn run_cancellable<T>(
+    cancellation: &crate::sdk::tasks::CancellationToken,
+    transaction: impl std::future::Future<Output = T>,
+) -> std::io::Result<Option<T>> {
+    use futures_util::future::{select, Either};
+    if cancellation.is_cancelled() {
+        return Ok(None);
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let result = runtime.block_on(async {
+        let canceled = async {
+            while !cancellation.is_cancelled() {
+                tokio::time::sleep(Duration::from_millis(15)).await;
+            }
+        };
+        match select(Box::pin(canceled), Box::pin(transaction)).await {
+            Either::Left(_) => None,
+            Either::Right((value, _)) if !cancellation.is_cancelled() => Some(value),
+            Either::Right(_) => None,
+        }
+    });
+    runtime.shutdown_timeout(Duration::from_millis(50));
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::client;
@@ -45,6 +74,35 @@ mod tests {
         process::{Command, Stdio},
         time::{Duration, Instant},
     };
+
+    #[test]
+    fn cancelling_drops_a_stalled_http_transaction() {
+        use super::run_cancellable;
+        use crate::sdk::tasks::CancellationToken;
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let token = CancellationToken::default();
+        let worker_token = token.clone();
+        let work = std::thread::spawn(move || {
+            run_cancellable(&worker_token, async {
+                reqwest::Client::builder()
+                    .no_proxy()
+                    .build()
+                    .unwrap()
+                    .get(format!("http://{address}/stalled"))
+                    .send()
+                    .await
+            })
+            .unwrap()
+        });
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        assert!(request.starts_with("GET /stalled HTTP/1.1"));
+        token.cancel();
+        assert!(work.join().unwrap().is_none());
+    }
 
     #[test]
     fn client_honors_proxy_and_bypass_environment() {

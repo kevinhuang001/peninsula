@@ -225,6 +225,35 @@ fn short_blink_expression_reaches_closed_eyes_before_returning_to_idle() {
 }
 
 #[test]
+fn compact_settles_from_the_last_unlock_pose() {
+    let start = Instant::now();
+    let mut host = MascotHost::default();
+    host.update_unlock(UnlockMascotState::Succeeded, start, MotionPolicy::Full);
+    let success = start + Duration::from_millis(360);
+    host.update_unlock(UnlockMascotState::Succeeded, success, MotionPolicy::Full);
+    let last_unlock_pose = host.pose;
+    assert!(last_unlock_pose.smile > 0.8);
+
+    host.update(&[], true, success, MotionPolicy::Full);
+    assert_eq!(host.pose, last_unlock_pose);
+    host.update(
+        &[],
+        true,
+        success + Duration::from_millis(100),
+        MotionPolicy::Full,
+    );
+    assert!(host.pose.smile < last_unlock_pose.smile);
+    assert!(host.pose.smile > MascotPose::default().smile);
+    host.update(
+        &[],
+        true,
+        success + Duration::from_millis(210),
+        MotionPolicy::Full,
+    );
+    assert_eq!(host.pose.smile, MascotPose::default().smile);
+}
+
+#[test]
 fn compact_slot_is_fixed_and_passive() {
     let view = MascotHost::default().compact_slot();
     assert_eq!(view.min_width, 38.0);

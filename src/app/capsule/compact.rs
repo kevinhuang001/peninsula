@@ -3,6 +3,7 @@ use crate::{
         compact_layout::{fitted_widths, CompactItem, CHIP_HEIGHT, ITEM_GAP},
         icons::Icons,
         settings::CompactPreferences,
+        unlock::{self, UnlockHandoff},
     },
     extension::{ActionInvocation, Prompt},
     ui::renderer,
@@ -24,6 +25,7 @@ pub(super) struct CompactContent<'a> {
     pub(super) prefs: &'a CompactPreferences,
     pub(super) views: &'a [CompactItem<'a>],
     pub(super) icons: &'a Icons,
+    pub(super) handoff: Option<UnlockHandoff>,
 }
 
 pub(super) fn show(
@@ -36,6 +38,7 @@ pub(super) fn show(
         prefs,
         views: available_views,
         icons,
+        handoff,
     } = content;
     let opacity = 1.0 - progress.clamp(0.0, 1.0);
     if let Some(prompt) = available_views.iter().find_map(|item| item.prompt.as_ref()) {
@@ -81,10 +84,20 @@ pub(super) fn show(
             Pos2::new(x + width * 0.5, center_y),
             Vec2::new(width, CHIP_HEIGHT),
         );
-        if view.id.as_str() != crate::core::mascot::MASCOT_SLOT_ID {
-            draw_compact_chip(ui, item_rect, opacity);
+        let mascot = view.id.as_str() == crate::core::mascot::MASCOT_SLOT_ID;
+        let item_opacity = if mascot {
+            opacity
+        } else {
+            opacity * handoff.map_or(1.0, UnlockHandoff::items_opacity)
+        };
+        if item_opacity <= 0.0 {
+            x += width + ITEM_GAP;
+            continue;
         }
-        if let Some(tooltip) = &view.tooltip {
+        if !mascot {
+            draw_compact_chip(ui, item_rect, item_opacity);
+        }
+        if let Some(tooltip) = view.tooltip.as_ref().filter(|_| handoff.is_none()) {
             ui.interact(
                 item_rect,
                 egui::Id::new(("compact-item", &view.id)),
@@ -93,17 +106,29 @@ pub(super) fn show(
             .on_hover_text(tooltip);
         }
         let content_rect = item_rect.shrink2(egui::vec2(3.0, 0.0));
+        let content_rect = if let Some(handoff) = handoff.filter(|_| mascot) {
+            let start = unlock::mascot_rect(Rect::from_center_size(
+                rect.center(),
+                Vec2::new(unlock::WIDTH, rect.height()),
+            ));
+            Rect::from_min_max(
+                start.min.lerp(content_rect.min, handoff.travel()),
+                start.max.lerp(content_rect.max, handoff.travel()),
+            )
+        } else {
+            content_rect
+        };
         if let Some(clicked) = renderer::show_compact_with_appearance(
             ui,
             content_rect,
             &view.id,
             &view.content,
             icons,
-            opacity,
+            item_opacity,
             appearance,
         ) {
             action = Some(ActionInvocation {
-                source_extension_id: view.source_extension_id.clone(),
+                source_extension_id: view.id.clone(),
                 action: clicked,
             });
         }

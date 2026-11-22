@@ -88,6 +88,8 @@ pub struct ContributionDescriptor {
     pub id: ExtensionId,
     pub kind: ContributionKind,
     pub title: String,
+    #[serde(default)]
+    pub description: String,
     pub icon: String,
     pub default_enabled: bool,
     pub default_order: u32,
@@ -102,6 +104,12 @@ pub struct ContributionDescriptor {
     pub schema_version: u32,
     pub version: String,
     pub requires_setup: bool,
+    #[serde(default)]
+    pub execution_policy: ExecutionPolicy,
+    #[serde(default)]
+    pub dependencies: Vec<ExtensionId>,
+    #[serde(default)]
+    pub events: Vec<super::Event>,
 }
 
 impl ContributionDescriptor {
@@ -113,10 +121,29 @@ impl ContributionDescriptor {
         default_enabled: bool,
         default_order: u32,
     ) -> Self {
+        Self::new(
+            ExtensionId::builtin(id),
+            kind,
+            title,
+            icon,
+            default_enabled,
+            default_order,
+        )
+    }
+
+    pub fn new(
+        id: ExtensionId,
+        kind: ContributionKind,
+        title: impl Into<String>,
+        icon: impl Into<String>,
+        default_enabled: bool,
+        default_order: u32,
+    ) -> Self {
         Self {
-            id: ExtensionId::builtin(id),
+            id,
             kind,
             title: title.into(),
+            description: String::new(),
             icon: icon.into(),
             default_enabled,
             default_order,
@@ -138,6 +165,9 @@ impl ContributionDescriptor {
             schema_version: 1,
             version: env!("CARGO_PKG_VERSION").into(),
             requires_setup: false,
+            execution_policy: ExecutionPolicy::EventDriven,
+            dependencies: vec![],
+            events: vec![],
         }
     }
 
@@ -167,14 +197,25 @@ impl ContributionDescriptor {
         self
     }
 
+    pub fn with_execution_policy(mut self, policy: ExecutionPolicy) -> Self {
+        self.execution_policy = policy;
+        self
+    }
+
+    pub fn with_dependency(mut self, resource: ExtensionId) -> Self {
+        self.dependencies.push(resource);
+        self
+    }
+
     pub fn with_setup(mut self, requires_setup: bool) -> Self {
         self.requires_setup = requires_setup;
         self
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum ExecutionPolicy {
+    #[default]
     EventDriven,
     Interval(std::time::Duration),
     WhenVisible,
@@ -204,12 +245,18 @@ impl ExtensionDescriptor {
         events: bool,
         expressions: &[crate::core::mascot::MascotExpression],
     ) -> Self {
+        let service = service
+            && !self
+                .contributions
+                .iter()
+                .any(|c| c.kind == ContributionKind::BackgroundService);
         let mut add = |local: &str, kind: ContributionKind, name: &str| {
             self.contributions.push(ContributionDescriptor {
                 id: ExtensionId::new(format!("{}/{}", self.id, local))
                     .unwrap_or_else(|_| self.id.clone()),
                 kind,
                 title: name.into(),
+                description: String::new(),
                 icon: self.icon.clone(),
                 default_enabled: true,
                 default_order: 0,
@@ -222,6 +269,9 @@ impl ExtensionDescriptor {
                 schema_version: 1,
                 version: self.version.clone(),
                 requires_setup: false,
+                execution_policy: ExecutionPolicy::EventDriven,
+                dependencies: vec![],
+                events: vec![],
             });
         };
         if service {
@@ -247,17 +297,8 @@ impl ExtensionDescriptor {
         id: &'static str,
         name: &str,
         description: &str,
-        mut contributions: Vec<ContributionDescriptor>,
+        contributions: Vec<ContributionDescriptor>,
     ) -> Self {
-        let settings_version = contributions
-            .iter()
-            .map(|c| c.settings_version)
-            .max()
-            .unwrap_or(1);
-        let settings = contributions
-            .iter_mut()
-            .flat_map(|c| std::mem::take(&mut c.settings))
-            .collect();
         Self {
             id: ExtensionId::builtin(id),
             name: name.into(),
@@ -270,9 +311,14 @@ impl ExtensionDescriptor {
             default_enabled: contributions.iter().any(|c| c.default_enabled),
             default_order: contributions.first().map_or(0, |c| c.default_order),
             contributions,
-            settings_version,
-            settings,
+            settings_version: 1,
+            settings: vec![],
             execution_policy: ExecutionPolicy::Interval(std::time::Duration::from_millis(250)),
         }
+    }
+    pub fn with_settings(mut self, version: u32, settings: Vec<SettingSchema>) -> Self {
+        self.settings_version = version;
+        self.settings = settings;
+        self
     }
 }

@@ -24,6 +24,7 @@ use std::{
 
 pub const WIDGET_ID: &str = "builtin.weather/forecast";
 pub const COMPACT_ID: &str = "builtin.weather/current";
+const SERVICE_ID: &str = "builtin.weather/service.forecast";
 pub const ALERTS_ID: &str = "builtin.weather/alerts";
 
 const RETRY_INTERVAL: Duration = Duration::from_secs(60);
@@ -41,6 +42,7 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             true,
             4,
         )
+        .with_dependency(ExtensionId::builtin(SERVICE_ID))
         .with_size_hint(WIDGET_SIZE[0], WIDGET_SIZE[1])
         .with_widget_bounds(WidgetBounds {
             fit_height: true,
@@ -60,6 +62,7 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
             true,
             8,
         )
+        .with_dependency(ExtensionId::builtin(SERVICE_ID))
         .with_size_hint(COMPACT_WIDTH, 28.0),
         ContributionDescriptor::builtin(
             ALERTS_ID,
@@ -72,7 +75,19 @@ pub fn descriptors() -> Vec<ContributionDescriptor> {
         .with_capabilities(vec![
             crate::extension::Capability::Event,
             crate::extension::Capability::Action,
-        ]),
+        ])
+        .with_dependency(ExtensionId::builtin(SERVICE_ID)),
+        ContributionDescriptor::builtin(
+            SERVICE_ID,
+            ContributionKind::BackgroundService,
+            "天气服务",
+            "cloud-sun",
+            true,
+            0,
+        )
+        .with_execution_policy(crate::extension::ExecutionPolicy::Interval(
+            Duration::from_millis(250),
+        )),
     ]
 }
 
@@ -81,7 +96,8 @@ pub struct WeatherExtension {
     snapshot: Option<Snapshot>,
     alerts: Vec<WeatherAlert>,
     error: Option<String>,
-    worker: Option<std::thread::JoinHandle<()>>,
+    request_cancel: Option<crate::sdk::tasks::CancellationToken>,
+    alerts_enabled: bool,
     pending: Option<Receiver<Result<Snapshot, String>>>,
     auto_location: Option<Location>,
     published_alerts: HashMap<String, alerts::Severity>,
@@ -99,7 +115,8 @@ impl WeatherExtension {
             alerts: Vec::new(),
             error: None,
             pending: None,
-            worker: None,
+            request_cancel: None,
+            alerts_enabled: true,
             auto_location: None,
             published_alerts: HashMap::new(),
             alert_history_path: None,
@@ -115,7 +132,6 @@ impl WeatherExtension {
         }
         let location_changed = self.preferences.auto_locate != preferences.auto_locate
             || self.preferences.location != preferences.location;
-        let alerts_enabled = !self.preferences.alerts_enabled && preferences.alerts_enabled;
         let interval_changed = self.preferences.refresh_minutes != preferences.refresh_minutes;
         self.preferences = preferences.clone();
         if location_changed {
@@ -123,10 +139,8 @@ impl WeatherExtension {
             self.alerts.clear();
             self.error = None;
             self.auto_location = None;
-            self.pending = None;
+            self.cancel_fetch();
             self.last_success = None;
-            self.next_refresh = Instant::now();
-        } else if alerts_enabled && self.snapshot.is_some() {
             self.next_refresh = Instant::now();
         } else if interval_changed && self.error.is_none() {
             if let Some(last_success) = self.last_success {
@@ -136,21 +150,44 @@ impl WeatherExtension {
         true
     }
 
-    fn start_fetch(&mut self) {
+    fn cancel_fetch(&mut self) {
+        self.pending = None;
+        if let Some(token) = self.request_cancel.take() {
+            token.cancel();
+        }
+    }
+
+    fn start_fetch(&mut self, context: &ExtensionContext) {
         if self.pending.is_some() {
             return;
         }
         let (sender, receiver) = mpsc::channel();
         let preferences = self.preferences.clone();
         let cached_auto_location = self.auto_location.clone();
-        self.pending = Some(receiver);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+        let token = crate::sdk::tasks::CancellationToken::default();
+        let cancellation = token.clone();
+        let spawn = context.tasks().spawn("weather-forecast", move |scope| {
+            if scope.is_cancelled() {
+                return;
+            }
+            let result = crate::sdk::http::run_cancellable(
+                &cancellation,
+                client::fetch(&preferences, cached_auto_location.as_ref()),
+            );
+            if let Ok(Some(snapshot)) = result {
+                let _ = sender.send(snapshot);
+            }
+        });
+        match spawn {
+            Ok(()) => {
+                self.pending = Some(receiver);
+                self.request_cancel = Some(token);
+            }
+            Err(error) => {
+                self.error = Some(error.to_string());
+                self.next_refresh = Instant::now() + RETRY_INTERVAL;
+            }
         }
-        self.worker = Some(std::thread::spawn(move || {
-            let result = client::fetch(&preferences, cached_auto_location.as_ref());
-            let _ = sender.send(result);
-        }));
     }
 
     fn apply_snapshot(&mut self, snapshot: Snapshot, now: Instant, output: &mut ExtensionOutput) {
@@ -158,8 +195,12 @@ impl WeatherExtension {
             .preferences
             .auto_locate
             .then(|| snapshot.location.clone());
-        let derived = alerts::derive(&snapshot);
-        if self.preferences.alerts_enabled {
+        let derived = if self.alerts_enabled {
+            alerts::derive(&snapshot)
+        } else {
+            Vec::new()
+        };
+        if self.alerts_enabled {
             if let Some(today) = snapshot.today() {
                 self.published_alerts.retain(|id, _| {
                     id.split_once(':')
@@ -254,7 +295,8 @@ impl WeatherExtension {
             alerts,
             error,
             pending: None,
-            worker: None,
+            request_cancel: None,
+            alerts_enabled: true,
             auto_location: None,
             published_alerts: HashMap::new(),
             alert_history_path: None,
@@ -297,7 +339,8 @@ impl RuntimeExtension for WeatherExtension {
             descriptors(),
         );
         d.settings = WeatherPreferences::schema();
-        d.settings_version = 2;
+        d.settings_version = 3;
+        d.execution_policy = crate::extension::ExecutionPolicy::EventDriven;
         d
     }
 
@@ -310,25 +353,28 @@ impl RuntimeExtension for WeatherExtension {
             return None;
         }
         let query = query.to_owned();
-        Some(Box::new(move || {
-            client::search_cities(&query).map(|cities| {
-                cities
-                    .into_iter()
-                    .map(|city| {
-                        let detail = city.detail();
-                        crate::extension::SearchOption {
-                            id: format!("{:.5},{:.5}", city.latitude, city.longitude),
-                            label: city.name,
-                            detail,
-                            data: [
-                                ("latitude".into(), city.latitude.to_string()),
-                                ("longitude".into(), city.longitude.to_string()),
-                            ]
-                            .into(),
-                        }
-                    })
-                    .collect()
-            })
+        Some(Box::new(move |cancellation| {
+            crate::sdk::http::run_cancellable(&cancellation, client::search_cities(&query))
+                .map_err(|error| error.to_string())?
+                .ok_or("搜索已取消")?
+                .map(|cities| {
+                    cities
+                        .into_iter()
+                        .map(|city| {
+                            let detail = city.detail();
+                            crate::extension::SearchOption {
+                                id: format!("{:.5},{:.5}", city.latitude, city.longitude),
+                                label: city.name,
+                                detail,
+                                data: [
+                                    ("latitude".into(), city.latitude.to_string()),
+                                    ("longitude".into(), city.longitude.to_string()),
+                                ]
+                                .into(),
+                            }
+                        })
+                        .collect()
+                })
         }))
     }
 
@@ -391,19 +437,68 @@ impl RuntimeExtension for WeatherExtension {
         Ok(())
     }
 
-    fn on_stop(&mut self, _: &ExtensionContext) -> Result<(), String> {
-        self.pending = None;
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+    fn migrate_settings(
+        &self,
+        id: &ExtensionId,
+        old_version: u32,
+        mut values: crate::extension::Settings,
+    ) -> Result<crate::extension::Settings, String> {
+        if id.as_str() != "builtin.weather" || old_version != 2 {
+            return Err(format!(
+                "unsupported weather settings version {old_version}"
+            ));
+        }
+        values.remove("alerts");
+        Ok(values)
+    }
+
+    fn contribution_preference_migration(
+        &self,
+        previous: &crate::extension::Settings,
+    ) -> std::collections::BTreeMap<ExtensionId, bool> {
+        if let Some(crate::extension::SettingValue::Boolean(enabled)) = previous.get("alerts") {
+            return [(ExtensionId::builtin(ALERTS_ID), *enabled)].into();
+        }
+        Default::default()
+    }
+
+    fn on_contribution_stop(
+        &mut self,
+        _: &ExtensionContext,
+        id: &ExtensionId,
+    ) -> Result<(), String> {
+        if id.as_str() == SERVICE_ID {
+            self.cancel_fetch();
         }
         Ok(())
     }
-    fn update(&mut self, now: Instant) -> ExtensionOutput {
+
+    fn on_contribution_state(
+        &mut self,
+        _: &ExtensionContext,
+        active: &std::collections::BTreeMap<ExtensionId, crate::extension::Settings>,
+    ) {
+        let enabled = active.contains_key(&ExtensionId::builtin(ALERTS_ID));
+        if enabled && !self.alerts_enabled {
+            self.next_refresh = Instant::now();
+        }
+        self.alerts_enabled = enabled;
+    }
+
+    fn on_contribution_update(
+        &mut self,
+        context: &ExtensionContext,
+        id: &ExtensionId,
+        now: Instant,
+    ) -> ExtensionOutput {
+        if id.as_str() != SERVICE_ID {
+            return ExtensionOutput::default();
+        }
         let mut output = ExtensionOutput::default();
         let changed = self.poll_fetch(now, &mut output);
         let started = self.pending.is_none() && now >= self.next_refresh;
         if started {
-            self.start_fetch();
+            self.start_fetch(context);
         }
         if changed {
             output.invalidated = vec![
@@ -433,7 +528,6 @@ impl RuntimeExtension for WeatherExtension {
             return ExtensionOutput::default();
         }
         self.next_refresh = now;
-        self.start_fetch();
         ExtensionOutput {
             invalidated: vec![ExtensionId::builtin(WIDGET_ID)],
             ..ExtensionOutput::default()
@@ -974,7 +1068,11 @@ mod tests {
             .is_empty());
         sender.send(Ok(snapshot())).unwrap();
         assert!(extension
-            .update(now)
+            .on_contribution_update(
+                &ExtensionContext::new(Default::default(), Default::default()),
+                &ExtensionId::builtin(SERVICE_ID),
+                now
+            )
             .invalidated
             .contains(&ExtensionId::builtin(WIDGET_ID)));
         assert!(describe(&extension).contains("立即刷新"));
@@ -983,7 +1081,7 @@ mod tests {
     #[test]
     fn descriptors_register_a_widget_a_compact_item_and_an_alert_source() {
         let descriptors = descriptors();
-        assert_eq!(descriptors.len(), 3);
+        assert_eq!(descriptors.len(), 4);
         assert!(descriptors.iter().any(|descriptor| {
             descriptor.id.as_str() == WIDGET_ID && descriptor.kind == ContributionKind::Widget
         }));
@@ -1094,7 +1192,6 @@ mod tests {
     fn weather_preferences_are_applied_without_coupling_the_host_to_weather_data() {
         let mut extension = WeatherExtension::new(WeatherPreferences::default());
         let mut preferences = WeatherPreferences::default();
-        preferences.alerts_enabled = false;
         preferences.location = Some(crate::builtins::weather::preferences::WeatherLocation::new(
             "上海", 31.22, 121.46,
         ));
