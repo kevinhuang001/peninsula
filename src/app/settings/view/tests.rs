@@ -139,7 +139,11 @@ fn plugin_names_remain_in_second_column_and_configuration_is_in_the_right_panel(
 fn stopped_extension_forms_are_editable_and_switching_plugins_keeps_values() {
     let ctx = egui::Context::default();
     let mut prefs = CompactPreferences::default();
-    let id = ExtensionId::builtin("builtin.clock");
+    let id = ExtensionId::builtin("builtin.calendar");
+    // The merged calendar is enabled by default because its month Widget is
+    // enabled; explicitly stop it to test offline settings editing.
+    prefs.pages.iter_mut().find(|page| page.descriptor.id == id)
+        .expect("calendar settings page").enabled = false;
     let mut view = SettingsView {
         section: Section::Extensions,
         selected: Some(id.clone()),
@@ -194,7 +198,7 @@ fn stopped_extension_forms_are_editable_and_switching_plugins_keeps_values() {
         &ctx,
         &mut view,
         &mut prefs,
-        text_rect(&output, "时间和日期").center(),
+        text_rect(&output, "日历与时间").center(),
     );
     assert_eq!(view.selected.as_ref(), Some(&id));
     assert_eq!(
@@ -298,7 +302,7 @@ fn settings_width_follows_the_selected_content_and_screen_limit() {
             .width(ctx, &prefs);
             assert!(general < 680.0);
             assert!(quiet < 680.0);
-            let id = ExtensionId::builtin("builtin.clock");
+            let id = ExtensionId::builtin("builtin.calendar");
             let view = SettingsView {
                 section: Section::Extensions,
                 selected: Some(id.clone()),
