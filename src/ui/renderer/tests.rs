@@ -371,6 +371,69 @@ fn grid_reserves_spans_and_uses_mixed_tracks() {
 }
 
 #[test]
+fn calendar_grid_stretches_each_day_to_shared_column_width_and_week_height() {
+    with_ui(|ui, icons| {
+        let tile = |label: &'static str| {
+            let content = ViewNode::column(
+                vec![ViewNode::text(
+                    label,
+                    TextStyle {
+                        wrap: true,
+                        ..Default::default()
+                    },
+                )
+                .sized(Size::Fill(1.0), Size::Auto)],
+                Flow::default(),
+            )
+            .sized(Size::Fill(1.0), Size::Auto);
+            let mut area = ViewNode::new(Node::ActionArea {
+                action: Action::Custom("select-day".into()),
+                label: label.into(),
+                content: Box::new(content),
+                context_menu: None,
+            })
+            .sized(Size::Fill(1.0), Size::Auto);
+            area.size.min_height = Some(54.0);
+            area.style.padding = [5.0, 9.0, 5.0, 8.0];
+            area.style.normal.background = Some(ColorSpec::Surface);
+            area
+        };
+        let mut days = vec![tile("15"); 14];
+        days[3] = tile("Thanksgiving\nDay\nCelebration\n2026");
+        let mut grid = Grid::new(Columns::Tracks(vec![Track::Fraction(1.0); 7]));
+        grid.rows = vec![Track::Auto; 2];
+        grid.column_gap = Some(6.0);
+        grid.row_gap = Some(6.0);
+        let node = ViewNode::new(Node::Grid(grid, days));
+        let result = Renderer::new(ui, icons)
+            .layout(ui, &node, vec2(840.0, 450.0), 1)
+            .unwrap();
+        assert_eq!(result.cells.len(), 14);
+        let first_week = &result.cells[..7];
+        let second_week = &result.cells[7..14];
+        let first_height = first_week[0].1.height();
+        let second_height = second_week[0].1.height();
+        assert!(
+            first_height > second_height,
+            "the longest holiday must expand every day in that week"
+        );
+        for week in [first_week, second_week] {
+            let height = week[0].1.height();
+            for (_, rect) in week {
+                assert_eq!(rect.height(), height);
+                assert_eq!(rect.width(), first_week[0].1.width());
+            }
+        }
+        for column in 0..7 {
+            let upper = first_week[column].1;
+            let lower = second_week[column].1;
+            assert_eq!(upper.left(), lower.left());
+            assert_eq!(upper.width(), lower.width());
+        }
+    });
+}
+
+#[test]
 fn autofit_reflows_and_column_first_fills_down() {
     with_ui(|ui, icons| {
         let mut layout = Renderer::new(ui, icons);
