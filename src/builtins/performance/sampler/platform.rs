@@ -67,39 +67,41 @@ pub(super) fn gpu_utilization() -> Option<f32> {
 }
 
 #[cfg(target_os = "windows")]
-pub(super) fn windows_battery_status() -> Option<(Option<u8>, bool)> {
+pub(super) fn windows_battery_status() -> Option<crate::builtins::performance::power::PowerSnapshot>
+{
     use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
-
     let mut status = SYSTEM_POWER_STATUS::default();
-    // Windows fills the structure on success.
     unsafe { GetSystemPowerStatus(&mut status) }.ok()?;
-    decode_windows_battery_status(
+    Some(decode_windows_battery_status(
         status.ACLineStatus,
         status.BatteryFlag,
         status.BatteryLifePercent,
-    )
+    ))
 }
 
 #[cfg(any(target_os = "windows", test))]
 fn decode_windows_battery_status(
     ac_line: u8,
-    battery_flags: u8,
+    flags: u8,
     percent: u8,
-) -> Option<(Option<u8>, bool)> {
-    const AC_ONLINE: u8 = 1;
-    const CHARGING: u8 = 8;
-    const NO_BATTERY: u8 = 128;
-    const UNKNOWN: u8 = 255;
-
-    let flags = (battery_flags != UNKNOWN)
-        .then_some(battery_flags)
-        .unwrap_or_default();
-    if flags & NO_BATTERY != 0 {
-        return Some((None, false));
+) -> crate::builtins::performance::power::PowerSnapshot {
+    use crate::builtins::performance::power::PowerSnapshot;
+    let external = match ac_line {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    };
+    if flags != 255 && flags & 128 != 0 {
+        return PowerSnapshot {
+            external,
+            ..Default::default()
+        };
     }
-    // Let the per-battery sampler handle an unavailable aggregate percentage.
-    let percent = (percent <= 100).then_some(percent)?;
-    Some((Some(percent), ac_line == AC_ONLINE || flags & CHARGING != 0))
+    PowerSnapshot {
+        percent: (percent <= 100).then_some(percent),
+        external,
+        charging: flags != 255 && flags & 8 != 0 && external != Some(false),
+    }
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -114,15 +116,33 @@ mod tests {
     use super::parse_gpu_utilization;
 
     #[test]
-    fn windows_reports_charging_or_external_power_without_marking_desktops() {
+    fn windows_distinguishes_charging_full_charge_limit_and_unknown_data() {
+        use crate::builtins::performance::power::PowerSnapshot as Power;
         let decode = super::decode_windows_battery_status;
-        assert_eq!(decode(1, 0, 60), Some((Some(60), true)));
-        assert_eq!(decode(1, 1, 100), Some((Some(100), true)));
-        assert_eq!(decode(255, 8 | 1, 92), Some((Some(92), true)));
-        assert_eq!(decode(0, 0, 60), Some((Some(60), false)));
-        assert_eq!(decode(0, 255, 60), Some((Some(60), false)));
-        assert_eq!(decode(1, 128, 255), Some((None, false)));
-        assert_eq!(decode(255, 255, 255), None);
+        assert_eq!(
+            decode(1, 8, 60),
+            Power {
+                percent: Some(60),
+                external: Some(true),
+                charging: true
+            }
+        );
+        for percent in [80, 100] {
+            assert_eq!(
+                decode(1, 1, percent),
+                Power {
+                    percent: Some(percent),
+                    external: Some(true),
+                    charging: false
+                }
+            );
+        }
+        assert!(!decode(0, 8, 60).charging);
+        assert!(!decode(1, 255, 60).charging);
+        assert_eq!(decode(1, 0, 255).external, Some(true));
+        assert_eq!(decode(1, 0, 255).percent, None);
+        assert_eq!(decode(255, 255, 255), Power::default());
+        assert_eq!(decode(1, 128, 255).percent, None);
     }
 
     #[test]

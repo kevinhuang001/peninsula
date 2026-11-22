@@ -231,3 +231,77 @@ fn widget_fixture() -> (
 
     (widget_ids, widget_view)
 }
+
+#[test]
+fn table_text_keeps_its_destination_wrap_width_during_expansion() {
+    use crate::ui::declarative::*;
+    let ctx = egui::Context::default();
+    let icons = crate::app::icons::Icons::load(&ctx);
+    let mut preferences = CompactPreferences::default();
+    let mut settings = SettingsView::default();
+    let mut active = crate::extension::ExtensionId::builtin("test/table");
+    let ids = vec![active.clone()];
+    let label =
+        "A long parcel description that wraps across several lines at the destination width";
+    let view = WidgetView::new(
+        ViewNode::new(Node::Table(Table {
+            columns: vec![TableColumn::new("Parcel", 1.0)],
+            rows: vec![vec![ViewNode::text(
+                label,
+                TextStyle {
+                    wrap: true,
+                    ..Default::default()
+                },
+            )]],
+        })),
+        [440.0, 180.0],
+    );
+    let mut rows = vec![];
+    for width in [280.0, 360.0, 440.0] {
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(640.0, 400.0))),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    super::paint_expanded(
+                        ui,
+                        Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(width, 280.0)),
+                        0.8,
+                        super::ExpandedContent {
+                            active_widget: &mut active,
+                            widget_ids: &ids,
+                            widget_titles: &[],
+                            widget_title: "Test",
+                            widget_view: &view,
+                            widget_body_limit: egui::vec2(408.0, 180.0),
+                            pinned: false,
+                            do_not_disturb: false,
+                            icons: &icons,
+                            settings_open: false,
+                            settings_view: &mut settings,
+                            preferences: &mut preferences,
+                            bilibili_status: "",
+                        },
+                    );
+                });
+            },
+        );
+        let text = output
+            .shapes
+            .iter()
+            .find_map(|item| match &item.shape {
+                egui::Shape::Text(t) if t.galley.job.text == label => Some(t),
+                _ => None,
+            })
+            .unwrap();
+        rows.push(text.galley.rows.len());
+    }
+    assert!(rows[0] > 1);
+    assert_eq!(
+        rows,
+        vec![rows[0]; 3],
+        "spring animation must not reflow the parcel table"
+    );
+}

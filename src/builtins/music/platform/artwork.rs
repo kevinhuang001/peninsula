@@ -7,26 +7,63 @@ use std::{
 
 pub(super) const MAX_BYTES: u64 = 2 * 1024 * 1024;
 
+type Load = Box<dyn FnOnce() -> Option<Vec<u8>> + Send>;
+type Artwork = Option<Arc<RasterImage>>;
+
 #[derive(Default)]
 pub(super) struct Cache {
     key: String,
-    result: Option<Arc<RasterImage>>,
+    result: Artwork,
     retry_at: Option<Instant>,
+    loading: bool,
+    worker: Option<(
+        std::sync::mpsc::Sender<(String, Load)>,
+        std::sync::mpsc::Receiver<(String, Artwork)>,
+    )>,
 }
 
 impl Cache {
     pub fn get(
         &mut self,
         key: &str,
-        load: impl FnOnce() -> Option<Vec<u8>>,
-    ) -> Option<Arc<RasterImage>> {
-        let now = Instant::now();
-        if self.key != key
-            || (self.result.is_none() && self.retry_at.is_none_or(|retry| now >= retry))
+        load: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
+    ) -> Artwork {
+        if self.worker.is_none() {
+            let (tx, requests) = std::sync::mpsc::channel::<(String, Load)>();
+            let (results, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                while let Ok(first) = requests.recv() {
+                    let (key, load) = requests.try_iter().last().unwrap_or(first);
+                    let image = load().and_then(|bytes| decode(&bytes)).map(Arc::new);
+                    if results.send((key, image)).is_err() {
+                        break;
+                    }
+                }
+            });
+            self.worker = Some((tx, rx));
+        }
+        if self.key != key {
+            self.key = key.into();
+            self.result = None;
+            self.retry_at = None;
+            self.loading = false;
+        }
+        let (tx, rx) = self.worker.as_ref().unwrap();
+        while let Ok((finished, image)) = rx.try_recv() {
+            if finished == self.key {
+                self.result = image;
+                self.loading = false;
+                self.retry_at = Some(Instant::now() + Duration::from_secs(10));
+            }
+        }
+        if self.result.is_none()
+            && !self.loading
+            && self.retry_at.is_none_or(|retry| Instant::now() >= retry)
         {
-            self.result = load().and_then(|data| decode(&data)).map(Arc::new);
-            self.key = key.to_owned();
-            self.retry_at = Some(now + Duration::from_secs(10));
+            self.loading = tx.send((key.into(), Box::new(load))).is_ok();
+            if !self.loading {
+                self.retry_at = Some(Instant::now() + Duration::from_secs(10));
+            }
         }
         self.result.clone()
     }
@@ -80,4 +117,23 @@ pub(super) fn read_url(raw: &str) -> Option<Vec<u8>> {
     let mut bytes = Vec::new();
     input.take(MAX_BYTES + 1).read_to_end(&mut bytes).ok()?;
     (bytes.len() as u64 <= MAX_BYTES).then_some(bytes)
+}
+
+#[cfg(test)]
+mod freshness_tests {
+    use super::*;
+    #[test]
+    fn slow_artwork_loader_never_blocks_media_observation() {
+        let mut cache = Cache::default();
+        let (release, wait) = std::sync::mpsc::channel();
+        let start = Instant::now();
+        assert!(cache
+            .get("slow", move || {
+                let _ = wait.recv_timeout(Duration::from_secs(2));
+                None
+            })
+            .is_none());
+        assert!(start.elapsed() < Duration::from_millis(200));
+        release.send(()).unwrap();
+    }
 }

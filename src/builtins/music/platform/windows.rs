@@ -1,7 +1,7 @@
 use super::{artwork, duration, Command, Controls, Playback, Track};
 use std::time::Instant;
 use windows::{
-    core::Result,
+    core::{AgileReference, Result},
     Media::Control::{
         GlobalSystemMediaTransportControlsSession as Session,
         GlobalSystemMediaTransportControlsSessionManager as Manager,
@@ -62,9 +62,12 @@ impl Backend {
                     playback.track.artist,
                     playback.track.album
                 );
+                let thumbnail = thumbnail
+                    .as_ref()
+                    .and_then(|image| AgileReference::new(image).ok());
                 playback.artwork = self
                     .artwork
-                    .get(&key, || read_thumbnail(thumbnail.as_ref()?));
+                    .get(&key, move || read_agile_thumbnail(thumbnail));
                 self.active = Some((playback.session.clone(), session));
                 Ok(Some(playback))
             }
@@ -252,4 +255,20 @@ fn read_thumbnail(thumbnail: &IRandomAccessStreamReference) -> Option<Vec<u8>> {
     let mut data = vec![0; size as usize];
     reader.ReadBytes(&mut data).ok()?;
     Some(data)
+}
+
+// Marshal WinRT references and initialize the artwork worker's own apartment.
+fn read_agile_thumbnail(
+    thumbnail: Option<AgileReference<IRandomAccessStreamReference>>,
+) -> Option<Vec<u8>> {
+    let thumbnail = thumbnail?;
+    unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.ok()?;
+    let result = thumbnail
+        .resolve()
+        .ok()
+        .and_then(|image| read_thumbnail(&image));
+    unsafe {
+        RoUninitialize();
+    }
+    result
 }
