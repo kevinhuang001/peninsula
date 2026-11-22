@@ -432,6 +432,7 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
             100,
         )
         .with_group(vec!["股票".into()])
+        .with_setup(true)
         .with_settings(
             1,
             vec![
@@ -453,8 +454,8 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
             ],
         ),
     );
-    // Reproduce a newly added stock that has never saved any notification
-    // settings: the entire form must still be shown and editable.
+    // An alert may be enabled before its activation threshold is complete.
+    prefs.set_contribution_enabled(id.clone(), true);
     assert!(!prefs.contribution_values.contains_key(&id));
     let output = ctx.run(
         RawInput {
@@ -503,6 +504,36 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
         SettingValue::Enum("高于".into()));
     assert_eq!(prefs.contribution_values[&id]["threshold"],
         SettingValue::Float(0.0));
+    assert!(text_rect(&output, "目标价格：需填写大于 0 的数值").width() > 0.0);
+    assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+        egui::Shape::Text(text) if text.galley.job.text.contains(
+            "待配置：请完成必填配置后启用提醒"
+        )
+    )));
+    prefs.contribution_values.get_mut(&id).unwrap()
+        .insert("threshold".into(), SettingValue::Float(150.50));
+    let configured = ctx.run(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO, egui::vec2(900.0, 1400.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                notifications::options(ui, &mut prefs, &mut HashMap::new());
+            });
+        },
+    );
+    assert!(!configured.shapes.iter().any(|shape| matches!(&shape.shape,
+        egui::Shape::Text(text) if text.galley.job.text.contains(
+            "需填写大于 0 的数值"
+        )
+    )));
+    assert!(prefs.contribution_enabled(
+        &prefs.pages.iter().flat_map(|p| &p.descriptor.contributions)
+            .find(|entry| entry.id == id).unwrap().clone()
+    ));
 }
 
 #[test]
