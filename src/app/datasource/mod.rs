@@ -653,9 +653,9 @@ impl DataSourceWindow {
                                     .entry(draft_id.clone())
                                     .or_insert_with(|| initial.clone());
                                 let editor = egui::TextEdit::singleline(draft);
-                                ui.add_space((ui.available_width() - 220.0).max(0.0));
+                                ui.add_space((ui.available_width() - 224.0).max(0.0));
                                 let response = ui.add_sized(
-                                    [ui.available_width().min(220.0), 28.0],
+                                    [(ui.available_width() - 4.0).min(220.0).max(20.0), 28.0],
                                     editor.horizontal_align(Align::RIGHT),
                                 );
                                 let response = if schema.kind == InputType::String {

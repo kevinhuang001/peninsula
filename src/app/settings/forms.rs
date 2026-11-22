@@ -297,6 +297,9 @@ pub(super) fn search_setting(
     );
     ui.add_space(4.0);
     ui.horizontal(|ui| {
+        // Keep the left half of TextEdit's focused border inside the
+        // scroll area's clip rectangle.
+        ui.add_space(2.0);
         let width = (ui.available_width() - 55.0).max(80.0);
         let response = ui.add_sized(
             [width, 25.0],
