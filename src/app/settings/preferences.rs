@@ -134,6 +134,16 @@ impl CompactPreferences {
                         .filter_map(|v| ExtensionId::new(v.trim()).ok())
                         .collect()
                 }
+                // Preserve Widget visibility saved before the contribution lifecycle merge.
+                "widget_disabled" => {
+                    for value in value.split(',') {
+                        if let Ok(id) = ExtensionId::new(value.trim()) {
+                            if registry().get(&id).is_some_and(|entry| entry.kind == ContributionKind::Widget) {
+                                settings.contribution_enabled.insert(id, false);
+                            }
+                        }
+                    }
+                }
                 "contribution_enabled" => {
                     if let Some((id, enabled)) = value.split_once('|') {
                         if let (Ok(id), Some(enabled)) =
@@ -414,6 +424,30 @@ impl CompactPreferences {
         }
     }
 
+    pub fn ordered_enabled_widgets(&self) -> Vec<ExtensionId> {
+        self.widget_order.iter()
+            .filter(|id| self.pages.iter().flat_map(|page| &page.descriptor.contributions)
+                .find(|entry| &entry.id == *id)
+                .is_some_and(|entry| self.contribution_enabled(entry)))
+            .cloned()
+            .collect()
+    }
+
+    pub fn move_widget(&mut self, id: &ExtensionId, offset: isize) -> bool {
+        let enabled = self.ordered_enabled_widgets();
+        let Some(index) = enabled.iter().position(|entry| entry == id) else {
+            return false;
+        };
+        let next = index.saturating_add_signed(offset).min(enabled.len().saturating_sub(1));
+        if next == index {
+            return false;
+        }
+        let left = self.widget_order.iter().position(|entry| entry == id).unwrap();
+        let right = self.widget_order.iter().position(|entry| entry == &enabled[next]).unwrap();
+        self.widget_order.swap(left, right);
+        true
+    }
+
     pub fn ordered_compact_items(&self) -> Vec<&CompactItemPreference> {
         let mut items: Vec<_> = self.compact_items.iter().collect();
         items.sort_by_key(|item| (item.order, item.id.clone()));
@@ -424,6 +458,7 @@ impl CompactPreferences {
         let ordered: Vec<_> = self
             .ordered_compact_items()
             .into_iter()
+            .filter(|item| item.enabled)
             .map(|item| item.id.clone())
             .collect();
         let Some(index) = ordered.iter().position(|candidate| candidate == id) else {
