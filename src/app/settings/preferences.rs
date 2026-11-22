@@ -36,6 +36,7 @@ pub struct CompactPreferences {
     pub compact_text_size: f32,
     pub compact_text_color: Option<[u8; 3]>,
     pub widget_order: Vec<ExtensionId>,
+    pub widget_disabled: Vec<ExtensionId>,
     pub pages: Vec<ExtensionPage>,
 }
 impl Default for CompactPreferences {
@@ -65,6 +66,7 @@ impl Default for CompactPreferences {
                 .into_iter()
                 .map(|d| d.id.clone())
                 .collect(),
+            widget_disabled: Vec::new(),
             pages: registry
                 .extensions()
                 .iter()
@@ -135,6 +137,17 @@ impl CompactPreferences {
                         })
                         .collect()
                 }
+                "widget_disabled" => {
+                    settings.widget_disabled = value
+                        .split(',')
+                        .filter_map(|value| ExtensionId::new(value.trim()).ok())
+                        .filter(|id| {
+                            registry()
+                                .get(id)
+                                .is_some_and(|descriptor| descriptor.kind == ContributionKind::Widget)
+                        })
+                        .collect();
+                }
                 "extension" => {
                     let fields: Vec<_> = value.split('|').collect();
                     if fields.len() != 3 {
@@ -200,6 +213,14 @@ impl CompactPreferences {
             format!(
                 "widget_order={}",
                 self.widget_order
+                    .iter()
+                    .map(|id| id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            format!(
+                "widget_disabled={}",
+                self.widget_disabled
                     .iter()
                     .map(|id| id.as_str())
                     .collect::<Vec<_>>()
@@ -347,6 +368,47 @@ impl CompactPreferences {
         }
     }
 
+    pub fn widget_enabled(&self, id: &ExtensionId) -> bool {
+        !self.widget_disabled.contains(id)
+    }
+
+    pub fn set_widget_enabled(&mut self, id: &ExtensionId, enabled: bool) -> bool {
+        if !self.widget_order.contains(id) || self.widget_enabled(id) == enabled {
+            return false;
+        }
+        if enabled {
+            self.widget_disabled.retain(|disabled| disabled != id);
+        } else {
+            self.widget_disabled.push(id.clone());
+        }
+        true
+    }
+
+    pub fn ordered_enabled_widgets(&self) -> Vec<ExtensionId> {
+        self.widget_order
+            .iter()
+            .filter(|id| self.widget_enabled(id))
+            .cloned()
+            .collect()
+    }
+
+    pub fn move_widget(&mut self, id: &ExtensionId, offset: isize) -> bool {
+        let enabled = self.ordered_enabled_widgets();
+        let Some(index) = enabled.iter().position(|candidate| candidate == id) else {
+            return false;
+        };
+        let target = index
+            .saturating_add_signed(offset)
+            .min(enabled.len().saturating_sub(1));
+        if target == index {
+            return false;
+        }
+        let left = self.widget_order.iter().position(|item| item == id).unwrap();
+        let right = self.widget_order.iter().position(|item| item == &enabled[target]).unwrap();
+        self.widget_order.swap(left, right);
+        true
+    }
+
     pub fn ordered_compact_items(&self) -> Vec<&CompactItemPreference> {
         let mut items: Vec<_> = self.compact_items.iter().collect();
         items.sort_by_key(|item| (item.order, item.id.clone()));
@@ -357,6 +419,7 @@ impl CompactPreferences {
         let ordered: Vec<_> = self
             .ordered_compact_items()
             .into_iter()
+            .filter(|item| item.enabled)
             .map(|item| item.id.clone())
             .collect();
         let Some(index) = ordered.iter().position(|candidate| candidate == id) else {

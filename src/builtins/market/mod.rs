@@ -42,8 +42,6 @@ struct Watchlist {
     assets: Vec<Asset>,
     #[serde(default)]
     alert_rules: HashMap<String, PriceAlertRule>,
-    #[serde(default = "default_alert_interval")]
-    alert_interval_minutes: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -65,16 +63,11 @@ struct AlertSettingsRule {
     price: Option<String>,
 }
 
-fn default_alert_interval() -> u32 {
-    DEFAULT_ALERT_INTERVAL_MINUTES
-}
-
 impl Default for Watchlist {
     fn default() -> Self {
         Self {
             assets: default_assets(),
             alert_rules: HashMap::new(),
-            alert_interval_minutes: DEFAULT_ALERT_INTERVAL_MINUTES,
         }
     }
 }
@@ -103,7 +96,7 @@ pub struct MarketExtension {
     error: Option<String>,
     pending: Option<Receiver<Vec<MarketQuote>>>,
     watchlist_path: Option<PathBuf>,
-    settings_interval_snapshot: Option<u32>,
+    alert_interval_minutes: u32,
     next_refresh: Instant,
     refresh_requested: bool,
     refreshing: bool,
@@ -123,7 +116,7 @@ impl MarketExtension {
             error: None,
             pending: None,
             watchlist_path: None,
-            settings_interval_snapshot: None,
+            alert_interval_minutes: DEFAULT_ALERT_INTERVAL_MINUTES,
             next_refresh: Instant::now(),
             refresh_requested: false,
             refreshing: false,
@@ -184,7 +177,7 @@ impl MarketExtension {
                         let cooling_down = self.last_alerts.get(&key).is_some_and(|last| {
                             now.duration_since(*last)
                                 < Duration::from_secs(
-                                    u64::from(self.watchlist.alert_interval_minutes) * 60,
+                                    u64::from(self.alert_interval_minutes) * 60,
                                 )
                         });
                         if triggered && !cooling_down {
@@ -331,7 +324,7 @@ impl RuntimeExtension for MarketExtension {
         let interval = SettingSchema::new(
             SETTINGS_ALERT_INTERVAL,
             SettingValue::Integer(i64::from(DEFAULT_ALERT_INTERVAL_MINUTES)),
-            "价格提醒间隔（分钟）",
+            "最短提醒间隔（分钟）",
         )
         .range(1.0, 10_080.0);
         let mut rules = SettingSchema::new(
@@ -360,13 +353,7 @@ impl RuntimeExtension for MarketExtension {
     ) -> ExtensionOutput {
         if let Some(SettingValue::Integer(minutes)) = settings.get(SETTINGS_ALERT_INTERVAL) {
             let minutes = (*minutes as u32).clamp(1, 10_080);
-            if self
-                .settings_interval_snapshot
-                .replace(minutes)
-                .is_none_or(|previous| previous != minutes)
-            {
-                self.watchlist.alert_interval_minutes = minutes;
-            }
+            self.alert_interval_minutes = minutes;
         }
         if let Some(SettingValue::String(source)) = settings.get(SETTINGS_ALERT_RULES) {
             if !source.trim().is_empty() {

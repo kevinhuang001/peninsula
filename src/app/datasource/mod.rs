@@ -537,12 +537,6 @@ impl DataSourceWindow {
         form_surface(ui).show(ui, |ui| {
             if switch_row(ui, &mut enabled, "启用") {
                 let result = manager.set_enabled(&source.id, enabled);
-                if result.is_ok() {
-                    let id = compact_item_id(&source.id);
-                    preferences.set_compact_item_enabled(&id, enabled);
-                    let _ = manager.set_compact(&source.id, enabled);
-                    self.save_preferences(preferences);
-                }
                 self.set_source_status(&source.id, result);
             }
         });

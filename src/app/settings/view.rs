@@ -5,7 +5,7 @@ use super::{
     theme::{WidgetTheme, ACCENT, ACCENT_SELECTED, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT},
     CompactPreferences,
 };
-use crate::extension::{ExtensionId, SettingValue};
+use crate::extension::{ContributionKind, ExtensionId, SettingValue};
 use crate::sdk::secrets::SecretStore;
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
 use std::{
@@ -1130,70 +1130,144 @@ fn capsule_options(
             }
             changed
         });
-        let order: Vec<_> = prefs
+        forms::section(ui, "显示开关（按扩展分组）");
+        for (group, items) in compact_groups(prefs) {
+            forms::section(ui, &group);
+            for (id, name) in items {
+                let mut enabled = prefs.is_enabled(&id);
+                ui.push_id(("compact-toggle", &id), |ui| {
+                    if forms::row(ui, &name, |ui| {
+                        forms::toggle(ui, &mut enabled, &format!("{name} 显示在 Compact"))
+                    }) {
+                        changed |= prefs.set_compact_item_enabled(&id, enabled);
+                    }
+                });
+            }
+        }
+        forms::section(ui, "排列顺序（仅已开启）");
+        let active: Vec<_> = prefs
             .ordered_compact_items()
             .into_iter()
-            .map(|i| i.id.clone())
+            .filter(|item| item.enabled)
+            .map(|item| item.id.clone())
             .collect();
-        for id in order {
-            let name = prefs
-                .pages
-                .iter()
-                .flat_map(|p| &p.descriptor.contributions)
-                .find(|c| c.id == id)
-                .map_or_else(
-                    || {
-                        id.as_str()
-                            .strip_prefix("builtin.market/assets/")
-                            .and_then(|asset| asset.rsplit('/').next())
-                            .map_or_else(|| id.to_string(), str::to_owned)
-                    },
-                    |c| c.title.clone(),
-                );
+        if active.is_empty() {
+            ui.label("没有已开启的 Compact");
+        }
+        for id in active {
+            let name = compact_name(prefs, &id);
             let mut direction = 0;
-            let mut enabled = prefs.is_enabled(&id);
-            let mut toggled = false;
-            ui.push_id(&id, |ui| {
+            ui.push_id(("compact-sort", &id), |ui| {
                 forms::row(ui, &name, |ui| {
-                    toggled = forms::toggle(ui, &mut enabled, &format!("{name} 显示在 Compact"));
                     direction = forms::reorder(ui);
-                    toggled
+                    false
                 });
             });
-            if toggled {
-                changed |= prefs.set_compact_item_enabled(&id, enabled);
-            }
             if direction != 0 {
                 changed |= prefs.move_compact_item(&id, direction as isize);
             }
         }
         return changed;
     }
-    forms::section(ui, "通知中心固定第一位");
-    for (index, id) in prefs.widget_order.clone().iter().enumerate() {
+    forms::section(ui, "显示开关（按扩展分组）");
+    for page in &prefs.pages.clone() {
+        let widgets: Vec<_> = page
+            .descriptor
+            .contributions
+            .iter()
+            .filter(|contribution| contribution.kind == ContributionKind::Widget)
+            .map(|contribution| (contribution.id.clone(), contribution.title.clone()))
+            .collect();
+        if widgets.is_empty() {
+            continue;
+        }
+        forms::section(ui, &page.descriptor.name);
+        for (id, name) in widgets {
+            let mut enabled = prefs.widget_enabled(&id);
+            ui.push_id(("widget-toggle", &id), |ui| {
+                if forms::row(ui, &name, |ui| {
+                    forms::toggle(ui, &mut enabled, &format!("{name} 显示在 Widget"))
+                }) {
+                    changed |= prefs.set_widget_enabled(&id, enabled);
+                }
+            });
+        }
+    }
+    forms::section(ui, "排列顺序（仅已开启；通知中心固定第一位）");
+    let active = prefs.ordered_enabled_widgets();
+    if active.is_empty() {
+        ui.label("没有已开启的 Widget");
+    }
+    for id in active {
         let name = prefs
             .pages
             .iter()
-            .flat_map(|p| &p.descriptor.contributions)
-            .find(|c| &c.id == id)
-            .map_or_else(|| id.to_string(), |c| c.title.clone());
+            .flat_map(|page| &page.descriptor.contributions)
+            .find(|contribution| contribution.id == id)
+            .map_or_else(|| id.to_string(), |contribution| contribution.title.clone());
         let mut direction = 0;
-        ui.push_id(id, |ui| {
+        ui.push_id(("widget-sort", &id), |ui| {
             forms::row(ui, &name, |ui| {
                 direction = forms::reorder(ui);
                 false
             });
         });
-        let next = index
-            .saturating_add_signed(direction as isize)
-            .min(prefs.widget_order.len().saturating_sub(1));
-        if next != index {
-            prefs.widget_order.swap(index, next);
-            changed = true;
+        if direction != 0 {
+            changed |= prefs.move_widget(&id, direction as isize);
         }
     }
     changed
 }
+fn compact_name(prefs: &CompactPreferences, id: &ExtensionId) -> String {
+    if let Some(asset) = id.as_str().strip_prefix("builtin.market/assets/") {
+        return asset.rsplit('/').next().unwrap_or(asset).to_owned();
+    }
+    if let Some(source) = id
+        .as_str()
+        .strip_prefix("datasource/")
+        .and_then(|value| value.strip_suffix("/value"))
+    {
+        return source.to_owned();
+    }
+    prefs
+        .pages
+        .iter()
+        .flat_map(|page| &page.descriptor.contributions)
+        .find(|contribution| &contribution.id == id)
+        .map_or_else(|| id.to_string(), |contribution| contribution.title.clone())
+}
+
+fn compact_groups(prefs: &CompactPreferences) -> Vec<(String, Vec<(ExtensionId, String)>)> {
+    let mut groups: Vec<(String, Vec<(ExtensionId, String)>)> = Vec::new();
+    for item in prefs.ordered_compact_items() {
+        let owner = if item.id.as_str().starts_with("datasource/") {
+            "数据源".to_owned()
+        } else if item.id.as_str().starts_with("builtin.market/assets/") {
+            "市场".to_owned()
+        } else {
+            prefs
+                .pages
+                .iter()
+                .find(|page| {
+                    page.descriptor
+                        .contributions
+                        .iter()
+                        .any(|contribution| contribution.id == item.id)
+                })
+                .map_or_else(|| "其他".to_owned(), |page| page.descriptor.name.clone())
+        };
+        let index = groups.iter().position(|(group, _)| group == &owner);
+        let index = index.unwrap_or_else(|| {
+            groups.push((owner, Vec::new()));
+            groups.len() - 1
+        });
+        groups[index]
+            .1
+            .push((item.id.clone(), compact_name(prefs, &item.id)));
+    }
+    groups
+}
+
 fn motion_picker(ui: &mut egui::Ui, id: &str, value: &mut &str) {
     let label = |mode| match mode {
         "Reduced" => "减少",
