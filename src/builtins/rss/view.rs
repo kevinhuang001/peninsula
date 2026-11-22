@@ -130,7 +130,7 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
         if unread > 0 {
             let mut badge = ViewNode::new(Node::Badge(unread.to_string()))
                 .sized(Size::Fixed(32.0), Size::Fixed(18.0))
-                .color(ColorSpec::Accent);
+                .color(ColorSpec::OnAccentSubtle);
             badge.style.normal.background = Some(ColorSpec::AccentSubtle);
             heading.push(badge);
         }

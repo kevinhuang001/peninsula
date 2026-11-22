@@ -88,7 +88,7 @@ fn card(mut node: ViewNode) -> ViewNode {
 fn badge(count: usize) -> ViewNode {
     let mut node = ViewNode::new(Node::Badge(count.to_string()))
         .sized(Size::Fixed(34.0), Size::Fixed(20.0))
-        .color(ColorSpec::Accent);
+        .color(ColorSpec::OnAccentSubtle);
     node.style.normal.background = Some(ColorSpec::AccentSubtle);
     node
 }
