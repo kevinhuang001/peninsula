@@ -91,7 +91,7 @@ fn sample_interval() -> Duration {
     }
 }
 
-fn changes(previous: &Devices, current: &Devices) -> Vec<Prompt> {
+pub(super) fn changes(previous: &Devices, current: &Devices) -> Vec<Prompt> {
     // A hub can expose several interfaces at once. Bound the queue on bursts.
     let removed = previous.iter().filter(|(id, _)| !current.contains_key(*id));
     let added = current.iter().filter(|(id, _)| !previous.contains_key(*id));

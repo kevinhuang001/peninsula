@@ -3,7 +3,7 @@ use crate::{
     extension::*,
     ui::declarative::*,
 };
-use super::power::PowerSnapshot;
+use super::{power, power::PowerSnapshot};
 const ID: &str = "builtin.device/battery";
 const PROMPT_ID: &str = "builtin.device/power-prompt";
 #[derive(Default)]
