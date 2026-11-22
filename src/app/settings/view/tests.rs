@@ -241,7 +241,7 @@ fn settings_height_grows_with_content_before_host_applies_the_screen_limit() {
     view.section = Section::Extensions;
     let extensions = view.extra_height(&ctx, &prefs);
     view.section = Section::Capsule;
-    view.capsule_section = CapsuleSection::Compact;
+    view.capsule_section = CapsuleSection::Switches;
     let capsule = view.extra_height(&ctx, &prefs);
     assert!(extensions > general);
     assert!(capsule > general);
@@ -317,4 +317,35 @@ fn settings_width_follows_the_selected_content_and_screen_limit() {
             assert!(view.width(ctx, &longer) <= ctx.screen_rect().width() * 0.75);
         },
     );
+}
+
+#[test]
+fn capsule_switches_and_order_have_distinct_secondary_entries() {
+    let ctx = egui::Context::default();
+    let mut prefs = CompactPreferences::default();
+    let mut view = SettingsView {
+        section: Section::Capsule,
+        capsule_section: CapsuleSection::Switches,
+        ..Default::default()
+    };
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    assert!(text_rect(&output, "开关").width() > 0.0);
+    assert!(text_rect(&output, "顺序").width() > 0.0);
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "顺序").center());
+    assert_eq!(view.capsule_section, CapsuleSection::Order);
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    assert!(text_rect(&output, "Compact 顺序（仅已开启）").width() > 0.0);
+    assert!(text_rect(&output, "Widget 顺序（仅已开启，通知中心固定第一位）").width() > 0.0);
+}
+
+#[test]
+fn notifications_menu_is_preserved() {
+    let ctx = egui::Context::default();
+    let mut prefs = CompactPreferences::default();
+    let mut view = SettingsView {
+        section: Section::Notifications,
+        ..Default::default()
+    };
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    assert!(text_rect(&output, "通知").width() > 0.0);
 }
