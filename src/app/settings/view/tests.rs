@@ -367,13 +367,11 @@ fn component_submenus_only_contain_widget_switch_and_order() {
     assert_eq!(view.component_section, ComponentSection::WidgetSwitch);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "通知中心").width() > 0.0);
-    let mut fixed = text_rect(&output, "通知中心").center();
-    assert_eq!(prefs.ordered_enabled_widgets().len(),
-        prefs.ordered_enabled_widgets().len());
-    // The immutable switch must not mutate saved contribution preferences.
-    let old_preferences = prefs.contribution_preferences.clone();
-    click(&ctx, &mut view, &mut prefs, fixed);
-    assert_eq!(prefs.contribution_preferences, old_preferences);
+    // Clicking the disabled host-owned switch cannot mutate preferences.
+    let fixed_control = toggle_for(&output, "通知中心");
+    let before = prefs.clone();
+    click(&ctx, &mut view, &mut prefs, fixed_control.center());
+    assert_eq!(prefs, before);
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 顺序").center());
     assert_eq!(view.component_section, ComponentSection::WidgetOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
