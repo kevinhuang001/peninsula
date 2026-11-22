@@ -767,7 +767,14 @@ mod live_indicator_tests {
         let ctx = egui::Context::default();
         let icons = Icons::load(&ctx);
         let draw = |time, playing, accent| {
-            ctx.style_mut(|style| style.visuals.selection.bg_fill = accent);
+            crate::ui::palette::install_accent_tokens(
+                &ctx,
+                [accent.r(), accent.g(), accent.b()],
+            );
+            let actual_accent = crate::ui::palette::accent_tokens(
+                &ctx,
+                ctx.style().visuals.dark_mode,
+            ).accent;
             let output = ctx.run(
                 egui::RawInput {
                     time: Some(time),
@@ -799,7 +806,7 @@ mod live_indicator_tests {
                 .shapes
                 .into_iter()
                 .filter_map(|s| match s.shape {
-                    egui::Shape::Rect(r) if r.fill == accent => Some(r.rect),
+                    egui::Shape::Rect(r) if r.fill == actual_accent => Some(r.rect),
                     _ => None,
                 })
                 .collect::<Vec<_>>()
