@@ -35,32 +35,61 @@ fn festival_lines(names: &[String]) -> String {
         .join("\n")
 }
 
-/// Each word is kept intact whenever the display can accommodate the
-/// requested calendar width. On a genuinely narrow monitor, the renderer
-/// may still wrap instead of clipping the user's holiday text.
-const MIN_DAY_COLUMN_WIDTH: f32 = 96.0;
-const HOLIDAY_CHAR_WIDTH: f32 = 7.0;
-const DAY_PADDING_WIDTH: f32 = 26.0;
+/// Date columns size independently: the longest word in a Thursday
+/// holiday must not make Monday, Tuesday, etc. wider as well.
+/// The seven tracks and their preferred overall width use the SAME measurements.
+const MIN_DAY_COLUMN_WIDTH: f32 = 54.0;
+const LATIN_CHAR_WIDTH: f32 = 7.5;
+const WIDE_CHAR_WIDTH: f32 = 10.5;
+const LABEL_HORIZONTAL_PADDING: f32 = 12.0;
 const CALENDAR_GAP: f32 = 6.0;
-const CALENDAR_SIDE_PADDING: f32 = 24.0;
+const CALENDAR_SIDE_PADDING: f32 = 20.0;
 const CAPSULE_SIDES: f32 = 44.0;
 
+fn estimated_label_width(word: &str) -> f32 {
+    word.chars()
+        .map(|ch| if ch.is_ascii() { LATIN_CHAR_WIDTH } else { WIDE_CHAR_WIDTH })
+        .sum()
+}
+
+/// One width for each weekday column, based on the longest label that
+/// actually appears in THAT column during the displayed month.
+fn calendar_column_widths(month: NaiveDate, settings: &CalendarSettings) -> [f32; 7] {
+    let mut columns = [MIN_DAY_COLUMN_WIDTH; 7];
+    for (slot, (day, in_month)) in model::visible_grid_dates(month).into_iter().enumerate() {
+        if !in_month {
+            continue;
+        }
+        let festivals = holiday::festivals(day, settings);
+        let required = if festivals.is_empty() {
+            if settings.lunar_enabled() {
+                holiday::chinese_lunar_label(day)
+                    .map(|label| estimated_label_width(&label))
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            }
+        } else {
+            festivals.iter()
+                .flat_map(|name| name.split_whitespace())
+                .map(estimated_label_width)
+                .fold(0.0_f32, f32::max)
+        };
+        columns[slot % 7] = columns[slot % 7]
+            .max(required + LABEL_HORIZONTAL_PADDING);
+    }
+    columns.map(f32::ceil)
+}
+
+fn calendar_content_width(columns: &[f32; 7]) -> f32 {
+    columns.iter().sum::<f32>()
+        + CALENDAR_GAP * 6.0
+        + CALENDAR_SIDE_PADDING
+        + CAPSULE_SIDES
+}
+
 fn preferred_calendar_width(month: NaiveDate, settings: &CalendarSettings) -> f32 {
-    let longest_word = model::visible_grid_dates(month)
-        .into_iter()
-        .filter(|(_, active)| *active)
-        .flat_map(|(date, _)| holiday::festivals(date, settings))
-        .flat_map(|festival| {
-            festival.split_whitespace()
-                .map(|word| word.chars().count())
-                .collect::<Vec<_>>()
-        })
-        .max()
-        .unwrap_or(0) as f32;
-    let col_width = MIN_DAY_COLUMN_WIDTH
-        .max(longest_word * HOLIDAY_CHAR_WIDTH + DAY_PADDING_WIDTH);
-    (col_width * 7.0 + CALENDAR_GAP * 6.0
-        + CALENDAR_SIDE_PADDING + CAPSULE_SIDES).ceil()
+    calendar_content_width(&calendar_column_widths(month, settings)).ceil()
 }
 
 fn wrapped_festival(name: String, color: ColorSpec) -> ViewNode {
@@ -208,8 +237,13 @@ pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
     })
     .sized(Size::Fill(1.0), Size::Fixed(40.0));
 
-    let mut grid = Grid::new(Columns::Tracks(vec![Track::Fraction(1.0); 7]));
-    grid.column_gap = Some(6.0);
+    // Both the weekday header and day grid share the very same measured
+    // column tracks. A long Thursday label widens ONLY Thursday's column.
+    let column_widths = calendar_column_widths(shown, locale);
+    let mut grid = Grid::new(Columns::Tracks(
+        column_widths.into_iter().map(Track::Fixed).collect()
+    ));
+    grid.column_gap = Some(CALENDAR_GAP);
     grid.row_gap = Some(4.0);
     let weekdays = ["一", "二", "三", "四", "五", "六", "日"]
         .into_iter().enumerate()
@@ -222,15 +256,16 @@ pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
         .into_iter()
         .map(|(day, in_month)| day_cell(day, today, selected, locale, in_month))
         .collect::<Vec<_>>();
-    // All columns share the same 1fr track width. Each calendar week has
-    // one shared Auto track: a multi-line holiday expands the ENTIRE row.
+    // Each column has its own content-based Fixed width; every day in that
+    // column shares it. Each week uses a separate Auto height determined by
+    // its tallest day. No other week is enlarged by a multi-line festival.
     grid.rows = vec![Track::Auto; cells.len() / 7];
     let calendar_grid = ViewNode::new(Node::Grid(grid, cells))
         .sized(Size::Fill(1.0), Size::Auto);
 
     let mut root = column(vec![header, weekday_grid, calendar_grid], 7.0);
     root.style.padding = [10.0, 10.0, 10.0, 10.0];
-    let requested_width = preferred_calendar_width(shown, locale);
+    let requested_width = calendar_content_width(&column_widths).ceil();
     let mut widget = WidgetView::new(root, [requested_width, 320.0]);
     widget.bounds = WidgetBounds {
         min: [420.0, 280.0],
@@ -261,18 +296,39 @@ mod tests {
     }
 
     #[test]
-    fn a_long_english_festival_increases_month_width() {
-        let mut settings = CalendarSettings::default();
-        settings.country = "US".into();
-        settings.region = "US-NY".into();
-        let nov = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
-        let width = preferred_calendar_width(nov, &settings);
-        assert!(width >= 830.0, "Thanksgiving must fit without splitting its word");
+    fn holiday_only_widens_its_own_weekday_column() {
+        let locale = CalendarSettings {
+            country: "US".into(),
+            region: "US-NY".into(),
+            show_lunar: false,
+        };
+        let november = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
+        let columns = calendar_column_widths(november, &locale);
+        // Thanksgiving is a Thursday; Veterans Day is a Wednesday.
+        assert!(columns[3] > columns[0], "Thursday must fit Thanksgiving");
+        assert!(columns[2] > columns[0], "Wednesday must fit Veterans Day");
+        assert!(columns[3] >= estimated_label_width("Thanksgiving") + LABEL_HORIZONTAL_PADDING);
+        assert!(columns.iter().any(|&column| column == MIN_DAY_COLUMN_WIDTH));
+        let width = preferred_calendar_width(november, &locale);
+        assert!(width > 420.0);
+        assert!(width < 650.0, "only the columns that need space should grow");
+
         let mut ext = CalendarExtension::default();
-        ext.settings = settings;
-        ext.month = Some(nov);
+        ext.settings = locale;
+        ext.month = Some(november);
         let view = build(&ext);
         assert_eq!(view.preferred_size[0], width);
+        let Node::Column(_, content) = &view.root.kind else {
+            panic!("calendar widget must be a column");
+        };
+        for index in [1, 2] {
+            let Node::Grid(grid, _) = &content[index].kind else {
+                panic!("weekday labels and dates must both use the same grid");
+            };
+            assert_eq!(grid.columns, Columns::Tracks(
+                columns.into_iter().map(Track::Fixed).collect()
+            ));
+        }
         assert!(view.bounds.resizable);
     }
 
@@ -334,7 +390,8 @@ mod tests {
 
     #[test]
     fn widget_has_compact_navigation_and_complete_month_grid_only() {
-        let widget = build(&CalendarExtension::default());
+        let extension = CalendarExtension::default();
+        let widget = build(&extension);
         let Node::Column(_, children) = &widget.root.kind else {
             panic!("month root must be a column");
         };
@@ -353,7 +410,12 @@ mod tests {
         let Columns::Tracks(columns) = &grid.columns else {
             panic!("calendar needs seven shared columns");
         };
-        assert_eq!(columns, &vec![Track::Fraction(1.0); 7]);
+        let month = extension.month.unwrap_or_else(|| {
+            model::start_month(extension.settings.today())
+        });
+        let desired = calendar_column_widths(month, &extension.settings);
+        assert_eq!(columns, &desired.into_iter().map(Track::Fixed).collect::<Vec<_>>());
+        assert_eq!(columns.len(), 7);
         assert_eq!(grid.rows, vec![Track::Auto; cells.len() / 7]);
         for week in cells.chunks(7) {
             assert_eq!(week.len(), 7);

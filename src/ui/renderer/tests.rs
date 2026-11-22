@@ -400,7 +400,12 @@ fn calendar_grid_stretches_each_day_to_shared_column_width_and_week_height() {
         };
         let mut days = vec![tile("15"); 14];
         days[3] = tile("Thanksgiving\nDay\nCelebration\n2026");
-        let mut grid = Grid::new(Columns::Tracks(vec![Track::Fraction(1.0); 7]));
+        // Seven weekday columns need not have equal widths; the long
+        // holiday only widens its own column, while every week stays aligned.
+        let column_widths = [54.0, 54.0, 75.0, 108.0, 54.0, 54.0, 54.0];
+        let mut grid = Grid::new(Columns::Tracks(
+            column_widths.into_iter().map(Track::Fixed).collect()
+        ));
         grid.rows = vec![Track::Auto; 2];
         grid.column_gap = Some(6.0);
         grid.row_gap = Some(6.0);
@@ -421,9 +426,12 @@ fn calendar_grid_stretches_each_day_to_shared_column_width_and_week_height() {
             let height = week[0].1.height();
             for (_, rect) in week {
                 assert!((rect.height() - height).abs() < 0.01);
-                assert!((rect.width() - first_week[0].1.width()).abs() < 0.01);
+                let col = week.iter().position(|(_, other)| other == rect)
+                    .expect("the day belongs to a weekday column");
+                assert!((rect.width() - column_widths[col]).abs() < 0.01);
             }
         }
+        assert!(first_week[3].1.width() > first_week[0].1.width());
         for column in 0..7 {
             let upper = first_week[column].1;
             let lower = second_week[column].1;

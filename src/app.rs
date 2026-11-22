@@ -621,9 +621,9 @@ impl eframe::App for IslandApp {
             self.extensions.widget_view(&self.active_widget, now)
         };
         let widths = widget_layout::width_range(self.screen_size().x);
-        // Month calendars have seven parallel date columns. Honor their
-        // content-derived preferred width rather than the compact default
-        // widget cap, while retaining the platform/screen width limit.
+        // Month calendars have seven independently sized weekday columns.
+        // Honor their sum as the content-derived preferred width rather than
+        // forcing every column to the width of the longest holiday word.
         let width_cap = if self.active_widget.as_str() == "builtin.calendar/month" {
             widget_view.as_ref()
                 .map(|view| view.preferred_size[0].max(widths[1]))
