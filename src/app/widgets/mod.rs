@@ -82,6 +82,7 @@ mod tests {
                 "builtin.system-monitor/overview",
                 "builtin.pomodoro/timer",
                 "builtin.kuaidi/shipments",
+                "builtin.calendar/month",
                 "builtin.weather/forecast",
                 #[cfg(any(target_os = "linux", target_os = "windows"))]
                 "builtin.music/now-playing",

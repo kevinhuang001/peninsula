@@ -26,6 +26,7 @@ const WIDGET_ID: &str = "builtin.calendar/month";
 const COMPACT_ID: &str = "builtin.calendar/today";
 const NOTIFICATION_ID: &str = "builtin.calendar/holidays";
 const TICK: &str = "calendar-reminder-check";
+const VIEW_TICK: &str = "calendar-view-day-change";
 
 fn enum_field(key: &str, label: &str, default: &str, choices: &[&str]) -> SettingSchema {
     let mut field = SettingSchema::new(
@@ -48,6 +49,7 @@ pub struct CalendarExtension {
     settings: CalendarSettings,
     month: Option<NaiveDate>,
     selected: Option<NaiveDate>,
+    last_view_day: Option<NaiveDate>,
     reminder_settings: Settings,
     reminder_context: Option<ExtensionContext>,
     sent: SentHistory,
@@ -229,10 +231,14 @@ impl RuntimeExtension for CalendarExtension {
         let current = self.month.unwrap_or_else(|| model::start_month(today));
         match action {
             Action::Custom(ref s) if s == "calendar:previous" => {
-                self.month = Some(model::shift_month(current, -1));
+                let next = model::shift_month(current, -1);
+                self.month = Some(next);
+                self.selected = Some(next);
             }
             Action::Custom(ref s) if s == "calendar:next" => {
-                self.month = Some(model::shift_month(current, 1));
+                let next = model::shift_month(current, 1);
+                self.month = Some(next);
+                self.selected = Some(next);
             }
             Action::Custom(ref s) if s == "calendar:today" => {
                 self.month = Some(model::start_month(today));
@@ -260,6 +266,10 @@ impl RuntimeExtension for CalendarExtension {
     }
 
     fn on_contribution_start(&mut self, ctx: &ExtensionContext, id: &ExtensionId) -> Result<(), String> {
+        if id.as_str() == WIDGET_ID {
+            self.last_view_day = Some(self.settings.today());
+            ctx.schedule_at(VIEW_TICK, Instant::now() + Duration::from_secs(60));
+        }
         if id.as_str() == NOTIFICATION_ID {
             self.reminder_context = Some(ctx.clone());
             ctx.schedule_at(TICK, Instant::now());
@@ -268,6 +278,10 @@ impl RuntimeExtension for CalendarExtension {
     }
 
     fn on_contribution_stop(&mut self, ctx: &ExtensionContext, id: &ExtensionId) -> Result<(), String> {
+        if id.as_str() == WIDGET_ID {
+            ctx.cancel_task(VIEW_TICK);
+            self.last_view_day = None;
+        }
         if id.as_str() == NOTIFICATION_ID {
             ctx.cancel_task(TICK);
             self.reminder_context = None;
@@ -286,6 +300,15 @@ impl RuntimeExtension for CalendarExtension {
 
     fn on_contribution_event(&mut self, ctx: &ExtensionContext,
         id: &ExtensionId, event: &Event, _: Instant) -> ExtensionOutput {
+        if id.as_str() == WIDGET_ID && event == &Event::Custom(VIEW_TICK.to_owned()) {
+            ctx.schedule_at(VIEW_TICK, Instant::now() + Duration::from_secs(60));
+            let today = self.settings.today();
+            let changed = self.last_view_day.replace(today) != Some(today);
+            return ExtensionOutput {
+                invalidated: if changed { vec![ExtensionId::builtin(WIDGET_ID)] } else { vec![] },
+                ..Default::default()
+            };
+        }
         if id.as_str() != NOTIFICATION_ID || event != &Event::Custom(TICK.to_owned()) {
             return ExtensionOutput::default();
         }
@@ -307,6 +330,21 @@ mod tests {
         assert!(d.settings.iter().any(|field| field.key == "country"));
         assert!(d.settings.iter().any(|field| field.key == "region"));
     }
+    #[test]
+    fn festival_reminder_fires_on_local_clock_the_day_before_and_deduplicates() {
+        use chrono::TimeZone;
+        let mut calendar = CalendarExtension::default();
+        calendar.reminder_settings.insert("when".into(), SettingValue::Enum("前一天".into()));
+        calendar.reminder_settings.insert("hour".into(), SettingValue::Integer(18));
+        calendar.reminder_settings.insert("minute".into(), SettingValue::Integer(30));
+        // 2026-02-16 10:30 UTC is 18:30 in China, one day before 春节.
+        let now = Utc.with_ymd_and_hms(2026, 2, 16, 10, 30, 0).single().unwrap();
+        let alerts = calendar.check_due(now);
+        assert!(alerts.iter().any(|alert| alert.title.contains("春节")));
+        assert!(calendar.check_due(now).is_empty());
+        assert!(calendar.check_due(now + chrono::Duration::minutes(1)).is_empty());
+    }
+
     #[test]
     fn mode_and_time_are_independent_of_calendar_navigation() {
         let mut calendar = CalendarExtension::default();
