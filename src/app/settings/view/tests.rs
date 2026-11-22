@@ -408,7 +408,7 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
     }).expect("market extension is registered");
     market.descriptor.contributions.push(
         ContributionDescriptor::builtin(
-            id.as_str(),
+            "builtin.market/assets/stock/AAPL/price-alert",
             ContributionKind::Notification,
             "AAPL 价格提醒",
             "bell",
