@@ -349,3 +349,118 @@ fn notifications_menu_is_preserved() {
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "通知").width() > 0.0);
 }
+
+#[test]
+fn capsule_exposes_four_distinct_display_management_menus() {
+    let ctx = egui::Context::default();
+    let mut prefs = CompactPreferences::default();
+    let mut view = SettingsView {
+        section: Section::Capsule,
+        ..Default::default()
+    };
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    for label in ["Compact", "Widget", "开关", "顺序"] {
+        assert!(text_rect(&output, label).width() > 0.0, "{label}");
+    }
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget").center());
+    assert_eq!(view.capsule_section, CapsuleSection::Widgets);
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    assert!(text_rect(&output, "Widget 外观").width() > 0.0);
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Compact").center());
+    assert_eq!(view.capsule_section, CapsuleSection::Compact);
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    assert!(text_rect(&output, "Compact 文字样式").width() > 0.0);
+}
+
+#[test]
+fn nested_settings_children_preserve_input_focus_stroke_edges() {
+    let ctx = egui::Context::default();
+    let _ = ctx.run(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO,
+                egui::vec2(500.0, 300.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let rect = Rect::from_min_size(
+                    Pos2::new(50.0, 50.0),
+                    egui::vec2(250.0, 90.0),
+                );
+                let nested = child(ui, rect, "focus-clip-test");
+                assert!(nested.clip_rect().left() < rect.left() - 1.0);
+                assert!(nested.clip_rect().right() > rect.right() + 1.0);
+            });
+        },
+    );
+}
+
+#[test]
+fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
+    use crate::extension::{ContributionDescriptor, SettingSchema};
+    let ctx = egui::Context::default();
+    let mut prefs = CompactPreferences::default();
+    let id = ExtensionId::builtin("builtin.market/assets/stock/AAPL/price-alert");
+    let market = prefs.pages.iter_mut().find(|page| {
+        page.descriptor.id.as_str() == "builtin.market"
+    }).expect("market extension is registered");
+    market.descriptor.contributions.push(
+        ContributionDescriptor::builtin(
+            id.as_str(),
+            ContributionKind::Notification,
+            "AAPL 价格提醒",
+            "bell",
+            false,
+            100,
+        )
+        .with_settings(
+            1,
+            vec![
+                SettingSchema {
+                    options: vec!["高于".into(), "低于".into()],
+                    ..SettingSchema::new(
+                        "condition",
+                        SettingValue::Enum("高于".into()),
+                        "触发条件",
+                    )
+                },
+                SettingSchema::new(
+                    "threshold",
+                    SettingValue::Float(0.0),
+                    "目标价格",
+                ),
+            ],
+        ),
+    );
+    prefs.contribution_values.insert(
+        id.clone(),
+        [
+            ("condition".into(), SettingValue::Enum("高于".into())),
+            ("threshold".into(), SettingValue::Float(0.0)),
+        ].into(),
+    );
+    let output = ctx.run(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO, egui::vec2(900.0, 1400.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                notification_options(ui, &mut prefs);
+            });
+        },
+    );
+    for label in [
+        "统一最短提醒间隔",
+        "AAPL 价格提醒",
+        "启用提醒",
+        "触发条件",
+        "目标价格",
+    ] {
+        assert!(text_rect(&output, label).width() > 0.0, "{label}");
+    }
+}

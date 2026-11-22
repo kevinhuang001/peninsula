@@ -811,3 +811,29 @@ fn is_common_crypto(symbol: &str) -> bool {
             | "FIL"
     )
 }
+
+#[cfg(test)]
+mod notification_contract_tests {
+    use super::*;
+
+    #[test]
+    fn market_notifications_are_per_asset_with_a_single_extension_cooldown() {
+        let market = MarketExtension::new();
+        let descriptor = market.descriptor();
+        assert!(descriptor.settings.iter().any(|field| {
+            field.key == SETTINGS_ALERT_INTERVAL
+                && matches!(field.default, Some(SettingValue::Integer(30)))
+        }));
+        let entries = market.dynamic_contributions().expect("market asset contributions");
+        let notifications: Vec<_> = entries.iter()
+            .filter(|entry| entry.kind == ContributionKind::Notification).collect();
+        assert_eq!(notifications.len(), market.watchlist.assets.len());
+        for entry in notifications {
+            assert!(entry.id.as_str().ends_with("/price-alert"));
+            assert!(entry.settings.iter().any(|field| field.key == CONDITION));
+            assert!(entry.settings.iter().any(|field| field.key == THRESHOLD));
+            assert!(entry.settings.iter().all(|field| field.key != "cooldown"));
+            assert!(entry.dependencies.contains(&ExtensionId::builtin(SERVICE_ID)));
+        }
+    }
+}
