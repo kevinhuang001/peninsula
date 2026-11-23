@@ -1853,6 +1853,16 @@ fn run_request(task: RequestTask) -> Result<FetchResult, FetchError> {
         .ok_or_else(|| fetch_error("请求已取消"))?
 }
 
+fn request_needed_by_active_metric(
+    definition: &Definition,
+    active_metrics: &BTreeSet<String>,
+    request_id: &str,
+) -> bool {
+    definition.values.iter().any(|(id, metric)| {
+        active_metrics.contains(id) && metric.request.as_deref() == Some(request_id)
+    })
+}
+
 async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
     if task.cancellation.is_cancelled() {
         return Err(fetch_error("请求已取消"));
@@ -1866,10 +1876,9 @@ async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
         // One failed endpoint does not discard successful values from other endpoints.
         for (request_id, request) in &task.definition.requests {
             // Skip URLs for metrics whose capsule and notifications are both disabled.
-            if !task.definition.values.iter().any(|(id, metric)| {
-                task.active_metrics.contains(id)
-                    && metric.request.as_deref() == Some(request_id.as_str())
-            }) {
+            if !request_needed_by_active_metric(
+                &task.definition, &task.active_metrics, request_id,
+            ) {
                 continue;
             }
             if task.cancellation.is_cancelled() {
@@ -2594,6 +2603,39 @@ mod tests {
         assert_eq!(alert.notification.source_id,
             metric_notification_id("github-repository", "issues").unwrap());
         assert!(evaluate_metric_alert(&source, "stars", 10_000).is_none());
+    }
+
+    #[test]
+    fn multi_url_requests_only_run_for_enabled_metrics() {
+        let mut definition = multi_definition();
+        definition.requests = BTreeMap::from([
+            ("issues_endpoint".into(), schema::RequestDefinition {
+                method: HttpMethod::Get,
+                url: "https://api.github.com/search/issues".into(),
+                headers: BTreeMap::new(),
+                query: BTreeMap::new(),
+                body: None,
+                body_text: None,
+                timeout_ms: 10_000,
+            }),
+            ("star_endpoint".into(), schema::RequestDefinition {
+                method: HttpMethod::Get,
+                url: "https://api.github.com/repos/owner/repo".into(),
+                headers: BTreeMap::new(),
+                query: BTreeMap::new(),
+                body: None,
+                body_text: None,
+                timeout_ms: 10_000,
+            }),
+        ]);
+        definition.request = None;
+        definition.values.get_mut("issues").unwrap().request = Some("issues_endpoint".into());
+        definition.values.get_mut("stars").unwrap().request = Some("star_endpoint".into());
+        definition.validate().unwrap();
+        let active = BTreeSet::from(["stars".to_owned()]);
+        assert!(request_needed_by_active_metric(&definition, &active, "star_endpoint"));
+        assert!(!request_needed_by_active_metric(&definition, &active, "issues_endpoint"));
+        assert!(!request_needed_by_active_metric(&definition, &active, "unknown_endpoint"));
     }
 
     #[test]
