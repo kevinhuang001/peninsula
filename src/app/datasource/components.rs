@@ -201,7 +201,7 @@ pub(super) fn runtime_row(
     }).response.rect
 }
 
-pub(super) fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) {
+pub(super) fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) -> egui::Rect {
     form_surface(ui).show(ui, |ui| {
         let (rect, _) = ui.allocate_exact_size(
             Vec2::new(ui.available_width().max(1.0), 28.0),
@@ -221,6 +221,6 @@ pub(super) fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size:
             Typography::font_id(ui.ctx(), value_size),
             ui.visuals().text_color(),
         );
-    });
+    }).response.rect
 }
 
