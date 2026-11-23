@@ -8,7 +8,9 @@ V2 是声明式数据源的多指标格式。**一个数据源发起一次 HTTP 
 - `id` / `name` / `description` / `icon`：数据源信息。
 - `name_template`（可选）：导入后的默认显示名称模板，支持 `${input.key}`。用户可在 Peninsula 的数据源详情中修改名称模板，留空恢复默认。
 - `inputs`：用户填写的字符串或数字参数。
-- `request`：请求方法、地址、请求头、查询参数和可选请求体。支持 `${input.key}` 占位符。
+- `request`（单请求）：原有的 HTTP 请求声明，可从同一响应提取多个数值。
+- `requests`（多请求）：最多 8 个不同的命名 HTTP 请求，每个声明自己的 method、url、headers、query 和 body。与单个 `request` 二选一，不能混用。所有 URL 都会在导入时列出，并按 Origin 授权。占位符支持 `${input.key}`。
+- 每个 `values.<id>.request`：在多请求模式下必填，必须引用 `requests` 中存在的请求 ID。多个指标可以绑定同一个请求，共用那次返回的 JSON。
 - `values`：最多 32 个指标，以稳定的 ASCII 指标 ID 为键；每个指标有 `name`、`value` 和可选的 `alert`。V2 不使用根级 `value` 或 `alert`。
 
 指标 `value` 的数值提取与 V1 相同：`path` 为 JSONPath，必须恰好匹配一个有限数值；支持 `multiply`、`divide`、`offset`、`decimals`、`separator`、`prefix`、`suffix`。
@@ -36,8 +38,55 @@ V2 是声明式数据源的多指标格式。**一个数据源发起一次 HTTP 
 
 ## 独立设置与资源管理
 
-每个 `values` 项由 Core 生成独立胶囊开关；包含 `alert` 的项还生成独立通知开关和最短提醒间隔。数据源的请求只在至少一个指标的胶囊或通知处于有效启用状态时执行；全部关闭后取消进行中的请求并停止后续刷新。刷新间隔由 Peninsula 保存，不在 PDS 中配置。
+每个 `values` 项由 Core 生成独立胶囊开关；包含 `alert` 的项还生成独立通知开关和最短提醒间隔。数据源只在至少一个指标的胶囊或通知有效启用时刷新；**如果某个 URL 不再被任何启用的指标引用，就不请求这个 URL**。切换指标时取消失效的任务，所有指标都关闭后停止刷新。刷新间隔由 Peninsula 保存，不在 PDS 中配置。
+
+## 多 URL 示例
+
+一个数据源可以聚合不同地址的 JSON。以下为精简示例（省略可选字段）：
+
+```json
+{
+  "schema": "peninsula.datasource/v2",
+  "id": "github-repository",
+  "name": "GitHub 仓库",
+  "name_template": "${input.repo}",
+  "inputs": {
+    "owner": {"type": "string", "label": "Owner", "default": "openai"},
+    "repo": {"type": "string", "label": "Repo", "default": "example"}
+  },
+  "requests": {
+    "issues": {
+      "method": "GET",
+      "url": "https://api.github.com/search/issues",
+      "query": {"q": "repo:${input.owner}/${input.repo} is:issue is:open"}
+    },
+    "stars": {
+      "method": "GET",
+      "url": "https://api.github.com/repos/${input.owner}/${input.repo}"
+    }
+  },
+  "values": {
+    "issues": {
+      "name": "开放 Issue",
+      "request": "issues",
+      "value": {"path": "$.total_count", "decimals": 0},
+      "alert": {
+        "mode": "change", "operator": "gt", "threshold": 0,
+        "title": "${input.repo} Issue 增加",
+        "message": "开放 Issue 净增 ${delta} 个"
+      }
+    },
+    "stars": {
+      "name": "Star 数",
+      "request": "stars",
+      "value": {"path": "$.stargazers_count", "decimals": 0}
+    }
+  }
+}
+```
+
+每个 URL 独立做 Origin、DNS、重定向和大小限制校验。即使某个请求失败，其他成功返回的指标仍会更新；失败的指标保留上次成功结果并标明错误。单个数据源按统一刷新间隔调度，多组 URL 顺序执行，不额外引入独立后台进程。
 
 ## GitHub 示例
 
-Marketplace 的 `github-repository.pds.json` 使用 GitHub GraphQL：同一请求读取开放 PR 数、开放 Issue 数和 Star 总数。GraphQL 需要 GitHub Token；在 Peninsula 中可以通过 `$名称$` 引用「秘密」中存储的密钥。请求变量通过 JSON `body.variables` 传入，而不是在 GraphQL 查询文本中拼接用户输入。
+Marketplace 的 `github-repository.pds.json` 使用三个公开的 REST 请求读取开放 PR 数、开放 Issue 数和 Star 数，**一个数据源**提供三个可以独立启用的指标。公开仓库无需 GitHub Token，但匿名 GitHub API 存在速率限制，建议降低刷新频率。请求参数经 URL 编码后传入 API，不在 URL 的 Origin 部分插入占位符。
