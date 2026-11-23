@@ -51,7 +51,8 @@ impl AlertSurface {
             .enumerate()
             .map(|(i, action)| button(&action.label, Action::Custom(format!("run:{i}"))))
             .collect();
-        let confirm = button("确定", Action::Custom("acknowledge".into()));
+        let confirm = ViewNode::primary_button("确定", Action::Custom("acknowledge".into()))
+            .sized(Size::Fill(1.0), Size::Fixed(26.0));
         buttons.push(if actions.is_empty() {
             confirm.sized(Size::Fixed(80.0), Size::Fixed(26.0))
         } else {
@@ -125,6 +126,13 @@ mod tests {
     use super::*;
     use egui::{pos2, Event, Modifiers, PointerButton, RawInput};
     use std::cell::Cell;
+
+    #[test]
+    fn confirmation_uses_the_core_accent_style() {
+        let action = ViewNode::primary_button("确定", Action::Dismiss);
+        assert_eq!(action.style.normal.background, Some(ColorSpec::Accent));
+        assert_eq!(action.style.normal.foreground, Some(ColorSpec::OnAccent));
+    }
 
     #[test]
     fn alert_buttons_preserve_close_acknowledge_and_extension_action_semantics() {

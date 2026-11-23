@@ -8,7 +8,7 @@ use super::{
 use crate::extension::{
     ActivationRule, ContributionDescriptor, ContributionKind, ExtensionId, SettingSchema,
 };
-use eframe::egui::{self, Color32, Sense, Stroke};
+use eframe::egui::{self, Sense, Stroke};
 use std::collections::HashMap;
 
 pub(super) fn options(
@@ -59,7 +59,7 @@ pub(super) fn options(
             }
             ui.add_space(9.0);
             egui::Frame::new()
-                .fill(Color32::from_rgb(30, 33, 39))
+                .fill(super::theme::ROW)
                 .stroke(Stroke::new(1.0, BORDER))
                 .corner_radius(10.0)
                 .inner_margin(egui::Margin::symmetric(10, 10))

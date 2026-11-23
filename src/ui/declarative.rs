@@ -639,6 +639,28 @@ impl ViewNode {
             icon: None,
         })
     }
+    /// Core-owned primary action appearance; keeps buttons in sync with accent settings.
+    pub fn primary_button(label: impl Into<String>, action: Action) -> Self {
+        Self::button(label, action).styled(Style {
+            normal: Paint {
+                foreground: Some(ColorSpec::OnAccent),
+                background: Some(ColorSpec::Accent),
+                ..Default::default()
+            },
+            hovered: Paint {
+                foreground: Some(ColorSpec::OnAccent),
+                background: Some(ColorSpec::Accent),
+                ..Default::default()
+            },
+            pressed: Paint {
+                foreground: Some(ColorSpec::OnAccent),
+                background: Some(ColorSpec::Accent),
+                opacity: Some(0.85),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+    }
     pub fn subtle_button(label: impl Into<String>, action: Action) -> Self {
         Self::button(label, action).styled(Style {
             normal: Paint {

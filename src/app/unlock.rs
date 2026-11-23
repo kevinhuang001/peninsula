@@ -228,12 +228,14 @@ impl IslandApp {
                     if !editable {
                         controls.disable();
                     }
+                    let accent = crate::ui::palette::accent_tokens(context);
                     let button = controls.put(
                         confirm,
                         egui::Button::new(
                             egui::RichText::new(if verifying { "验证中" } else { "确认" })
-                                .size(12.0),
-                        ),
+                                .size(12.0)
+                                .color(accent.on_accent),
+                        ).fill(accent.accent),
                     );
                     let enter = (response.has_focus() || response.lost_focus())
                         && context.input(|input| input.key_pressed(egui::Key::Enter));

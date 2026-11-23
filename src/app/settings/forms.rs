@@ -6,7 +6,6 @@ use crate::extension::{
 use eframe::egui::{self, Align2, Color32, Rect, Sense, Stroke, Vec2};
 use std::{collections::HashMap, time::Instant};
 
-pub(super) const SWITCH_ON: Color32 = Color32::from_rgb(24, 62, 105);
 pub(super) const SWITCH_OFF: Color32 = Color32::from_rgb(75, 81, 92);
 const CONTROL_WIDTH: f32 = 132.0;
 pub(super) const SEARCH_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(350);
@@ -39,31 +38,29 @@ pub(super) fn section(ui: &mut egui::Ui, title: &str) {
     ui.add_space(3.0);
 }
 
-/// A measured label on the left and a bounded control column on the right.
+/// A measured, uniformly framed settings row with a bounded control column.
 /// Long schema labels grow the row instead of pushing controls underneath.
 pub(super) fn row(
     ui: &mut egui::Ui,
     label: &str,
     control: impl FnOnce(&mut egui::Ui) -> bool,
 ) -> bool {
-    row_impl(ui, label, true, control)
+    row_impl(ui, label, control)
 }
 
-/// Editable inputs have a single visible outline: the control's own.
-/// Do not draw a second framed settings row around TextEdit, ComboBox,
-/// DragValue or other editable fields.
+/// Editable and boolean settings share the same Core-owned card background.
+/// Native controls retain their own keyboard-focus indication inside the card.
 pub(super) fn input_row(
     ui: &mut egui::Ui,
     label: &str,
     control: impl FnOnce(&mut egui::Ui) -> bool,
 ) -> bool {
-    row_impl(ui, label, false, control)
+    row_impl(ui, label, control)
 }
 
 fn row_impl(
     ui: &mut egui::Ui,
     label: &str,
-    framed: bool,
     control: impl FnOnce(&mut egui::Ui) -> bool,
 ) -> bool {
     let width = if ui.is_sizing_pass() {
@@ -86,15 +83,13 @@ fn row_impl(
         .layout(label.into(), Typography::font_id(ui.ctx(), Typography::FORM_LABEL), TEXT, label_width);
     let height = (galley.size().y + 16.0).max(36.0);
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
-    if framed {
-        ui.painter().rect_filled(rect, 7.0, ROW);
-        ui.painter().rect_stroke(
-            rect,
-            7.0,
-            Stroke::new(1.0_f32, BORDER),
-            egui::StrokeKind::Inside,
-        );
-    }
+    ui.painter().rect_filled(rect, 7.0, ROW);
+    ui.painter().rect_stroke(
+        rect,
+        7.0,
+        Stroke::new(1.0_f32, BORDER),
+        egui::StrokeKind::Inside,
+    );
     ui.painter().galley(
         egui::pos2(rect.left() + 10.0, rect.center().y - galley.size().y * 0.5),
         galley,
@@ -127,8 +122,9 @@ pub(super) fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *value, label)
     });
+    let accent = crate::ui::palette::accent_tokens(ui.ctx());
     ui.painter()
-        .rect_filled(rect, 9.0, if *value { SWITCH_ON } else { SWITCH_OFF });
+        .rect_filled(rect, 9.0, if *value { accent.accent } else { SWITCH_OFF });
     ui.painter().circle_filled(
         egui::pos2(
             if *value {
@@ -139,7 +135,7 @@ pub(super) fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
             rect.center().y,
         ),
         7.0,
-        TEXT,
+        if *value { accent.on_accent } else { TEXT },
     );
     response.on_hover_text(format!(
         "{label}：{}",
@@ -361,12 +357,15 @@ pub(super) fn setting_control_with_draft(
                 .text_color(TEXT)
                 .hint_text(field.presentation.placeholder.as_deref().unwrap_or("")),
         );
-        if response.changed() {
-            if let Some(parsed) = parse_number_text(field, draft) {
-                if parsed != *value {
-                    *value = parsed;
-                    changed = true;
-                }
+        // The text shown in the editor is authoritative whenever it parses.
+        // Reconcile on every frame, not just TextEdit::changed(): settings can
+        // be reloaded between keyboard events and otherwise show a valid price
+        // while the underlying contribution still contains zero.
+        let _ = response;
+        if let Some(parsed) = parse_number_text(field, draft) {
+            if parsed != *value {
+                *value = parsed;
+                changed = true;
             }
         }
         false
@@ -388,6 +387,13 @@ pub(super) fn search_setting(
         return false;
     };
     let mut changed = false;
+    egui::Frame::new()
+        .fill(ROW)
+        .stroke(Stroke::new(1.0, BORDER))
+        .corner_radius(9.0)
+        .inner_margin(egui::Margin::symmetric(10, 10))
+        .show(ui, |ui| {
+    ui.set_width(ui.available_width().max(1.0));
     ui.add_space(5.0);
     ui.label(
         egui::RichText::new(&field.description)
@@ -491,6 +497,7 @@ pub(super) fn search_setting(
         }
     }
     ui.add_space(5.0);
+        });
     changed
 }
 

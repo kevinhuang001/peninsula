@@ -20,7 +20,14 @@ const NAV_BACKGROUND: Color32 = Color32::from_rgb(23, 25, 30);
 const SIDEBAR_WIDTH: f32 = 104.0;
 const PLUGIN_WIDTH: f32 = 134.0;
 const EXTENSION_FORM_WIDTH: f32 = 360.0;
+const NOTIFICATION_FORM_WIDTH: f32 = 352.0;
 const EXTENSION_FORM_HEIGHT: f32 = 380.0;
+const CAPSULE_FONT_PRESETS: [(&str, f32); 4] = [
+    ("较小", 9.0),
+    ("标准", 11.0),
+    ("较大", 13.0),
+    ("特大", 15.0),
+];
 const COLUMN_GAP: f32 = 9.0;
 const PANEL_INSET: f32 = 10.0;
 
@@ -173,6 +180,8 @@ impl SettingsView {
         let available = (limit - chrome).max(1.0);
         let content_width = if matches!(self.section, Section::Extensions | Section::Capsule | Section::Components) {
             EXTENSION_FORM_WIDTH
+        } else if self.section == Section::Notifications {
+            NOTIFICATION_FORM_WIDTH
         } else if self.section == Section::Secrets {
             360.0
         } else if self.section == Section::QuietHours {
@@ -575,15 +584,19 @@ impl SettingsView {
         }
         editor.add_space(9.0);
         editor.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let accent = crate::ui::palette::accent_tokens(ui.ctx());
             let confirm = ui.add_enabled(
                 !self.encryption_in_progress,
-                egui::Button::new(if self.encryption_in_progress {
-                    ""
-                } else if enable {
-                    "确认"
-                } else {
-                    "解密"
-                })
+                egui::Button::new(
+                    egui::RichText::new(if self.encryption_in_progress {
+                        ""
+                    } else if enable {
+                        "确认"
+                    } else {
+                        "解密"
+                    }).color(accent.on_accent),
+                )
+                .fill(accent.accent)
                 .min_size(egui::vec2(52.0, 26.0)),
             );
             if self.encryption_in_progress {
@@ -1117,20 +1130,20 @@ fn capsule_options(
             forms::section(ui, "胶囊文字样式");
             changed |= forms::input_row(ui, "字号", |ui| {
                 let mut changed = false;
+                let selected = CAPSULE_FONT_PRESETS
+                    .iter()
+                    .min_by(|a, b| {
+                        (a.1 - prefs.capsule_text_size).abs()
+                            .total_cmp(&(b.1 - prefs.capsule_text_size).abs())
+                    })
+                    .map_or("标准", |(label, _)| *label);
                 egui::ComboBox::from_id_salt("capsule-font-size")
                     .width(ui.available_width())
-                    .selected_text(format!("{} pt", prefs.capsule_text_size))
+                    .selected_text(selected)
                     .show_ui(ui, |ui| {
-                        for size in [
-                            8.0, 9.0, 10.0, 11.0, 12.0, 13.0,
-                            14.0, 15.0, 16.0, 17.0, 18.0,
-                        ] {
+                        for (label, size) in CAPSULE_FONT_PRESETS {
                             changed |= ui
-                                .selectable_value(
-                                    &mut prefs.capsule_text_size,
-                                    size,
-                                    format!("{size} pt"),
-                                )
+                                .selectable_value(&mut prefs.capsule_text_size, size, label)
                                 .changed();
                         }
                     });

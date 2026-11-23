@@ -46,7 +46,8 @@ fn toggle_for(output: &egui::FullOutput, label: &str) -> Rect {
         .iter()
         .find_map(|s| match &s.shape {
             egui::Shape::Rect(r)
-                if (r.fill == forms::SWITCH_ON || r.fill == forms::SWITCH_OFF)
+                if (r.rect.width() - 32.0).abs() < 0.5
+                    && (r.rect.height() - 18.0).abs() < 0.5
                     && r.rect.center().x > label.right()
                     && (r.rect.center().y - label.center().y).abs() < 2.0 =>
             {
@@ -552,6 +553,42 @@ fn generic_number_text_accepts_decimals_and_rejects_invalid_values() {
 }
 
 #[test]
+fn number_text_drafts_keep_stored_values_in_sync_with_visible_valid_prices() {
+    let ctx = egui::Context::default();
+    let owner = ExtensionId::builtin("builtin.market/assets/stock/AAPL/price-alert");
+    let field = crate::extension::SettingSchema::new(
+        "threshold", SettingValue::Float(0.0), "目标价格",
+    ).range(0.0, 1_000_000.0).number_text("例如 150.50").activation_positive();
+    let mut value = SettingValue::Float(0.0);
+    let mut drafts = HashMap::new();
+    drafts.insert((owner.clone(), field.key.clone()), "120".into());
+    let mut changed = false;
+    ctx.run(RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            changed = forms::setting_control_with_draft(
+                ui, &field, &mut value, &owner, &mut drafts,
+            );
+        });
+    });
+    assert!(changed);
+    assert_eq!(value, SettingValue::Float(120.0));
+    assert!(field.activation_ready(&value));
+}
+
+#[test]
+fn notification_page_has_a_bounded_content_width() {
+    let ctx = egui::Context::default();
+    let prefs = AppPreferences::default();
+    ctx.run(RawInput {
+        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+        ..Default::default()
+    }, |ctx| {
+        let view = SettingsView { section: Section::Notifications, ..Default::default() };
+        assert!(view.width(ctx, &prefs) < 550.0);
+    });
+}
+
+#[test]
 fn notification_renderer_is_generic_for_calendar_contributions() {
     let ctx = egui::Context::default();
     let mut prefs = AppPreferences::default();
@@ -610,13 +647,13 @@ fn capsule_font_size_is_a_dropdown_and_not_a_numeric_drag_field() {
     assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
         egui::Shape::Text(text)
             if text.galley.job.text.contains(
-                &format!("{} pt", prefs.capsule_text_size)
+                "标准"
             )
-    )), "font-size control must render a selected point size");
+    )), "font-size control must render the selected named size");
 }
 
 #[test]
-fn settings_input_rows_do_not_draw_a_second_outer_frame() {
+fn all_settings_rows_use_a_consistent_core_card_frame() {
     let ctx = egui::Context::default();
     let mut input_rect = Rect::NOTHING;
     let mut toggle_rect = Rect::NOTHING;
@@ -642,6 +679,6 @@ fn settings_input_rows_do_not_draw_a_second_outer_frame() {
                 && rect.rect.width() > 250.0
                 && (rect.rect.top() - r.top()).abs() <= 1.0)
     });
-    assert!(!row_border(input_rect));
+    assert!(row_border(input_rect));
     assert!(row_border(toggle_rect));
 }
