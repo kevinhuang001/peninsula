@@ -608,7 +608,10 @@ fn notification_price_edit_is_reported_as_dirty_to_the_app_save_pipeline() {
         ..Default::default()
     }, |ctx| {
         egui::CentralPanel::default().show(ctx, |ui| {
-            dirty = view.show(ui, bounds(), &mut prefs);
+            // Keep the AAPL field in the visible viewport; egui virtualizes
+            // rows beyond its scroll area, so a short viewport cannot edit it.
+            let full = Rect::from_min_size(Pos2::ZERO, egui::vec2(SettingsView::WIDTH, 940.0));
+            dirty = view.show(ui, full, &mut prefs);
         });
     });
     assert!(dirty, "valid number edits must reach the app save pipeline");
