@@ -1,9 +1,9 @@
-//! Data source management rendered directly inside the expanded capsule.
+//! Data source manager displayed in its own native viewport.
 use crate::core::datasource::{self, DataSourceManager, Definition, InputType, SourceSnapshot};
 use crate::ui::typography::Typography;
 use eframe::egui::{self, Align, Color32, Layout, RichText, Stroke, Vec2};
 use serde_json::Value;
-use std::{collections::HashMap, fs, time::Duration};
+use std::{collections::HashMap, fs, sync::mpsc, time::Duration};
 
 mod components;
 mod dialogs;
@@ -76,4 +76,5 @@ pub(super) struct DataSourceView {
     delete_candidate: Option<String>,
     text_drafts: HashMap<String, String>,
     runtime_drafts: HashMap<String, String>,
+    picker: Option<mpsc::Receiver<Result<Option<Definition>, String>>>,
 }
