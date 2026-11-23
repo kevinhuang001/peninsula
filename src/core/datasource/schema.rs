@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use url::Url;
 
 pub const SCHEMA_ID: &str = "peninsula.datasource/v1";
+pub const SCHEMA_ID_V2: &str = "peninsula.datasource/v2";
 pub const MIN_REFRESH: std::time::Duration = std::time::Duration::from_secs(30);
 pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -13,6 +14,8 @@ pub struct Definition {
     pub schema: String,
     pub id: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_template: Option<String>,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
@@ -20,9 +23,12 @@ pub struct Definition {
     #[serde(default)]
     pub inputs: BTreeMap<String, InputDefinition>,
     pub request: RequestDefinition,
-    pub value: ValueDefinition,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<ValueDefinition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alert: Option<AlertDefinition>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub values: BTreeMap<String, MetricDefinition>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -111,6 +117,23 @@ pub struct ValueDefinition {
     pub suffix: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MetricDefinition {
+    pub name: String,
+    pub value: ValueDefinition,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alert: Option<AlertDefinition>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AlertMode {
+    #[default]
+    Value,
+    Change,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AlertOperator {
@@ -125,6 +148,8 @@ pub enum AlertOperator {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AlertDefinition {
+    #[serde(default)]
+    pub mode: AlertMode,
     pub operator: AlertOperator,
     pub threshold: Value,
     pub title: String,
@@ -152,8 +177,16 @@ impl Definition {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema != SCHEMA_ID {
+        if self.schema != SCHEMA_ID && self.schema != SCHEMA_ID_V2 {
             return Err(format!("不支持的数据源 Schema：{}", self.schema));
+        }
+        if self.schema == SCHEMA_ID && (self.value.is_none() || !self.values.is_empty()) {
+            return Err("V1 必须提供一个 value，且不能声明 values".into());
+        }
+        if self.schema == SCHEMA_ID_V2 &&
+            (self.value.is_some() || self.alert.is_some() || self.values.is_empty() || self.values.len() > 32)
+        {
+            return Err("V2 必须提供 1 至 32 个 values，不能声明根级 value/alert".into());
         }
         if self.id.is_empty()
             || self.id.len() > 96
@@ -166,6 +199,12 @@ impl Definition {
         }
         if self.name.trim().is_empty() || self.name.chars().count() > 80 {
             return Err("数据源名称不能为空且最多 80 个字符".into());
+        }
+        if let Some(template) = &self.name_template {
+            if template.chars().count() > 80 || template.trim().is_empty() {
+                return Err("数据源动态名称无效".into());
+            }
+            validate_placeholders(template, self, false)?;
         }
         if self.description.chars().count() > 1000 || self.inputs.len() > 64 {
             return Err("数据源描述或参数数量超过限制".into());
@@ -260,47 +299,23 @@ impl Definition {
         if let Some(body) = &self.request.body_text {
             validate_placeholders(body, self, false).map_err(|error| format!("请求体：{error}"))?;
         }
-        if self.value.kind != "number"
-            || self.value.path.is_empty()
-            || self.value.path.len() > 512
-            || !self.value.multiply.is_finite()
-            || !self.value.divide.is_finite()
-            || self.value.divide == 0.0
-            || !self.value.offset.is_finite()
-            || self.value.decimals > 12
-        {
-            return Err("数值提取或转换配置无效".into());
+        if let Some(spec) = &self.value {
+            validate_value_spec(spec)?;
         }
-        jsonpath_lib::Selector::new()
-            .str_path(&self.value.path)
-            .map_err(|_| "JSONPath 无效".to_owned())?;
         if let Some(alert) = &self.alert {
-            if alert.title.trim().is_empty()
-                || alert.title.chars().count() > 120
-                || alert.message.chars().count() > 1000
+            validate_alert_spec(alert, self)?;
+        }
+        for (key, metric) in &self.values {
+            if key.is_empty() || key.len() > 48
+                || !key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+                || metric.name.trim().is_empty() || metric.name.chars().count() > 80
             {
-                return Err("提醒标题或正文无效".into());
+                return Err(format!("指标 {key} 的 id 或名称无效"));
             }
-            if let Some(value) = alert.threshold.as_f64() {
-                if !value.is_finite() {
-                    return Err("提醒阈值必须是有限数值".into());
-                }
-            } else if let Some(template) = alert.threshold.as_str() {
-                validate_placeholders(template, self, true)?;
-                let name = template
-                    .strip_prefix("${input.")
-                    .and_then(|value| value.strip_suffix('}'))
-                    .ok_or_else(|| "提醒阈值只能引用一个数值参数".to_owned())?;
-                if self.inputs.get(name).is_none_or(|input| {
-                    !matches!(input.kind, InputType::Number | InputType::Integer)
-                }) {
-                    return Err(format!("提醒阈值参数 {name} 必须是 number 或 integer"));
-                }
-            } else {
-                return Err("提醒阈值必须是数值或参数占位符".into());
+            validate_value_spec(&metric.value)?;
+            if let Some(alert) = &metric.alert {
+                validate_alert_spec(alert, self)?;
             }
-            validate_placeholders(&alert.title, self, true)?;
-            validate_placeholders(&alert.message, self, true)?;
         }
         Ok(())
     }
@@ -310,6 +325,84 @@ impl Definition {
             .map_err(|_| "请求 URL 无效".to_owned())?;
         Ok(url.origin().ascii_serialization())
     }
+}
+
+impl Definition {
+    pub fn is_multi(&self) -> bool {
+        !self.values.is_empty()
+    }
+
+    pub fn metric_value(&self, id: &str) -> Option<&ValueDefinition> {
+        if self.is_multi() {
+            self.values.get(id).map(|metric| &metric.value)
+        } else if id == "value" {
+            self.value.as_ref()
+        } else {
+            None
+        }
+    }
+
+    pub fn metric_alert(&self, id: &str) -> Option<&AlertDefinition> {
+        if self.is_multi() {
+            self.values.get(id)?.alert.as_ref()
+        } else if id == "value" {
+            self.alert.as_ref()
+        } else {
+            None
+        }
+    }
+
+    pub fn display_name(&self, inputs: &BTreeMap<String, Value>) -> String {
+        let Some(template) = self.name_template.as_deref() else {
+            return self.name.clone();
+        };
+        let mut name = template.to_owned();
+        for (key, value) in inputs {
+            let label = value.as_str().map_or_else(|| value.to_string(), str::to_owned);
+            // Do not leak the value of an unresolved secret reference into names.
+            let label = if label.starts_with('$') && label.ends_with('$') { "****".to_owned() } else { label };
+            name = name.replace(&format!("${{input.{key}}}"), &label);
+        }
+        if name.trim().is_empty() { self.name.clone() } else { name }
+    }
+}
+
+fn validate_value_spec(spec: &ValueDefinition) -> Result<(), String> {
+    if spec.kind != "number" || spec.path.is_empty() || spec.path.len() > 512
+        || !spec.multiply.is_finite() || !spec.divide.is_finite() || spec.divide == 0.0
+        || !spec.offset.is_finite() || spec.decimals > 12
+    {
+        return Err("数值提取或转换配置无效".into());
+    }
+    jsonpath_lib::Selector::new().str_path(&spec.path)
+        .map_err(|_| "JSONPath 无效".to_owned())?;
+    Ok(())
+}
+
+fn validate_alert_spec(alert: &AlertDefinition, definition: &Definition) -> Result<(), String> {
+    if alert.title.trim().is_empty() || alert.title.chars().count() > 120
+        || alert.message.chars().count() > 1000
+    {
+        return Err("提醒标题或正文无效".into());
+    }
+    if let Some(value) = alert.threshold.as_f64() {
+        if !value.is_finite() { return Err("提醒阈值必须是有限数值".into()); }
+    } else if let Some(template) = alert.threshold.as_str() {
+        validate_placeholders(template, definition, false)?;
+        let name = template.strip_prefix("${input.")
+            .and_then(|value| value.strip_suffix('}'))
+            .ok_or_else(|| "提醒阈值只能引用一个数值参数".to_owned())?;
+        if definition.inputs.get(name).is_none_or(|input| {
+            !matches!(input.kind, InputType::Number | InputType::Integer)
+        }) {
+            return Err(format!("提醒阈值参数 {name} 必须是 number 或 integer"));
+        }
+    } else {
+        return Err("提醒阈值必须是数值或参数占位符".into());
+    }
+    validate_placeholders(&alert.title, definition, true)?;
+    validate_placeholders(&alert.message, definition, true)?;
+    Ok(())
 }
 
 fn validate_input_value(
@@ -385,9 +478,9 @@ pub fn validate_placeholders(
         let value = &rest[start + 2..];
         let end = value.find('}').ok_or_else(|| "占位符未闭合".to_owned())?;
         let token = &value[..end];
-        if token == "value" {
+        if matches!(token, "value" | "previous" | "delta") {
             if !allow_value {
-                return Err("${value} 只能用于提醒文本".into());
+                return Err("数值占位符只能用于提醒文本".into());
             }
         } else if let Some(name) = token.strip_prefix("input.") {
             if !definition.inputs.contains_key(name) {
