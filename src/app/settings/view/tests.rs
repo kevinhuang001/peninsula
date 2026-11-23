@@ -590,6 +590,17 @@ fn notification_price_edit_is_reported_as_dirty_to_the_app_save_pipeline() {
         notification_selected: Some(owner),
         ..Default::default()
     };
+    // AppPreferences::default() has only the static registry; at runtime the
+    // Market owner registers AAPL through its dynamic contribution snapshot.
+    let dynamic = crate::builtins::runtimes().into_iter()
+        .find(|runtime| runtime.descriptor().id.as_str() == "builtin.market")
+        .expect("market runtime")
+        .dynamic_contributions()
+        .expect("market dynamic registrations");
+    prefs.pages.iter_mut()
+        .find(|page| page.descriptor.id.as_str() == "builtin.market")
+        .expect("market settings page")
+        .descriptor.contributions.extend(dynamic);
     view.number_drafts.insert((alert.clone(), "threshold".into()), "120".into());
     let mut dirty = false;
     ctx.run(RawInput {
