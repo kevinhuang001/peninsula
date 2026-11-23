@@ -2608,6 +2608,45 @@ mod tests {
     }
 
     #[test]
+    fn capsule_template_renders_formatted_value_for_each_metric() {
+        assert_eq!(render_capsule_text(Some("Star: ${value}"), "1 个"), "Star: 1 个");
+        assert_eq!(render_capsule_text(Some("PR ${value}"), "—"), "PR —");
+        assert_eq!(render_capsule_text(None, "42"), "42");
+
+        let root = tempfile::tempdir().unwrap();
+        let mut manager = DataSourceManager::open(root.path());
+        let mut definition = multi_definition();
+        definition.values.get_mut("stars").unwrap().capsule_text = Some("Star: ${value}".into());
+        manager.import(definition, false).unwrap();
+        let snap = manager.snapshots();
+        let stars = snap[0].metrics.iter().find(|metric| metric.id == "stars").unwrap();
+        assert_eq!(stars.capsule_text, "Star: —");
+    }
+
+    #[test]
+    fn manual_refresh_works_without_any_running_capsule_or_alert() {
+        let root = tempfile::tempdir().unwrap();
+        let mut manager = DataSourceManager::open(root.path());
+        manager.import(multi_definition(), false).unwrap();
+        let source = manager.sources.get_mut("github-repository").unwrap();
+        source.config.enabled = false;
+        source.capsule = false;
+        source.active_alerts = false;
+        assert!(!source.manual_refresh);
+
+        manager.refresh_now("github-repository").unwrap();
+        let source = &manager.sources["github-repository"];
+        assert!(!source.config.enabled, "manual preview must not enable background polling");
+        assert!(source.manual_refresh);
+        assert!(manager.next_wake().is_some());
+
+        // Completion closes the one-off scheduling state rather than
+        // creating a recurring polling task for a disabled data source.
+        manager.sources.get_mut("github-repository").unwrap().manual_refresh = false;
+        assert!(manager.next_wake().is_none());
+    }
+
+    #[test]
     fn multiple_metrics_extract_from_one_response() {
         let definition = multi_definition();
         let json = serde_json::json!({"data": {"issues": 3, "stars": 101}});
