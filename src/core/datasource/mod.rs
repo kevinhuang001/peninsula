@@ -2360,6 +2360,88 @@ mod tests {
         }
     }
 
+    fn multi_definition() -> Definition {
+        Definition::parse(&serde_json::json!({
+            "schema": "peninsula.datasource/v2",
+            "id": "github-repository",
+            "name": "GitHub",
+            "name_template": "${input.repo}",
+            "inputs": {"repo": {"type": "string", "label": "仓库", "default": "peninsula"}},
+            "request": {"method": "GET", "url": "https://example.org"},
+            "values": {
+                "issues": {
+                    "name": "Issue 数",
+                    "value": {"path": "$.data.issues", "decimals": 0},
+                    "alert": {
+                        "mode": "change", "operator": "gt", "threshold": 0,
+                        "title": "${input.repo} 新 Issue",
+                        "message": "新增 ${delta} 个，之前 ${previous}，现在 ${value}"
+                    }
+                },
+                "stars": {"name": "Star 数", "value": {"path": "$.data.stars", "decimals": 0}}
+            }
+        }).to_string()).unwrap()
+    }
+
+    #[test]
+    fn multiple_metrics_extract_from_one_response() {
+        let definition = multi_definition();
+        let json = serde_json::json!({"data": {"issues": 3, "stars": 101}});
+        let issues = extract_metric(&json, definition.metric_value("issues").unwrap()).unwrap();
+        let stars = extract_metric(&json, definition.metric_value("stars").unwrap()).unwrap();
+        assert_eq!(issues.value, 3.0);
+        assert_eq!(stars.value, 101.0);
+    }
+
+    #[test]
+    fn change_alert_uses_delta_not_total_and_first_fetch_is_baseline() {
+        let definition = multi_definition();
+        let mut source = managed_source();
+        source.config = new_config(&definition, definition.origin().unwrap(), false);
+        source.definition = definition;
+        source.metric_switches.insert("issues".into(), MetricSwitch {
+            capsule: true, alerts: true, alert_interval_ms: 60_000,
+        });
+        source.state.metrics.insert("issues".into(), MetricState {
+            value: Some(30.0),
+            formatted: Some("30".into()),
+            ..MetricState::default()
+        });
+        assert!(evaluate_metric_alert(&source, "issues", 10_000).is_none());
+        let state = source.state.metrics.get_mut("issues").unwrap();
+        state.previous = Some(30.0);
+        state.value = Some(32.0);
+        state.formatted = Some("32".into());
+        state.pending_delta = 2.0;
+        let alert = evaluate_metric_alert(&source, "issues", 10_000).unwrap();
+        assert_eq!(alert.notification.body, "新增 2 个，之前 30，现在 32");
+        assert_eq!(alert.notification.source_id,
+            metric_notification_id("github-repository", "issues").unwrap());
+        assert!(evaluate_metric_alert(&source, "stars", 10_000).is_none());
+    }
+
+    #[test]
+    fn accepted_metric_alert_clears_pending_delta_and_persists() {
+        let root = tempfile::tempdir().unwrap();
+        let mut manager = DataSourceManager::open(root.path());
+        manager.import(multi_definition(), false).unwrap();
+        let source = manager.sources.get_mut("github-repository").unwrap();
+        source.state.metrics.insert("issues".into(), MetricState {
+            value: Some(4.0),
+            previous: Some(1.0),
+            pending_delta: 3.0,
+            ..MetricState::default()
+        });
+        let notification_id = "metric:issues:alert-3000";
+        manager.prepare_alert("github-repository", notification_id, 3_000).unwrap();
+        manager.alert_accepted("github-repository", notification_id, 3_000).unwrap();
+        drop(manager);
+        let manager = DataSourceManager::open(root.path());
+        let state = &manager.sources["github-repository"].state.metrics["issues"];
+        assert_eq!(state.pending_delta, 0.0);
+        assert_eq!(state.last_alert_ms, Some(3_000));
+    }
+
     #[test]
     fn text_based_svg_icons_are_rejected() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg"><text x="1" y="1">D</text></svg>"#;
