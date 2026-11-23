@@ -189,6 +189,64 @@ impl DataSourceView {
         preferences: &mut super::super::settings::AppPreferences,
     ) {
         section_title(ui, "显示与提醒", "与设置中的胶囊、通知配置同步");
+        if !source.metrics.is_empty() {
+            for metric in &source.metrics {
+                let title = format!("{}  ·  {}", metric.name,
+                    metric.formatted.as_deref().unwrap_or("等待数据"));
+                form_surface(ui).show(ui, |ui| {
+                    ui.label(egui::RichText::new(&title).strong());
+                    ui.add_space(5.0);
+                    if let Ok(id) = datasource::metric_capsule_id(&source.id, &metric.id) {
+                        let mut enabled = preferences.is_enabled(&id);
+                        runtime_row(ui, "胶囊显示", |ui| {
+                            if super::super::settings::core_toggle(ui, &mut enabled, "胶囊显示")
+                                && preferences.set_capsule_item_enabled(&id, enabled)
+                            {
+                                self.preferences_dirty = true;
+                            }
+                        });
+                    }
+                    if metric.has_alert {
+                        if let Ok(id) = datasource::metric_notification_id(&source.id, &metric.id) {
+                            let descriptor = preferences.pages.iter()
+                                .flat_map(|page| &page.descriptor.contributions)
+                                .find(|entry| entry.id == id)
+                                .cloned();
+                            if let Some(descriptor) = descriptor {
+                                let mut enabled = preferences.contribution_enabled(&descriptor);
+                                runtime_row(ui, "通知提醒", |ui| {
+                                    if super::super::settings::core_toggle(ui, &mut enabled, "通知提醒") {
+                                        preferences.set_contribution_enabled(id.clone(), enabled);
+                                        self.preferences_dirty = true;
+                                    }
+                                });
+                                let values = preferences.contribution_values
+                                    .entry(id)
+                                    .or_insert_with(|| {
+                                        let mut values = crate::extension::Settings::new();
+                                        values.insert("cooldown".into(),
+                                            crate::extension::SettingValue::Duration(metric.alert_interval_ms));
+                                        values
+                                    });
+                                if let Some(crate::extension::SettingValue::Duration(ms)) = values.get_mut("cooldown") {
+                                    runtime_row(ui, "最短提醒间隔", |ui| {
+                                        let mut minutes = (*ms).div_ceil(60_000).clamp(1, 43_200);
+                                        if ui.add(egui::DragValue::new(&mut minutes)
+                                            .range(1..=43_200).suffix(" 分钟")).changed()
+                                        {
+                                            *ms = minutes * 60_000;
+                                            self.preferences_dirty = true;
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+                });
+                ui.add_space(8.0);
+            }
+            return;
+        }
         if let Ok(id) = datasource::capsule_id(&source.id) {
             let mut enabled = preferences.is_enabled(&id);
             runtime_row(ui, "胶囊显示", |ui| {
