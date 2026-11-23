@@ -266,12 +266,14 @@ impl DataSourceView {
             ui.label(RichText::new(&source.description).weak());
         }
         ui.add_space(10.0);
-        info_card(
-            ui,
-            "当前值",
-            source.formatted.as_deref().unwrap_or("—"),
-            13.0,
-        );
+        if source.metrics.is_empty() {
+            info_card(ui, "当前值", source.formatted.as_deref().unwrap_or("—"), 13.0);
+        } else {
+            for metric in &source.metrics {
+                info_card(ui, &metric.name, metric.formatted.as_deref().unwrap_or("—"), 13.0);
+                ui.add_space(5.0);
+            }
+        }
         ui.add_space(8.0);
         let updated = source
             .updated_ms
