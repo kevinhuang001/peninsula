@@ -218,6 +218,47 @@ fn every_menu_keeps_its_bordered_navigation_and_content_panels() {
 }
 
 #[test]
+fn settings_panels_stay_ordered_on_narrow_and_wide_monitors() {
+    for width in [360.0, 440.0, 560.0, 680.0, 1100.0] {
+        for extra_column in [false, true] {
+            let layout = Panels::new(
+                Rect::from_min_size(Pos2::ZERO, egui::vec2(width, 700.0)),
+                extra_column,
+            );
+            assert!(layout.navigation.is_positive());
+            assert!(layout.form.is_positive());
+            assert!(layout.navigation.right() < layout.form.left());
+            if let Some(plugins) = layout.plugins {
+                assert!(plugins.is_positive());
+                assert!(layout.navigation.right() < plugins.left());
+                assert!(plugins.right() < layout.form.left());
+            }
+            assert!(layout.form.right() <= width);
+        }
+    }
+}
+
+#[test]
+fn settings_width_uses_available_viewport_not_double_monitor_limit() {
+    let ctx = egui::Context::default();
+    let prefs = AppPreferences::default();
+    for width in [480.0, 600.0, 800.0, 1280.0] {
+        ctx.run(RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(width, 800.0))),
+            ..Default::default()
+        }, |ctx| {
+            let view = SettingsView { section: Section::Notifications, ..Default::default() };
+            let actual = view.width(ctx, &prefs);
+            assert!(actual <= width * 0.96 + 0.1);
+            assert!(actual > 0.0);
+            if width >= 800.0 {
+                assert!(actual > width * 0.5);
+            }
+        });
+    }
+}
+
+#[test]
 fn settings_height_grows_with_content_before_host_applies_the_screen_limit() {
     let ctx = egui::Context::default();
     let mut prefs = AppPreferences::default();
@@ -304,7 +345,7 @@ fn settings_width_follows_the_selected_content_and_screen_limit() {
             page.descriptor.settings[0].description =
                 "A much longer setting description that requires more room for the control".into();
             assert_eq!(view.width(ctx, &longer), normal);
-            assert!(view.width(ctx, &longer) <= ctx.screen_rect().width() * 0.75);
+            assert!(view.width(ctx, &longer) <= ctx.screen_rect().width() * 0.96);
         },
     );
 }

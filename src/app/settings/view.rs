@@ -123,7 +123,15 @@ impl Panels {
         );
         // Keep three columns side by side while the capsule animates; clip the
         // reveal at the shell instead of reflowing the form under its navigation.
-        let sidebar_width = SIDEBAR_WIDTH.min(body.width() * 0.24);
+        // When the monitor is narrow, give the form most of the available
+        // width instead of shrinking every column by the same percentage.
+        // Sizes are egui logical points: HiDPI physical scaling is automatic.
+        let compact = capsule.width() < 620.0;
+        let sidebar_width = if compact {
+            SIDEBAR_WIDTH.min((body.width() * 0.20).max(64.0))
+        } else {
+            SIDEBAR_WIDTH.min(body.width() * 0.24)
+        };
         let navigation = Rect::from_min_size(body.min, egui::vec2(sidebar_width, body.height()));
         let remaining = Rect::from_min_max(
             egui::pos2(navigation.right() + COLUMN_GAP, body.top()),
@@ -132,7 +140,14 @@ impl Panels {
         let plugins = extensions.then(|| {
             Rect::from_min_size(
                 remaining.min,
-                egui::vec2(PLUGIN_WIDTH.min(remaining.width() * 0.31), body.height()),
+                egui::vec2(
+                    if compact {
+                        108.0_f32.min(remaining.width() * 0.30)
+                    } else {
+                        PLUGIN_WIDTH.min(remaining.width() * 0.31)
+                    },
+                    body.height(),
+                ),
             )
         });
         let form = Rect::from_min_max(
@@ -177,7 +192,10 @@ impl SettingsView {
             } else {
                 0.0
             };
-        let limit = context.screen_rect().width() * 0.75;
+        // The native viewport is *already* limited to 75% of the monitor in
+        // App::update_viewport_size. Applying 75% again compressed three-column
+        // forms to 56% of the monitor on smaller displays.
+        let limit = (context.screen_rect().width() * 0.96).max(1.0);
         let available = (limit - chrome).max(1.0);
         let content_width = if matches!(self.section, Section::Extensions | Section::Capsule | Section::Components) {
             EXTENSION_FORM_WIDTH
@@ -271,9 +289,11 @@ impl SettingsView {
                 },
             )
         };
-        // A menu item takes 32pt + 4pt explicit space + 4pt row spacing.
-        // Account for the 41pt title area, 8pt footer and 10pt content inset.
-        let navigation_height = Section::ALL.len() as f32 * (32.0 + 4.0 + 4.0) + 10.0;
+        // Menu row height follows the global typography preset, so larger
+        // text never overlaps the next entry. Wheel scrolling remains the
+        // fallback whenever the monitor is shorter than the natural content.
+        let navigation_height = Section::ALL.len() as f32
+            * (navigation_row_height(context) + 8.0) + 10.0;
         let content_height = if self.section == Section::Extensions {
             content_height.max(EXTENSION_FORM_HEIGHT)
         } else {
@@ -1358,7 +1378,10 @@ fn menu_row(
     selected: bool,
     enabled: Option<bool>,
 ) -> bool {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), navigation_row_height(ui.ctx())),
+        Sense::hover(),
+    );
     let response = ui.interact(rect, ui.id().with(id), Sense::click());
     ui.painter().rect_filled(
         rect,
@@ -1417,12 +1440,19 @@ fn child(ui: &mut egui::Ui, rect: Rect, id: &str) -> egui::Ui {
     child.set_clip_rect(ui.clip_rect().intersect(rect.expand(2.0)));
     child
 }
+fn navigation_row_height(context: &egui::Context) -> f32 {
+    (32.0 * crate::ui::typography::Typography::factor(context))
+        .ceil()
+        .max(32.0)
+}
+
 fn configure(ui: &mut egui::Ui) {
     // Visuals are installed once on Context, including popups and password fields.
-    // Settings only overrides its local layout density.
+    // Space and minimum control height scale with text in logical points.
+    let factor = crate::ui::typography::Typography::factor(ui.ctx()).max(1.0);
     let style = ui.style_mut();
-    style.spacing.item_spacing = egui::vec2(6.0, 4.0);
-    style.spacing.interact_size.y = 24.0;
+    style.spacing.item_spacing = egui::vec2(6.0, 4.0 * factor);
+    style.spacing.interact_size.y = 24.0 * factor;
 }
 
 #[cfg(test)]

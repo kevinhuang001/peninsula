@@ -201,7 +201,11 @@ impl IslandApp {
         let mut size = (monitor * SCREEN_FRACTION).floor().max(Vec2::splat(1.0));
         // A lyric may exceed the normal widget canvas. Keep room for the
         // spring overshoot as well, so the native window cannot crop it.
-        size.x = size.x.max((capsule_width * 1.08).ceil());
+        // Wide lyrics can overshoot the normal viewport budget, but never
+        // create a native window wider than the actual monitor.
+        size.x = size.x
+            .max((capsule_width * 1.08).ceil())
+            .min((monitor.x - 8.0).max(1.0));
         if self.window_size == size {
             return;
         }

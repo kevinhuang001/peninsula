@@ -76,12 +76,17 @@ fn row_impl(
         ui.available_width()
     }
     .max(1.0);
-    let control_width = CONTROL_WIDTH.min(width * 0.47);
+    let factor = Typography::factor(ui.ctx()).max(1.0);
+    let control_width = (CONTROL_WIDTH * factor).min(width * 0.47);
     let label_width = (width - control_width - 30.0).max(1.0);
     let galley = ui
         .painter()
         .layout(label.into(), Typography::font_id(ui.ctx(), Typography::FORM_LABEL), TEXT, label_width);
-    let height = (galley.size().y + 16.0).max(36.0);
+    // Controls (including ComboBox and TextEdit) need more height when the
+    // user's global text preset is Large/Extra Large.
+    let height = (galley.size().y + 16.0 * factor)
+        .max(ui.spacing().interact_size.y + 12.0 * factor)
+        .max(36.0 * factor);
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     ui.painter().rect_filled(rect, 7.0, ROW);
     ui.painter().rect_stroke(
@@ -114,7 +119,9 @@ fn row_impl(
 }
 
 pub(in crate::app) fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 18.0), Sense::click());
+    let scale = Typography::factor(ui.ctx()).max(1.0);
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(32.0 * scale, 18.0 * scale), Sense::click());
     let changed = response.clicked();
     if changed {
         *value = !*value;
@@ -124,17 +131,17 @@ pub(in crate::app) fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str) -
     });
     let accent = crate::ui::palette::accent_tokens(ui.ctx());
     ui.painter()
-        .rect_filled(rect, 9.0, if *value { accent.accent } else { SWITCH_OFF });
+        .rect_filled(rect, 9.0 * scale, if *value { accent.accent } else { SWITCH_OFF });
     ui.painter().circle_filled(
         egui::pos2(
             if *value {
-                rect.right() - 9.0
+                rect.right() - 9.0 * scale
             } else {
-                rect.left() + 9.0
+                rect.left() + 9.0 * scale
             },
             rect.center().y,
         ),
-        7.0,
+        7.0 * scale,
         if *value { accent.on_accent } else { TEXT },
     );
     response.on_hover_text(format!(
