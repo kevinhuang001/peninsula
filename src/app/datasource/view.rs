@@ -233,10 +233,11 @@ impl DataSourceView {
         // Keep the icon and actual source title together on the left.
         // The separate right area holds only the refresh action.
         let compact_title = ui.available_width() < 350.0;
-        let mut render_title = |ui: &mut egui::Ui| {
+        let title_icon = manager.icon_texture(&source.id).map(|icon| icon.id());
+        let render_title = |ui: &mut egui::Ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            if let Some(icon) = manager.icon_texture(&source.id) {
-                ui.image((icon.id(), Vec2::splat(24.0)));
+            if let Some(icon) = title_icon {
+                ui.image((icon, Vec2::splat(24.0)));
             }
             ui.add(
                 egui::Label::new(
