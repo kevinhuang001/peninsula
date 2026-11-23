@@ -185,28 +185,47 @@ pub(super) fn runtime_row(
     });
 }
 
-/// Fixed-size metric summary tile; the tile grid owns the columns and
-/// retains full-width alignment across DPI and window-size changes.
-pub(super) fn metric_tile(
+/// One metric per full-width row, regardless of window size. The content
+/// flows vertically on a narrow viewport instead of forming squashed cards.
+pub(super) fn metric_row(
     ui: &mut egui::Ui,
     label: &str,
     value: &str,
     error: Option<&str>,
-    width: f32,
-) {
-    let outer_width = width.max(1.0);
-    surface(ui).show(ui, |ui| {
-        ui.set_width((outer_width - 24.0).max(1.0));
-        ui.set_min_height(77.0);
-        ui.label(RichText::new(label).size(Typography::font_id(ui.ctx(), Typography::BODY).size).color(ui.visuals().weak_text_color()));
-        ui.add_space(4.0);
-        ui.add(egui::Label::new(RichText::new(value).size(Typography::font_id(ui.ctx(), Typography::HEADING * 1.3).size).strong()).truncate())
-            .on_hover_text(value);
-        if let Some(error) = error {
-            ui.add_space(2.0);
-            ui.add(egui::Label::new(RichText::new(error).size(Typography::font_id(ui.ctx(), Typography::FORM_HINT).size).color(
-                ui.visuals().warn_fg_color,
-            )).truncate()).on_hover_text(error);
+) -> egui::Rect {
+    let outer_width = ui.available_width().max(1.0);
+    form_surface(ui).show(ui, |ui| {
+        let content_width = (outer_width - 24.0).max(1.0);
+        ui.set_width(content_width);
+        let caption = RichText::new(label)
+            .size(Typography::font_id(ui.ctx(), Typography::BODY).size)
+            .color(ui.visuals().weak_text_color());
+        let number = RichText::new(value)
+            .size(Typography::font_id(ui.ctx(), Typography::HEADING * 1.15).size)
+            .strong();
+        if content_width < 280.0 {
+            ui.add(egui::Label::new(caption).truncate()).on_hover_text(label);
+            ui.add(egui::Label::new(number).truncate()).on_hover_text(value);
+        } else {
+            ui.horizontal(|ui| {
+                ui.add_sized(
+                    [(content_width * 0.55).max(1.0), 30.0],
+                    egui::Label::new(caption).truncate(),
+                ).on_hover_text(label);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.add(egui::Label::new(number).truncate()).on_hover_text(value);
+                });
+            });
         }
-    });
+        if let Some(error) = error {
+            ui.add(
+                egui::Label::new(
+                    RichText::new(error)
+                        .size(Typography::font_id(ui.ctx(), Typography::FORM_HINT).size)
+                        .color(ui.visuals().warn_fg_color),
+                )
+                .truncate(),
+            ).on_hover_text(error);
+        }
+    }).response.rect
 }
