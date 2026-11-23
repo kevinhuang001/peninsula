@@ -7,6 +7,7 @@ pub(super) struct HeaderContent<'a> {
     pub pinned: bool,
     pub do_not_disturb: bool,
     pub settings_open: bool,
+    pub datasource_open: bool,
     pub icons: &'a Icons,
     pub opacity: f32,
 }
@@ -15,12 +16,13 @@ pub(super) fn paint_header(
     ui: &mut egui::Ui,
     rect: Rect,
     content: HeaderContent<'_>,
-) -> (bool, bool, bool, bool) {
+) -> (bool, bool, bool, bool, bool) {
     let HeaderContent {
         title,
         pinned,
         do_not_disturb,
         settings_open,
+        datasource_open,
         icons,
         opacity,
     } = content;
@@ -77,22 +79,17 @@ pub(super) fn paint_header(
             text.linear_multiply(opacity),
         );
     }
-    if header_control(
+    let datasource_requested = header_control(
         ui,
         datasource_rect,
         icons,
         Icon::Database,
-        false,
+        datasource_open,
         text,
         opacity,
     )
-    .on_hover_text("管理数据源")
-    .clicked()
-    {
-        ui.ctx().data_mut(|data| {
-            data.insert_temp(egui::Id::new("datasource-open-request"), true);
-        });
-    }
+    .on_hover_text(if datasource_open { "返回组件" } else { "管理数据源" })
+    .clicked();
     let dashboard_requested = header_control(
         ui,
         dashboard_rect,
@@ -153,7 +150,7 @@ pub(super) fn paint_header(
         "设置"
     })
     .clicked();
-    (pin_toggled, quiet_toggled, settings, dashboard_requested)
+    (pin_toggled, quiet_toggled, settings, dashboard_requested, datasource_requested)
 }
 
 fn header_control(

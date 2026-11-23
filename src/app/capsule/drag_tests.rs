@@ -8,6 +8,10 @@ fn dragging_the_page_right_reveals_the_previous_widget_on_release() {
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut preferences = AppPreferences::default();
     let mut settings_view = SettingsView::default();
+    let datasource_root = tempfile::tempdir().unwrap();
+    let mut datasource_manager =
+        crate::core::datasource::DataSourceManager::open(datasource_root.path());
+    let mut datasource_view = crate::app::datasource::DataSourceView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
     let (widget_ids, widget_view) = widget_fixture();
     let mut frame = |events: Vec<Event>| {
@@ -37,6 +41,10 @@ fn dragging_the_page_right_reveals_the_previous_widget_on_release() {
                                 alert_view: None,
                                 preferences: &mut preferences,
                                 settings_open: false,
+                                datasource_open: false,
+                                datasource_size: egui::vec2(790.0, 570.0),
+                                datasource_view: &mut datasource_view,
+                                datasources: &mut datasource_manager,
                                 settings_view: &mut settings_view,
                                 active_widget: &mut tab,
                                 pinned: false,
@@ -69,6 +77,10 @@ fn clicking_widget_body_does_not_change_the_page() {
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut preferences = AppPreferences::default();
     let mut settings_view = SettingsView::default();
+    let datasource_root = tempfile::tempdir().unwrap();
+    let mut datasource_manager =
+        crate::core::datasource::DataSourceManager::open(datasource_root.path());
+    let mut datasource_view = crate::app::datasource::DataSourceView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
     let (widget_ids, widget_view) = widget_fixture();
     let mut frame = |events: Vec<Event>| {
@@ -98,6 +110,10 @@ fn clicking_widget_body_does_not_change_the_page() {
                                 alert_view: None,
                                 preferences: &mut preferences,
                                 settings_open: false,
+                                datasource_open: false,
+                                datasource_size: egui::vec2(790.0, 570.0),
+                                datasource_view: &mut datasource_view,
+                                datasources: &mut datasource_manager,
                                 settings_view: &mut settings_view,
                                 active_widget: &mut tab,
                                 pinned: false,
@@ -132,6 +148,10 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut preferences = AppPreferences::default();
     let mut settings_view = SettingsView::default();
+    let datasource_root = tempfile::tempdir().unwrap();
+    let mut datasource_manager =
+        crate::core::datasource::DataSourceManager::open(datasource_root.path());
+    let mut datasource_view = crate::app::datasource::DataSourceView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
     let (widget_ids, widget_view) = widget_fixture();
 
@@ -164,6 +184,10 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
                                 alert_view: None,
                                 preferences: &mut preferences,
                                 settings_open: false,
+                                datasource_open: false,
+                                datasource_size: egui::vec2(790.0, 570.0),
+                                datasource_view: &mut datasource_view,
+                                datasources: &mut datasource_manager,
                                 settings_view: &mut settings_view,
                                 active_widget: &mut tab,
                                 pinned: false,
@@ -202,6 +226,10 @@ fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut preferences = AppPreferences::default();
     let mut settings_view = SettingsView::default();
+    let datasource_root = tempfile::tempdir().unwrap();
+    let mut datasource_manager =
+        crate::core::datasource::DataSourceManager::open(datasource_root.path());
+    let mut datasource_view = crate::app::datasource::DataSourceView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
     let (widget_ids, widget_view) = widget_fixture();
     let point = pos2(323.0, 30.0);
@@ -233,6 +261,10 @@ fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
                                 alert_view: None,
                                 preferences: &mut preferences,
                                 settings_open: false,
+                                datasource_open: false,
+                                datasource_size: egui::vec2(790.0, 570.0),
+                                datasource_view: &mut datasource_view,
+                                datasources: &mut datasource_manager,
                                 settings_view: &mut settings_view,
                                 active_widget: &mut tab,
                                 pinned: false,

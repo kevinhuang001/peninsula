@@ -1,4 +1,6 @@
 use crate::{
+    core::datasource::DataSourceManager,
+    app::datasource::DataSourceView,
     app::settings::{AppPreferences, SettingsView},
     extension::{ActionInvocation, AlertInteraction, ExtensionId, Notification, WidgetView},
 };
@@ -43,6 +45,10 @@ pub(super) struct CapsuleWidgets<'a> {
     pub preferences: &'a mut AppPreferences,
     pub capsule_views: &'a [CapsuleItem<'a>],
     pub settings_open: bool,
+    pub datasource_open: bool,
+    pub datasource_size: Vec2,
+    pub datasource_view: &'a mut DataSourceView,
+    pub datasources: &'a mut DataSourceManager,
     pub settings_view: &'a mut SettingsView,
     pub active_widget: &'a mut ExtensionId,
     pub widget_ids: &'a [ExtensionId],
@@ -67,6 +73,7 @@ pub(super) type CapsuleResult = (
     bool,
     Option<ActionInvocation>,
     bool,
+    bool,
 );
 
 pub(super) fn show(
@@ -77,7 +84,7 @@ pub(super) fn show(
     expanded_height: f32,
     content: CapsuleWidgets<'_>,
 ) -> CapsuleResult {
-    let navigation_height = if !content.settings_open && content.notification.is_none() {
+    let navigation_height = if !content.settings_open && !content.datasource_open && content.notification.is_none() {
         NAVIGATION_HEIGHT
     } else {
         0.0
@@ -98,6 +105,7 @@ pub(super) fn show(
     let drag_started = handle.drag_started();
     let page_swipe = if progress > 0.9
         && !content.settings_open
+        && !content.datasource_open
         && content.notification.is_none()
         && !context
             .input(|input| input.pointer.press_origin())
@@ -108,12 +116,13 @@ pub(super) fn show(
     } else {
         None
     };
-    paint_shell(ui, rect, progress, content.settings_open);
+    paint_shell(ui, rect, progress, content.settings_open || content.datasource_open);
     let mut alert_interaction = None;
     let mut widget_action = None;
     let mut settings_changed = false;
     let mut quiet_toggled = false;
     let mut dashboard_requested = false;
+    let mut datasource_requested = false;
     let (settings, pin_toggled) = if progress < 0.9 {
         widget_action = collapsed::show(
             ui,
@@ -133,7 +142,7 @@ pub(super) fn show(
             .and_then(|view| view.show(ui, rect, content.icons));
         (false, false)
     } else {
-        let (settings, pin_toggled, quiet, changed, action, dashboard) = paint_expanded(
+        let (settings, pin_toggled, quiet, changed, action, dashboard, source_toggle) = paint_expanded(
             ui,
             rect,
             progress,
@@ -148,6 +157,10 @@ pub(super) fn show(
                 do_not_disturb: content.do_not_disturb,
                 icons: content.icons,
                 settings_open: content.settings_open,
+                datasource_open: content.datasource_open,
+                datasource_size: content.datasource_size,
+                datasource_view: content.datasource_view,
+                datasources: content.datasources,
                 settings_view: content.settings_view,
                 preferences: content.preferences,
             },
@@ -156,6 +169,7 @@ pub(super) fn show(
         quiet_toggled = quiet;
         widget_action = action;
         dashboard_requested = dashboard;
+        datasource_requested = source_toggle;
         (settings, pin_toggled)
     };
     renderer::context_menu(&capsule, |ui| {
@@ -186,6 +200,7 @@ pub(super) fn show(
         settings_changed,
         widget_action,
         dashboard_requested,
+        datasource_requested,
     )
 }
 
@@ -314,6 +329,10 @@ struct ExpandedContent<'a> {
     do_not_disturb: bool,
     icons: &'a Icons,
     settings_open: bool,
+    datasource_open: bool,
+    datasource_size: Vec2,
+    datasource_view: &'a mut DataSourceView,
+    datasources: &'a mut DataSourceManager,
     settings_view: &'a mut SettingsView,
     preferences: &'a mut AppPreferences,
 }
@@ -323,7 +342,7 @@ fn paint_expanded(
     rect: Rect,
     progress: f32,
     content: ExpandedContent<'_>,
-) -> (bool, bool, bool, bool, Option<ActionInvocation>, bool) {
+) -> (bool, bool, bool, bool, Option<ActionInvocation>, bool, bool) {
     let ExpandedContent {
         active_widget,
         widget_ids,
@@ -335,17 +354,23 @@ fn paint_expanded(
         do_not_disturb,
         icons,
         settings_open,
+        datasource_open,
+        datasource_size,
+        datasource_view,
+        datasources,
         settings_view,
         preferences,
     } = content;
     let mut widget_action = None;
     let reveal = progress.clamp(0.0, 1.0);
-    let title = if settings_open {
+    let title = if datasource_open {
+        "数据源".to_owned()
+    } else if settings_open {
         "设置".to_owned()
     } else {
         widget_title.to_owned()
     };
-    let (pin_toggled, quiet_toggled, settings, dashboard_requested) = expanded::paint_header(
+    let (pin_toggled, quiet_toggled, settings, dashboard_requested, datasource_requested) = expanded::paint_header(
         ui,
         rect,
         expanded::HeaderContent {
@@ -353,12 +378,30 @@ fn paint_expanded(
             pinned,
             do_not_disturb,
             settings_open,
+            datasource_open,
             icons,
             opacity: reveal,
         },
     );
     let settings_changed = if settings_open {
         settings_view.show(ui, rect, preferences)
+    } else if datasource_open {
+        let size = Vec2::new((datasource_size.x - 24.0).max(1.0), (datasource_size.y - 12.0).max(1.0));
+        let body = Rect::from_min_size(
+            Pos2::new(rect.center().x - size.x * 0.5, rect.top() + EXPANDED_BASE_HEIGHT + 3.0),
+            size,
+        );
+        let visible = Rect::from_min_max(
+            Pos2::new(rect.left() + 12.0, rect.top() + EXPANDED_BASE_HEIGHT),
+            Pos2::new(rect.right() - 12.0, rect.bottom() - 8.0),
+        );
+        if visible.is_positive() {
+            let mut surface = ui.new_child(egui::UiBuilder::new().id_salt("datasource-capsule-body").max_rect(body));
+            surface.set_clip_rect(ui.clip_rect().intersect(visible));
+            datasource_view.show(&mut surface, datasources, preferences)
+        } else {
+            false
+        }
     } else {
         let available = body_size(
             rect.width(),
@@ -393,7 +436,7 @@ fn paint_expanded(
         }
         false
     };
-    if !settings_open {
+    if !settings_open && !datasource_open {
         expanded::paint_tabs(ui, rect, active_widget, widget_ids, widget_titles, reveal);
     }
     (
@@ -403,6 +446,7 @@ fn paint_expanded(
         settings_changed,
         widget_action,
         dashboard_requested,
+        datasource_requested,
     )
 }
 

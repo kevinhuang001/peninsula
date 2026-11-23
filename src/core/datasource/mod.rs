@@ -751,6 +751,8 @@ impl DataSourceManager {
         let previous_force_refresh = source.force_refresh;
         let previous_retry_at = source.state.retry_at_ms;
         let previous_retry_count = source.retry_count;
+        let previous_error = source.state.last_error.take();
+        let previous_http_status = source.state.http_status.take();
         source.generation = source.generation.wrapping_add(1);
         if let Some(token) = &source.cancellation {
             token.cancel();
@@ -761,10 +763,10 @@ impl DataSourceManager {
         source.force_refresh = source.config.enabled;
         source.state.retry_at_ms = None;
         source.retry_count = 0;
-        // String fields save on every keystroke, so wait briefly for typing to settle before
-        // the forced request; other field types already commit on Enter/blur.
+        // Text-based editors persist valid drafts as the user types. Debounce all
+        // of them so partial numbers/durations do not trigger spurious requests.
         source.next_refresh = Instant::now()
-            + if input_kind == InputType::String {
+            + if matches!(input_kind, InputType::String | InputType::Number | InputType::Integer | InputType::Duration) {
                 Duration::from_millis(350)
             } else {
                 Duration::ZERO
@@ -780,6 +782,8 @@ impl DataSourceManager {
                 source.force_refresh = previous_force_refresh;
                 source.state.retry_at_ms = previous_retry_at;
                 source.retry_count = previous_retry_count;
+                source.state.last_error = previous_error;
+                source.state.http_status = previous_http_status;
             }
             return Err(error);
         }
@@ -2087,6 +2091,8 @@ mod tests {
                 .unwrap();
             source.state.retry_at_ms = Some(u64::MAX);
             source.retry_count = 3;
+            source.state.last_error = Some("请填写必填参数：阈值".into());
+            source.state.http_status = Some(400);
             source.next_refresh = Instant::now() + Duration::from_secs(300);
         }
         manager
@@ -2103,7 +2109,9 @@ mod tests {
         assert!(source.force_refresh);
         assert!(source.state.retry_at_ms.is_none());
         assert_eq!(source.retry_count, 0);
-        assert!(source.next_refresh <= Instant::now());
+        assert!(source.next_refresh <= Instant::now() + Duration::from_millis(350));
+        assert!(source.state.last_error.is_none(), "成功保存后必须清除旧警告");
+        assert!(source.state.http_status.is_none());
 
         manager
             .set_enabled("open-meteo-shanghai-temperature", false)
