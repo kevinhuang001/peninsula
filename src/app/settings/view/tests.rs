@@ -580,6 +580,19 @@ fn generic_number_text_accepts_decimals_and_rejects_invalid_values() {
 }
 
 #[test]
+fn contribution_save_errors_are_visible_in_the_settings_panel() {
+    let ctx = egui::Context::default();
+    let mut prefs = AppPreferences::default();
+    let mut view = SettingsView {
+        section: Section::Notifications,
+        ..Default::default()
+    };
+    view.set_save_error(Some("文件系统拒绝写入".into()));
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    assert!(text_rect(&output, "设置未保存：文件系统拒绝写入").width() > 0.0);
+}
+
+#[test]
 fn notification_price_edit_is_reported_as_dirty_to_the_app_save_pipeline() {
     let ctx = egui::Context::default();
     let mut prefs = AppPreferences::default();

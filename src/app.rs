@@ -988,12 +988,16 @@ impl eframe::App for IslandApp {
                 context.request_repaint();
                 self.extensions
                     .apply_contribution_preferences(self.preferences.contribution_preferences());
+                let mut save_error: Option<String> = None;
                 for (id, values) in self.preferences.contribution_values.clone() {
                     if self.extensions.configured_contribution_settings(&id) != Some(&values) {
                         if let Err(error) =
                             self.extensions.update_contribution_settings(&id, values)
                         {
                             eprintln!("Unable to save contribution settings: {error}");
+                            if save_error.is_none() {
+                                save_error = Some(format!("{id}: {error}"));
+                            }
                         }
                     }
                 }
@@ -1003,7 +1007,12 @@ impl eframe::App for IslandApp {
                         .update_settings(&page.descriptor.id, page.values)
                     {
                         Ok(output) => self.apply_extension_output(output, context),
-                        Err(error) => eprintln!("Unable to save extension settings: {error}"),
+                        Err(error) => {
+                            eprintln!("Unable to save extension settings: {error}");
+                            if save_error.is_none() {
+                                save_error = Some(format!("{}: {error}", page.descriptor.name));
+                            }
+                        }
                     }
                     if let Err(error) = self
                         .extensions
@@ -1018,7 +1027,11 @@ impl eframe::App for IslandApp {
                 settings::theme::install(context, self.preferences.accent_color, self.preferences.text_scale);
                 if let Err(error) = self.preferences.save() {
                     eprintln!("Unable to save settings: {error}");
+                    if save_error.is_none() {
+                        save_error = Some(error.to_string());
+                    }
                 }
+                self.settings_view.set_save_error(save_error);
             }
             if let Some(action) = widget_action {
                 self.dispatch_widget_action(action, now, context);
@@ -1031,6 +1044,9 @@ impl eframe::App for IslandApp {
             if self.extensions.configured_contribution_settings(&id) != Some(&values) {
                 if let Err(error) = self.extensions.update_contribution_settings(&id, values) {
                     eprintln!("Unable to update contribution settings: {error}");
+                    if self.settings_open {
+                        self.settings_view.set_save_error(Some(format!("{id}: {error}")));
+                    }
                 }
             }
         }

@@ -389,7 +389,7 @@ pub(super) fn search_setting(
     let mut changed = false;
     egui::Frame::new()
         .fill(ROW)
-        .stroke(Stroke::new(1.0, BORDER))
+        .stroke(Stroke::new(1.0_f32, BORDER))
         .corner_radius(9.0)
         .inner_margin(egui::Margin::symmetric(10, 10))
         .show(ui, |ui| {

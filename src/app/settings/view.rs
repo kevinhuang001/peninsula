@@ -89,6 +89,9 @@ pub struct SettingsView {
     searches: HashMap<(ExtensionId, String), forms::SearchFieldState>,
     /// Incomplete typed edits belong to UI drafts, not persisted extension settings.
     number_drafts: HashMap<(ExtensionId, String), String>,
+    /// Persistence failures must remain visible: editing text alone does not
+    /// mean the on-disk contribution-settings record was written.
+    save_error: Option<String>,
     secret_store: Option<SecretStore>,
     secret_keys: Vec<String>,
     secret_key: String,
@@ -297,6 +300,10 @@ impl SettingsView {
         }
     }
 
+    pub(in crate::app) fn set_save_error(&mut self, error: Option<String>) {
+        self.save_error = error;
+    }
+
     pub(in crate::app) fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -335,6 +342,13 @@ impl SettingsView {
         );
         if self.section == Section::QuietHours {
             return self.quiet(&mut content, panels.form.shrink(PANEL_INSET), prefs);
+        }
+        if let Some(error) = &self.save_error {
+            content.colored_label(
+                content.visuals().error_fg_color,
+                format!("设置未保存：{error}"),
+            );
+            content.add_space(6.0);
         }
         let mut changed = false;
         egui::ScrollArea::vertical()
