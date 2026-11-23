@@ -108,6 +108,8 @@ struct MetricState {
     last_alert_ms: Option<u64>,
     #[serde(default)]
     pending_alert: Option<PendingAlertMarker>,
+    #[serde(default)]
+    last_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -176,6 +178,7 @@ pub struct MetricSnapshot {
     pub name: String,
     pub value_path: String,
     pub value: Option<f64>,
+    pub last_error: Option<String>,
     pub formatted: Option<String>,
     pub pending_delta: f64,
     pub has_alert: bool,
@@ -192,6 +195,7 @@ struct FinishedRequest {
 #[derive(Debug)]
 struct FetchResult {
     metrics: BTreeMap<String, ExtractedMetric>,
+    errors: BTreeMap<String, String>,
     status: u16,
 }
 
@@ -426,6 +430,7 @@ impl DataSourceManager {
                             name: metric.name.clone(),
                             value_path: metric.value.path.clone(),
                             value: state.and_then(|state| state.value),
+                            last_error: state.and_then(|state| state.last_error.clone()),
                             formatted: state.and_then(|state| state.formatted.clone()),
                             pending_delta: state.map_or(0.0, |state| state.pending_delta),
                             has_alert: metric.alert.is_some(),
@@ -715,6 +720,8 @@ impl DataSourceManager {
             .map_or(0, |source| source.generation.wrapping_add(1));
         let state = previous.as_ref().map_or_else(SavedState::default, |old| {
             if old.definition.origin().ok() == Some(origin.clone())
+                && old.definition.request == definition.request
+                && old.definition.requests == definition.requests
                 && old.definition.value.as_ref().map(|v| &v.path) == definition.value.as_ref().map(|v| &v.path)
                 && old.definition.values.iter().map(|(key, metric)| (key, &metric.value.path)).eq(
                     definition.values.iter().map(|(key, metric)| (key, &metric.value.path))
@@ -996,6 +1003,8 @@ impl DataSourceManager {
             source.force_refresh = false;
             match finished.result {
                 Ok(result) => {
+                    let updated_metrics: Vec<String> = result.metrics.keys().cloned().collect();
+                    let failed_metrics = result.errors;
                     for (metric_id, metric) in result.metrics {
                         if source.definition.is_multi() {
                             let state = source.state.metrics.entry(metric_id).or_default();
@@ -1008,13 +1017,21 @@ impl DataSourceManager {
                             state.previous = state.value;
                             state.value = Some(metric.value);
                             state.formatted = Some(metric.formatted);
+                            state.last_error = None;
                         } else {
                             source.state.value = Some(metric.value);
                             source.state.formatted = Some(metric.formatted);
                         }
                     }
+                    for (metric_id, error) in &failed_metrics {
+                        source.state.metrics.entry(metric_id.clone()).or_default().last_error = Some(error.clone());
+                    }
                     source.state.updated_ms = Some(timestamp_ms());
-                    source.state.last_error = None;
+                    source.state.last_error = if failed_metrics.is_empty() {
+                        None
+                    } else {
+                        Some(format!("{} 个指标更新失败", failed_metrics.len()))
+                    };
                     source.state.http_status = Some(result.status);
                     source.state.retry_at_ms = None;
                     source.retry_count = 0;
@@ -1022,7 +1039,7 @@ impl DataSourceManager {
                     if source.active_alerts {
                         let at = timestamp_ms();
                         if source.definition.is_multi() {
-                            for metric_id in source.definition.values.keys() {
+                            for metric_id in &updated_metrics {
                                 if let Some(alert) = evaluate_metric_alert(source, metric_id, at) {
                                     notifications.push(alert);
                                 }
@@ -1819,10 +1836,83 @@ async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
     if task.cancellation.is_cancelled() {
         return Err(fetch_error("请求已取消"));
     }
-    let request = &task.definition.request;
+    let mut metrics = BTreeMap::new();
+    let mut errors = BTreeMap::new();
+    let mut first_error: Option<FetchError> = None;
+    let mut status = None;
+    if !task.definition.requests.is_empty() {
+        // Request IDs determine which independently fetched JSON feeds each metric.
+        // One failed endpoint does not discard successful values from other endpoints.
+        for (request_id, request) in &task.definition.requests {
+            if task.cancellation.is_cancelled() {
+                return Err(fetch_error("请求已取消"));
+            }
+            match fetch_request_json(&task, request).await {
+                Ok((json, http_status)) => {
+                    status = Some(http_status);
+                    for (id, metric) in &task.definition.values {
+                        if metric.request.as_deref() != Some(request_id.as_str()) {
+                            continue;
+                        }
+                        match extract_metric(&json, &metric.value) {
+                            Ok(value) => { metrics.insert(id.clone(), value); }
+                            Err(error) => {
+                                errors.insert(id.clone(), format!("{request_id}: {}", error.message));
+                                if first_error.is_none() { first_error = Some(error); }
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    for (id, metric) in &task.definition.values {
+                        if metric.request.as_deref() == Some(request_id.as_str()) {
+                            errors.insert(id.clone(), format!("{request_id}: {}", error.message));
+                        }
+                    }
+                    if first_error.is_none() { first_error = Some(error); }
+                }
+            }
+        }
+    } else {
+        let request = task.definition.request.as_ref()
+            .ok_or_else(|| fetch_error("请求定义缺失"))?;
+        let (json, http_status) = fetch_request_json(&task, request).await?;
+        status = Some(http_status);
+        if task.definition.is_multi() {
+            for (id, metric) in &task.definition.values {
+                match extract_metric(&json, &metric.value) {
+                    Ok(value) => { metrics.insert(id.clone(), value); }
+                    Err(error) => {
+                        errors.insert(id.clone(), error.message.clone());
+                        if first_error.is_none() { first_error = Some(error); }
+                    }
+                }
+            }
+        } else if let Some(spec) = &task.definition.value {
+            metrics.insert("value".to_owned(), extract_metric(&json, spec)?);
+        }
+    }
+    if metrics.is_empty() {
+        return Err(first_error.unwrap_or_else(|| fetch_error("所有指标均未返回有效数值")));
+    }
+    Ok(FetchResult { metrics, errors, status: status.unwrap_or(200) })
+}
+
+async fn fetch_request_json(
+    task: &RequestTask,
+    request: &schema::RequestDefinition,
+) -> Result<(Value, u16), FetchError> {
+    if task.cancellation.is_cancelled() {
+        return Err(fetch_error("请求已取消"));
+    }
     let url_template = expand_string(&request.url, &task.inputs, true)?;
     let mut url = Url::parse(&url_template).map_err(|_| fetch_error("请求 URL 无效"))?;
-    if url.origin().ascii_serialization() != task.origin {
+    if task.origin != task.definition.origin()
+        .map_err(|_| fetch_error("授权 Origin 无效"))?
+        || !task.definition.origins()
+            .map_err(|_| fetch_error("授权 Origin 无效"))?
+            .contains(&url.origin().ascii_serialization())
+    {
         return Err(fetch_error("请求目标与授权 Origin 不匹配"));
     }
     if url.scheme() != "https" && !task.allow_private_network {
@@ -1935,18 +2025,9 @@ async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
         }
         bytes.extend_from_slice(&chunk);
     }
-    let json: Value =
-        serde_json::from_slice(&bytes).map_err(|_| fetch_error("响应不是合法 JSON"))?;
-    // A single HTTP response may supply several independently selectable metrics.
-    let mut metrics = BTreeMap::new();
-    if task.definition.is_multi() {
-        for (id, definition) in &task.definition.values {
-            metrics.insert(id.clone(), extract_metric(&json, &definition.value)?);
-        }
-    } else if let Some(spec) = &task.definition.value {
-        metrics.insert("value".to_owned(), extract_metric(&json, spec)?);
-    }
-    Ok(FetchResult { metrics, status: status.as_u16() })
+    let json: Value = serde_json::from_slice(&bytes)
+        .map_err(|_| fetch_error("响应不是合法 JSON"))?;
+    Ok((json, status.as_u16()))
 }
 
 fn extract_metric(json: &Value, spec: &ValueDefinition) -> Result<ExtractedMetric, FetchError> {
@@ -2176,6 +2257,7 @@ fn metric_delta_text(delta: f64) -> String {
 fn evaluate_metric_alert(source: &ManagedSource, metric_id: &str, now_ms: u64) -> Option<PendingAlert> {
     let alert = source.definition.metric_alert(metric_id)?;
     let state = source.state.metrics.get(metric_id)?;
+    if state.last_error.is_some() { return None; }
     let runtime = source.metric_switches.get(metric_id)?;
     if !runtime.alerts { return None; }
     let value = state.value?;
@@ -2222,7 +2304,7 @@ fn metric_alert_diagnostic(source: &ManagedSource, metric_id: &str, now_ms: u64)
     let Some(state) = source.state.metrics.get(metric_id) else {
         return "等待首次采样".into();
     };
-    if source.state.last_error.is_some() { return "最近请求失败".into(); }
+    if let Some(error) = &state.last_error { return format!("最近请求失败：{error}"); }
     let Some(value) = state.value else { return "等待首次采样".into(); };
     if alert.mode == AlertMode::Change && state.previous.is_none() {
         return "已记录基准值，等待变化".into();
