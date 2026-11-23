@@ -118,7 +118,7 @@ pub(super) fn switch(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
 
 pub(super) fn switch_row(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
     let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width().min(CARD_CONTENT_WIDTH), 28.0),
+        Vec2::new(ui.available_width(), 28.0),
         egui::Sense::click(),
     );
     if response.clicked() {
@@ -169,7 +169,7 @@ pub(super) fn runtime_row(
     control: impl FnOnce(&mut egui::Ui),
 ) {
     form_surface(ui).show(ui, |ui| {
-        let width = (ui.available_width() - 24.0).max(1.0).min(CARD_CONTENT_WIDTH);
+        let width = (ui.available_width() - 24.0).max(1.0);
         ui.set_width(width);
         if width < 260.0 {
             ui.vertical(|ui| {
