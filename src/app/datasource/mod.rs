@@ -108,6 +108,33 @@ mod responsive_tests {
     }
 
     #[test]
+    fn parameter_labels_are_drawn_at_the_left_edge() {
+        let context = egui::Context::default();
+        let mut label_rect = None;
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO, Vec2::new(500.0, 180.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        label_rect = Some(left_aligned_label(ui, "仓库所有者", 220.0));
+                    });
+            },
+        );
+        let rect = label_rect.unwrap();
+        let x = output.shapes.iter().find_map(|shape| {
+            let egui::Shape::Text(text) = &shape.shape else { return None };
+            (text.galley.job.text == "仓库所有者").then_some(text.pos.x)
+        }).expect("input label text must be painted");
+        assert!((x - rect.left()).abs() <= 1.5, "label x={x}, row starts at {}", rect.left());
+    }
+
+    #[test]
     fn detail_rows_fill_right_pane_and_keep_controls_inside() {
         // Logical point widths; the same geometry is used at all DPI scales.
         for width in [360.0, 540.0, 790.0, 1200.0] {
