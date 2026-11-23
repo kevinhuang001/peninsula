@@ -109,7 +109,7 @@ impl DataSourceView {
         height: f32,
     ) {
         ui.allocate_ui_with_layout(
-            Vec2::new(ui.available_width().max(1.0), height.max(1.0)),
+            Vec2::new(ui.available_width().max(1.0).min(DETAIL_WIDTH), height.max(1.0)),
             Layout::top_down(Align::Min),
             |ui| {
                 egui::ScrollArea::vertical()
@@ -230,51 +230,56 @@ impl DataSourceView {
         manager: &mut DataSourceManager,
         preferences: &mut super::super::settings::AppPreferences,
     ) {
-        // Avoid squeezing the refresh button into a long title at high text
-        // scale or on narrow displays. The title can truncate with a tooltip.
+        // Keep the icon and actual source title together on the left.
+        // The separate right area holds only the refresh action.
         let compact_title = ui.available_width() < 350.0;
+        let title_icon = manager.icon_texture(&source.id).map(|icon| icon.id());
+        let render_title = |ui: &mut egui::Ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            if let Some(icon) = title_icon {
+                ui.image((icon, Vec2::splat(24.0)));
+            }
+            ui.add(
+                egui::Label::new(
+                    RichText::new(&source.name)
+                        .text_style(egui::TextStyle::Heading)
+                        .strong(),
+                ).truncate(),
+            ).on_hover_text(&source.name);
+        };
         ui.horizontal(|ui| {
-            if let Some(icon) = manager.icon_texture(&source.id) {
-                ui.image((icon.id(), Vec2::splat(24.0)));
-            }
-            let text = egui::Label::new(
-                RichText::new(&source.name).text_style(egui::TextStyle::Heading).strong(),
-            ).truncate();
             if compact_title {
-                ui.add(text).on_hover_text(&source.name);
+                render_title(ui);
             } else {
-                // Reserve the refresh button's full minimum width before
-                // measuring a long source name; no button/title overlap.
                 let title_width = (ui.available_width() - 112.0).max(1.0);
-                ui.add_sized(
-                    [title_width, ui.spacing().interact_size.y.max(28.0)],
-                    text,
-                ).on_hover_text(&source.name);
-            }
-            if !compact_title {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(title_width, 36.0),
+                    Layout::left_to_right(Align::Center),
+                    |ui| render_title(ui),
+                );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui
-                        .add_enabled(
-                            !source.in_flight,
-                            egui::Button::new(if source.in_flight { "刷新中…" } else { "↻  刷新" })
-                                .min_size(Vec2::new(96.0, 32.0)),
-                        )
-                        .on_hover_text("手动刷新全部指标，不会启用后台监控")
-                        .clicked()
-                    {
+                    if ui.add_enabled(
+                        !source.in_flight,
+                        egui::Button::new(
+                            if source.in_flight { "刷新中…" } else { "↻  刷新" },
+                        ).min_size(Vec2::new(96.0, 32.0)),
+                    ).on_hover_text("手动刷新全部指标，不会启用后台监控").clicked() {
                         self.set_source_status(&source.id, manager.refresh_now(&source.id));
                         ui.ctx().request_repaint();
                     }
                 });
             }
         });
-        if compact_title && ui.add_enabled(
-            !source.in_flight,
-            egui::Button::new(if source.in_flight { "刷新中…" } else { "↻  刷新" })
-                .min_size(Vec2::new(96.0, 32.0)),
-        ).on_hover_text("手动刷新全部指标，不会启用后台监控").clicked() {
+        if compact_title
+            && ui.add_enabled(
+                !source.in_flight,
+                egui::Button::new(
+                    if source.in_flight { "刷新中…" } else { "↻  刷新" },
+                ).min_size(Vec2::new(96.0, 32.0)),
+            ).on_hover_text("手动刷新全部指标，不会启用后台监控").clicked()
+        {
             self.set_source_status(&source.id, manager.refresh_now(&source.id));
-                        ui.ctx().request_repaint();
+            ui.ctx().request_repaint();
         }
         if !source.description.is_empty() {
             ui.add_space(4.0);
