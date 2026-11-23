@@ -55,7 +55,7 @@ impl DataSourceView {
         }
     }
 
-    /// Import is reviewed in the capsule detail pane; no secondary viewport.
+    /// Import permissions are reviewed in the independent data-source window.
     pub(super) fn import_review(&mut self, ui: &mut egui::Ui, manager: &mut DataSourceManager) {
         let Some(candidate) = self.candidate.clone() else { return; };
         let origin = candidate.origin().unwrap_or_else(|_| "无效请求目标".into());
