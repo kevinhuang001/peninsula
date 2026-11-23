@@ -2427,6 +2427,24 @@ mod tests {
     }
 
     #[test]
+    fn configured_names_use_inputs_and_survive_restart() {
+        let root = tempfile::tempdir().unwrap();
+        {
+            let mut manager = DataSourceManager::open(root.path());
+            manager.import(multi_definition(), false).unwrap();
+            manager.set_display_name("github-repository", "代码 ${input.repo}".into()).unwrap();
+            assert_eq!(manager.snapshots()[0].name, "代码 peninsula");
+            manager.set_input("github-repository", "repo", Value::String("fiex".into())).unwrap();
+            assert_eq!(manager.snapshots()[0].name, "代码 fiex");
+            assert!(manager.set_display_name("github-repository", "${input.unknown}".into()).is_err());
+        }
+        let manager = DataSourceManager::open(root.path());
+        let source = &manager.snapshots()[0];
+        assert_eq!(source.name, "代码 fiex");
+        assert_eq!(source.name_override.as_deref(), Some("代码 ${input.repo}"));
+    }
+
+    #[test]
     fn multiple_metrics_extract_from_one_response() {
         let definition = multi_definition();
         let json = serde_json::json!({"data": {"issues": 3, "stars": 101}});
