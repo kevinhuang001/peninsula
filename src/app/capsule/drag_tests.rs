@@ -216,8 +216,8 @@ fn dashboard_button_to_the_left_of_pin_acts_independently() {
         frame(vec![button(true)]);
         frame(vec![button(false)]).1
     };
-    assert_eq!(click(82.0), (false, true, false));
-    assert_eq!(click(60.0), (true, false, false));
+    assert_eq!(click(104.0), (false, true, false));
+    assert_eq!(click(82.0), (true, false, false));
 }
 
 #[test]
@@ -232,7 +232,7 @@ fn moon_button_emits_quiet_mode_toggle_without_changing_the_widget() {
     let mut datasource_view = crate::app::datasource::DataSourceView::default();
     let icons = crate::app::icons::Icons::load(&ctx);
     let (widget_ids, widget_view) = widget_fixture();
-    let point = pos2(323.0, 30.0);
+    let point = pos2(301.0, 30.0);
     let mut toggled = false;
     let mut frame = |events: Vec<Event>| {
         let input = RawInput {
