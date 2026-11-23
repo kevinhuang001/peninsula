@@ -224,11 +224,20 @@ impl DataSourceView {
             if let Some(icon) = manager.icon_texture(&source.id) {
                 ui.image((icon.id(), Vec2::splat(24.0)));
             }
-            ui.add(
-                egui::Label::new(
-                    RichText::new(&source.name).text_style(egui::TextStyle::Heading).strong(),
-                ).truncate(),
-            ).on_hover_text(&source.name);
+            let text = egui::Label::new(
+                RichText::new(&source.name).text_style(egui::TextStyle::Heading).strong(),
+            ).truncate();
+            if compact_title {
+                ui.add(text).on_hover_text(&source.name);
+            } else {
+                // Reserve the refresh button's full minimum width before
+                // measuring a long source name; no button/title overlap.
+                let title_width = (ui.available_width() - 112.0).max(1.0);
+                ui.add_sized(
+                    [title_width, ui.spacing().interact_size.y.max(28.0)],
+                    text,
+                ).on_hover_text(&source.name);
+            }
             if !compact_title {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui
