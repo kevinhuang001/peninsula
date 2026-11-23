@@ -1060,6 +1060,12 @@ impl DataSourceManager {
                     changed = true;
                 }
                 Err(error) => {
+                    for (metric_id, runtime) in &source.metric_switches {
+                        if runtime.capsule || runtime.alerts {
+                            source.state.metrics.entry(metric_id.clone()).or_default()
+                                .last_error = Some(error.message.clone());
+                        }
+                    }
                     source.state.last_error = Some(error.message);
                     source.state.http_status = error.status;
                     source.retry_count = source.retry_count.saturating_add(1);
