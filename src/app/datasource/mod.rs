@@ -16,7 +16,6 @@ use support::*;
 
 const LEFT_WIDTH: f32 = 212.0;
 const COLUMN_GAP: f32 = 12.0;
-const CARD_CONTENT_WIDTH: f32 = 470.0;
 const VIEW_WIDTH: f32 = 980.0;
 const VIEW_HEIGHT: f32 = 680.0;
 const COMPACT_WIDTH: f32 = 620.0;
