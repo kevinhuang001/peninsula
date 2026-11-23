@@ -113,7 +113,7 @@ fn row_impl(
     changed
 }
 
-pub(super) fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
+pub(in crate::app) fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 18.0), Sense::click());
     let changed = response.clicked();
     if changed {

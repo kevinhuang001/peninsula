@@ -9,3 +9,4 @@ mod view;
 
 pub use preferences::AppPreferences;
 pub use view::SettingsView;
+pub(in crate::app) use forms::toggle as core_toggle;

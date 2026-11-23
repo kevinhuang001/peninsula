@@ -184,7 +184,7 @@ pub(super) fn notification_source_local(id: &ExtensionId) -> Option<&str> {
         .or_else(|| key.strip_prefix("datasource."))
 }
 
-fn notification_id(id: &str) -> Result<ExtensionId, String> {
+pub(crate) fn notification_id(id: &str) -> Result<ExtensionId, String> {
     ExtensionId::new(format!("datasource/{id}/notification")).map_err(|error| error.to_string())
 }
 
@@ -415,8 +415,9 @@ impl DataSourceManager {
 
     pub fn apply_contributions(&mut self, host: &crate::core::extension_manager::ExtensionManager) {
         let owner_enabled = host.running(&ExtensionId::builtin(CATALOG_OWNER));
+        let mut enabled_changed = false;
         for (id, source) in &mut self.sources {
-            let was_running = source.capsule || source.active_alerts;
+            let was_running = source.config.enabled;
             source.capsule = capsule_id(id).is_ok_and(|id| host.contribution_running(&id));
             source.active_alerts = notification_id(id).is_ok_and(|id| {
                 if let Some(crate::extension::SettingValue::Duration(ms)) = host
@@ -427,17 +428,28 @@ impl DataSourceManager {
                 }
                 host.accepts_notification(&id)
             });
-            let running = source.capsule || source.active_alerts;
-            if !owner_enabled || (was_running && !running) {
+            // The Core contribution registry owns the enable state.
+            // Do not keep a separate source switch that could disagree.
+            let running = owner_enabled && (source.capsule || source.active_alerts);
+            if source.config.enabled != running {
+                source.config.enabled = running;
+                source.generation = source.generation.wrapping_add(1);
+                enabled_changed = true;
+            }
+            if !running {
                 source.force_refresh = false;
                 if let Some(token) = &source.cancellation {
                     if !token.is_cancelled() {
                         token.cancel();
-                        source.generation = source.generation.wrapping_add(1);
                     }
                 }
-            } else if running && !was_running {
+            } else if !was_running {
                 source.next_refresh = Instant::now();
+            }
+        }
+        if enabled_changed {
+            if let Err(error) = self.save_all() {
+                eprintln!("Unable to persist data-source enable state: {error}");
             }
         }
     }
@@ -1221,7 +1233,7 @@ fn new_config(
     }
 }
 
-fn capsule_id(id: &str) -> Result<ExtensionId, String> {
+pub(crate) fn capsule_id(id: &str) -> Result<ExtensionId, String> {
     ExtensionId::new(format!("{DATA_SOURCE_CAPSULE_PREFIX}{id}/value"))
         .map_err(|_| "数据源 id 无效".to_owned())
 }

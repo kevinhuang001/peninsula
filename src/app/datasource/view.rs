@@ -219,20 +219,13 @@ impl DataSourceView {
             .map(updated_time_text)
             .unwrap_or_else(|| "等待首次更新".into());
         info_card(ui, "更新时间", &updated, 12.0);
-        ui.add_space(12.0);
-        let mut enabled = source.enabled;
-        form_surface(ui).show(ui, |ui| {
-            if switch_row(ui, &mut enabled, "启用") {
-                let result = manager.set_enabled(&source.id, enabled);
-                self.set_source_status(&source.id, result);
-            }
-        });
-        ui.add_space(8.0);
-        ui.add_space(12.0);
+        ui.add_space(10.0);
+        self.presentation_settings(ui, source, preferences);
+        ui.add_space(10.0);
         self.inputs_form(ui, source, manager);
-        ui.add_space(12.0);
-        self.runtime_settings(ui, source, manager, preferences);
-        ui.add_space(12.0);
+        ui.add_space(10.0);
+        self.runtime_settings(ui, source, manager);
+        ui.add_space(8.0);
         if let Some(error) = &source.last_error {
             ui.colored_label(egui::Color32::from_rgb(239, 132, 112), error);
         }

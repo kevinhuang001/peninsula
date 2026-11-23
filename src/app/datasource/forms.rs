@@ -171,7 +171,6 @@ impl DataSourceView {
         ui: &mut egui::Ui,
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
-        preferences: &mut super::super::settings::AppPreferences,
     ) {
         section_title(ui, "运行设置", "");
         self.duration_setting(
@@ -179,25 +178,66 @@ impl DataSourceView {
             source.refresh_interval_ms, Duration::from_secs(30),
             Duration::from_secs(24 * 60 * 60),
         );
-        if let Ok(id) = crate::extension::ExtensionId::new(
-            format!("datasource/{}/notification", source.id),
-        ) {
-            if let Some(crate::extension::SettingValue::Duration(ms)) =
-                preferences.contribution_values.get_mut(&id)
-                    .and_then(|values| values.get_mut("cooldown"))
-            {
-                ui.add_space(8.0);
-                runtime_row(ui, "最短提醒间隔", |ui| {
-                    let mut minutes = (*ms).div_ceil(60_000).clamp(1, 43_200);
-                    if ui.add(
-                        egui::DragValue::new(&mut minutes)
-                            .range(1..=43_200)
-                            .suffix(" 分钟"),
-                    ).changed() {
-                        *ms = minutes * 60_000;
+    }
+
+    /// These are the same Core contribution preferences shown in Settings.
+    /// Source polling follows the resulting Capsule/Notification states.
+    pub(super) fn presentation_settings(
+        &mut self,
+        ui: &mut egui::Ui,
+        source: &SourceSnapshot,
+        preferences: &mut super::super::settings::AppPreferences,
+    ) {
+        section_title(ui, "显示与提醒", "与设置中的胶囊、通知配置同步");
+        if let Ok(id) = datasource::capsule_id(&source.id) {
+            let mut enabled = preferences.is_enabled(&id);
+            runtime_row(ui, "胶囊显示", |ui| {
+                if super::super::settings::core_toggle(ui, &mut enabled, "胶囊显示")
+                    && preferences.set_capsule_item_enabled(&id, enabled)
+                {
+                    self.preferences_dirty = true;
+                }
+            });
+        }
+        if let Ok(id) = datasource::notification_id(&source.id) {
+            // Source definitions without an alert do not register a notification.
+            let descriptor = preferences.pages.iter()
+                .flat_map(|page| &page.descriptor.contributions)
+                .find(|entry| entry.id == id)
+                .cloned();
+            if let Some(descriptor) = descriptor {
+                ui.add_space(6.0);
+                let mut enabled = preferences.contribution_enabled(&descriptor);
+                runtime_row(ui, "通知提醒", |ui| {
+                    if super::super::settings::core_toggle(ui, &mut enabled, "通知提醒") {
+                        preferences.set_contribution_enabled(id.clone(), enabled);
                         self.preferences_dirty = true;
                     }
                 });
+                ui.add_space(6.0);
+                let values = preferences.contribution_values
+                    .entry(id)
+                    .or_insert_with(|| {
+                        let mut values = crate::extension::Settings::new();
+                        values.insert(
+                            "cooldown".into(),
+                            crate::extension::SettingValue::Duration(source.min_alert_interval_ms),
+                        );
+                        values
+                    });
+                if let Some(crate::extension::SettingValue::Duration(ms)) = values.get_mut("cooldown") {
+                    runtime_row(ui, "最短提醒间隔", |ui| {
+                        let mut minutes = (*ms).div_ceil(60_000).clamp(1, 43_200);
+                        if ui.add(
+                            egui::DragValue::new(&mut minutes)
+                                .range(1..=43_200)
+                                .suffix(" 分钟"),
+                        ).changed() {
+                            *ms = minutes * 60_000;
+                            self.preferences_dirty = true;
+                        }
+                    });
+                }
             }
         }
     }
