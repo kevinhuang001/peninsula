@@ -109,7 +109,7 @@ struct IslandApp {
 impl IslandApp {
     fn new(context: &egui::Context) -> Self {
         let mut preferences = AppPreferences::load();
-        settings::theme::install(context, preferences.accent_color);
+        settings::theme::install(context, preferences.accent_color, preferences.text_scale);
         let mut extensions = ExtensionManager::new(
             crate::builtins::runtimes(),
             preferences.contribution_preferences(),
@@ -425,6 +425,7 @@ impl eframe::App for IslandApp {
     }
 
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
+        crate::ui::typography::Typography::install(context, self.preferences.text_scale);
         let now = Instant::now();
         self.poll_unlock_task(context, now);
         if self.unlock.visible(self.secret_store.is_locked()) {
@@ -998,7 +999,7 @@ impl eframe::App for IslandApp {
                 self.preferences.read_extension_settings(&self.extensions);
                 self.preferences
                     .read_contribution_settings(&self.extensions);
-                settings::theme::install(context, self.preferences.accent_color);
+                settings::theme::install(context, self.preferences.accent_color, self.preferences.text_scale);
                 if let Err(error) = self.preferences.save() {
                     eprintln!("Unable to save settings: {error}");
                 }

@@ -1,4 +1,5 @@
 use crate::core::datasource::{self, DataSourceManager, Definition, InputType, SourceSnapshot};
+use crate::ui::typography::Typography;
 use eframe::egui::{self, Align, Color32, Layout, RichText, Stroke, Vec2};
 use serde_json::Value;
 use std::{collections::HashMap, fs, time::Duration};
@@ -51,7 +52,7 @@ fn import_badge(ui: &mut egui::Ui, icon: Option<&egui::TextureHandle>) {
             rect.center(),
             egui::Align2::CENTER_CENTER,
             "↓",
-            egui::FontId::proportional(20.0),
+            Typography::font_id(ui.ctx(), 20.0),
             color,
         );
     }
@@ -77,11 +78,11 @@ fn method_pill(ui: &mut egui::Ui, method: &str) {
 }
 
 fn section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
-    ui.label(RichText::new(title).size(16.0).strong());
+    ui.label(RichText::new(title).text_style(egui::TextStyle::Heading).strong());
     if !subtitle.is_empty() {
         ui.label(
             RichText::new(subtitle)
-                .size(11.0)
+                .text_style(egui::TextStyle::Small)
                 .color(ui.visuals().weak_text_color()),
         );
     }
@@ -140,7 +141,7 @@ fn switch_row(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
         rect.left_center(),
         egui::Align2::LEFT_CENTER,
         label,
-        egui::FontId::proportional(12.0),
+        Typography::font_id(ui.ctx(), 12.0),
         ui.visuals().text_color(),
     );
     let track = egui::Rect::from_center_size(
@@ -181,7 +182,7 @@ fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) {
             rect.left_center(),
             egui::Align2::LEFT_CENTER,
             label,
-            egui::FontId::proportional(12.0),
+            Typography::font_id(ui.ctx(), 12.0),
             ui.visuals().weak_text_color(),
         );
         ui.painter().text(
@@ -441,7 +442,7 @@ impl DataSourceWindow {
                         rect.left_center() + Vec2::new(38.0, 0.0),
                         egui::Align2::LEFT_CENTER,
                         &source.name,
-                        egui::FontId::proportional(13.0),
+                        Typography::font_id(ui.ctx(), 13.0),
                         ui.visuals().text_color(),
                     );
                     response.context_menu(|ui| {
@@ -468,7 +469,7 @@ impl DataSourceWindow {
             if let Some(icon) = manager.icon_texture(&source.id) {
                 ui.image((icon.id(), Vec2::splat(24.0)));
             }
-            ui.label(RichText::new(&source.name).size(20.0).strong());
+            ui.label(RichText::new(&source.name).text_style(egui::TextStyle::Heading).strong());
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui
                     .add_enabled(
@@ -958,7 +959,7 @@ impl DataSourceWindow {
                     ui.add_space(2.0);
                     ui.vertical(|ui| {
                         ui.add(
-                            egui::Label::new(RichText::new(&candidate.name).size(19.0).strong())
+                            egui::Label::new(RichText::new(&candidate.name).text_style(egui::TextStyle::Heading).strong())
                                 .truncate(),
                         )
                         .on_hover_text(&candidate.name);
@@ -967,7 +968,7 @@ impl DataSourceWindow {
                         ui.add(
                             egui::Label::new(
                                 RichText::new(&id)
-                                    .size(10.5)
+                                    .text_style(egui::TextStyle::Small)
                                     .color(ui.visuals().weak_text_color()),
                             )
                             .truncate(),
@@ -979,13 +980,13 @@ impl DataSourceWindow {
                 ui.add_space(2.0);
                 panel(ui).show(ui, |ui| {
                     ui.set_width(card_width);
-                    ui.label(RichText::new("请求目标").size(10.0).weak());
+                    ui.label(RichText::new("请求目标").text_style(egui::TextStyle::Small).weak());
                     ui.add_space(2.0);
                     ui.add(
                         egui::Label::new(
                             RichText::new(&origin)
                                 .monospace()
-                                .size(12.0)
+                                .text_style(egui::TextStyle::Body)
                                 .color(accent(ui)),
                         )
                         .truncate(),
@@ -997,12 +998,12 @@ impl DataSourceWindow {
                     ui.horizontal(|ui| {
                         method_pill(ui, method_text(candidate.request.method));
                         ui.add_space(6.0);
-                        ui.label(RichText::new("请求地址").size(10.5).weak());
+                        ui.label(RichText::new("请求地址").text_style(egui::TextStyle::Small).weak());
                     });
                     ui.add_space(3.0);
                     ui.add(
                         egui::Label::new(
-                            RichText::new(&candidate.request.url).monospace().size(11.0),
+                            RichText::new(&candidate.request.url).monospace().text_style(egui::TextStyle::Small),
                         )
                         .truncate(),
                     )
@@ -1026,7 +1027,7 @@ impl DataSourceWindow {
                         ui.colored_label(
                             ui.visuals().warn_fg_color,
                             RichText::new("目标使用未加密的 HTTP；开启上面的权限后才会运行请求。")
-                                .size(11.0),
+                                .text_style(egui::TextStyle::Small),
                         );
                     });
                 }

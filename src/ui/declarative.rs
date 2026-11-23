@@ -321,7 +321,8 @@ pub enum FontSize {
     Body,
     Title,
     Heading,
-    Custom(f32),
+    /// Proportional to Body text (1.0 = Body, 1.5 = 150%).
+    Relative(f32),
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum FontWeight {
@@ -664,7 +665,7 @@ impl ViewNode {
         label: impl Into<String>,
         diameter: f32,
         stroke: f32,
-        font: f32,
+        font_scale: f32,
     ) -> Self {
         Self::new(Node::ProgressRing {
             fraction,
@@ -672,7 +673,7 @@ impl ViewNode {
             stroke,
             ring_style: RingStyle::default(),
             text_style: TextStyle {
-                font_size: FontSize::Custom(font),
+                font_size: FontSize::Relative(font_scale),
                 ..Default::default()
             },
         })

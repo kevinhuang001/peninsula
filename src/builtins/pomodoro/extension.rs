@@ -300,7 +300,7 @@ impl RuntimeExtension for PomodoroExtension {
                     format_time(self.timer.remaining_at(now)),
                     66.0,
                     3.0,
-                    18.0,
+                    1.5,
                 )
                 .color(self.phase_color()),
                 ViewNode::column(
@@ -379,7 +379,7 @@ impl RuntimeExtension for PomodoroExtension {
                 ViewNode::new(Node::Stack(
                     [Align::Center; 2],
                     vec![
-                        ViewNode::ring(progress, "", 26.0, 1.8, 7.0)
+                        ViewNode::ring(progress, "", 26.0, 1.8, 0.5833)
                             .color(self.phase_color())
                             .motion(Motion::progress(progress, 190)),
                         ViewNode::text(
@@ -389,7 +389,7 @@ impl RuntimeExtension for PomodoroExtension {
                                 "休息"
                             },
                             TextStyle {
-                                font_size: FontSize::Custom(8.0),
+                                font_size: FontSize::Relative(0.6667),
                                 font_weight: FontWeight::Bold,
                                 ..Default::default()
                             },

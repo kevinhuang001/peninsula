@@ -19,7 +19,7 @@ fn capsule_value(text: impl Into<String>, monospace: bool) -> ViewNode {
     ViewNode::text(
         text,
         TextStyle {
-            font_size: FontSize::Custom(11.0),
+            font_size: FontSize::Relative(0.9167),
             font_weight: FontWeight::Bold,
             align: Align::Start,
             monospace,
@@ -33,7 +33,7 @@ fn capsule_detail(text: impl Into<String>) -> ViewNode {
     ViewNode::text(
         text,
         TextStyle {
-            font_size: FontSize::Custom(10.0),
+            font_size: FontSize::Relative(0.8333),
             align: Align::Start,
             ..Default::default()
         },

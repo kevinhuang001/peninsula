@@ -33,7 +33,7 @@ pub(super) fn options(
         ui.horizontal(|ui| {
             let (marker, _) = ui.allocate_exact_size(egui::vec2(3.0, 16.0), Sense::hover());
             ui.painter().rect_filled(marker, 2.0, accent_color(ui));
-            ui.label(egui::RichText::new(&name).size(14.0).strong().color(TEXT));
+            ui.label(egui::RichText::new(&name).text_style(egui::TextStyle::Heading).strong().color(TEXT));
         });
         ui.add_space(7.0);
         if let Some(page) = prefs.pages.iter_mut().find(|page| page.descriptor.id == owner) {
@@ -67,7 +67,7 @@ pub(super) fn options(
                     ui.set_width(ui.available_width());
                     ui.push_id(&entry.id, |ui| {
                         ui.label(egui::RichText::new(&entry.title)
-                            .size(12.0).strong().color(SECONDARY_TEXT));
+                            .text_style(egui::TextStyle::Body).strong().color(SECONDARY_TEXT));
                         ui.add_space(6.0);
                         let mut enabled = prefs.contribution_enabled(&entry);
                         if forms::boolean(ui, "启用提醒", &mut enabled) {
@@ -101,7 +101,7 @@ pub(super) fn options(
                                         egui::RichText::new(format!(
                                             "{}：{detail}", field.description
                                         ))
-                                        .size(10.5)
+                                        .text_style(egui::TextStyle::Small)
                                         .color(ui.visuals().warn_fg_color),
                                     );
                                 }

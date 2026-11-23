@@ -64,7 +64,7 @@ pub(super) fn widget(
                 &track.title,
                 TextStyle {
                     align: Align::Start,
-                    font_size: FontSize::Custom(16.0),
+                    font_size: FontSize::Relative(1.3333),
                     font_weight: FontWeight::Bold,
                     ..Default::default()
                 },
@@ -183,7 +183,7 @@ fn lyric_row(
                     lyrics.current_line(active_line).unwrap_or(""),
                     TextStyle {
                         align: Align::Start,
-                        font_size: FontSize::Custom(11.5),
+                        font_size: FontSize::Relative(0.9583),
                         wrap: false,
                         ..Default::default()
                     },
@@ -265,7 +265,7 @@ fn label(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNode {
         value,
         TextStyle {
             align: Align::Start,
-            font_size: FontSize::Custom(size),
+            font_size: FontSize::Relative(size / 12.0),
             ..Default::default()
         },
     )

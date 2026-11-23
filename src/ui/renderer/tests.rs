@@ -775,7 +775,7 @@ fn capsule_preserves_independent_regions_and_draws_a_center_overlay() {
     let ctx = egui::Context::default();
     let icons = Icons::load(&ctx);
     let rect = Rect::from_min_size(pos2(20.0, 20.0), vec2(92.0, 32.0));
-    let ring = ViewNode::ring(0.5, "", 24.0, 2.0, 8.0).color(ColorSpec::Info);
+    let ring = ViewNode::ring(0.5, "", 24.0, 2.0, 0.6667).color(ColorSpec::Info);
     let heading = "A heading that wraps and should be ellipsized".repeat(3);
     let node = ViewNode::capsule(
         ViewNode::new(Node::Stack(

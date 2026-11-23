@@ -42,7 +42,14 @@ pub(super) fn paint_header(
     );
     if title_bounds.is_positive() {
         let painter = ui.painter().with_clip_rect(title_bounds);
-        let galley = painter.layout_no_wrap(title.to_owned(), FontId::proportional(15.0), text);
+        let galley = painter.layout_no_wrap(
+            title.to_owned(),
+            crate::ui::typography::Typography::font_id(
+                ui.ctx(),
+                crate::ui::typography::Typography::TITLE,
+            ),
+            text,
+        );
         let icon_size = if widget_icon.is_some() { 16.0 } else { 0.0 };
         let gap = if widget_icon.is_some() { 6.0 } else { 0.0 };
         let total_width = galley.size().x + icon_size + gap;
@@ -187,20 +194,14 @@ fn header_button(rect: Rect, from_right: f32, size: Vec2) -> Rect {
 }
 
 pub(in crate::app) const NAVIGATION_HEIGHT: f32 = 22.0;
-fn navigation_font(screen_width: f32) -> f32 {
-    crate::ui::typography::Typography::capsule_navigation(screen_width)
-}
 const TAB_PADDING: f32 = 3.0;
 const NAVIGATION_SIDE: f32 = 28.0;
 
 fn navigation_font_size(context: &egui::Context) -> f32 {
-    navigation_font(context.input(|input| {
-        input
-            .viewport()
-            .monitor_size
-            .unwrap_or(input.screen_rect.size())
-            .x
-    }))
+    crate::ui::typography::Typography::scaled(
+        context,
+        crate::ui::typography::Typography::SMALL,
+    )
 }
 
 /// Include the same font, per-tab padding and shell margins used when painting.
@@ -539,12 +540,15 @@ mod navigation_tests {
 
 #[cfg(test)]
 mod sizing_tests {
-    use super::navigation_font;
+    use crate::ui::typography::{monitor_factor, TextScale, Typography};
+
     #[test]
-    fn navigation_text_scales_gently_with_monitor_resolution() {
-        assert_eq!(navigation_font(1440.0), 10.0);
-        assert!(navigation_font(1920.0) > navigation_font(1440.0));
-        assert_eq!(navigation_font(3840.0), 12.0);
-        assert_eq!(navigation_font(800.0), 9.0);
+    fn navigation_font_responds_to_monitor_and_user_preference() {
+        assert_eq!(monitor_factor(1440.0), 1.0);
+        assert!(monitor_factor(1920.0) > monitor_factor(1440.0));
+        assert_eq!(monitor_factor(3840.0), 1.12);
+        let ctx = eframe::egui::Context::default();
+        Typography::install(&ctx, TextScale::Large);
+        assert!(Typography::scaled(&ctx, Typography::SMALL) > Typography::SMALL);
     }
 }

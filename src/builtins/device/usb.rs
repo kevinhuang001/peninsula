@@ -132,7 +132,7 @@ fn usb_prompt(name: &str, inserted: bool) -> Prompt {
             ViewNode::text(
                 "USB",
                 TextStyle {
-                    font_size: FontSize::Custom(10.0),
+                    font_size: FontSize::Relative(0.8333),
                     font_weight: FontWeight::Bold,
                     monospace: true,
                     ..Default::default()
@@ -146,7 +146,7 @@ fn usb_prompt(name: &str, inserted: bool) -> Prompt {
             ViewNode::text(
                 verb,
                 TextStyle {
-                    font_size: FontSize::Custom(12.0),
+                    font_size: FontSize::Relative(1),
                     font_weight: FontWeight::Bold,
                     ..Default::default()
                 },
@@ -158,7 +158,7 @@ fn usb_prompt(name: &str, inserted: bool) -> Prompt {
             ViewNode::text(
                 short_name(name),
                 TextStyle {
-                    font_size: FontSize::Custom(11.0),
+                    font_size: FontSize::Relative(0.9167),
                     ..Default::default()
                 },
             ),

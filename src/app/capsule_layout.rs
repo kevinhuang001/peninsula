@@ -335,7 +335,7 @@ mod lyric_tests {
                 ViewNode::text(
                     "♪把这一整句长长的歌词完整地显示出来，直到最后一个音符也不会省略♪".repeat(3),
                     TextStyle {
-                        font_size: FontSize::Custom(11.0),
+                        font_size: FontSize::Relative(0.9167),
                         ..Default::default()
                     },
                 ),

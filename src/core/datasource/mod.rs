@@ -477,7 +477,7 @@ impl DataSourceManager {
                 let text = ViewNode::text(
                     value,
                     TextStyle {
-                        font_size: FontSize::Custom(13.0),
+                        font_size: FontSize::Relative(1.0833),
                         font_weight: FontWeight::Bold,
                         wrap: false,
                         ..Default::default()

@@ -128,7 +128,7 @@ fn cell(value: &str, color: ColorSpec, wrap: bool) -> ViewNode {
         if value.is_empty() { "—" } else { value },
         TextStyle {
             align: Align::Start,
-            font_size: FontSize::Custom(10.5),
+            font_size: FontSize::Relative(0.875),
             wrap,
             ..TextStyle::default()
         },

@@ -1,7 +1,8 @@
 use super::super::quiet_hours::{QuietHours, QuietPeriod};
 use super::super::theme::{accent_selected, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT};
 use super::DAYS;
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
+use crate::ui::typography::Typography;
+use eframe::egui::{self, Align2, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct QuietDialog {
@@ -41,7 +42,7 @@ pub(super) fn show(
         } else {
             "添加免打扰时段"
         },
-        FontId::proportional(12.0),
+        Typography::font_id(ui.ctx(), 12.0),
         TEXT,
     );
     paint_day_picker(ui, popup, &mut editor.period);
@@ -89,7 +90,7 @@ fn paint_day_picker(ui: &egui::Ui, popup: Rect, period: &mut QuietPeriod) {
         Pos2::new(left, top + 10.0),
         Align2::LEFT_CENTER,
         "星期",
-        FontId::proportional(9.5),
+        Typography::font_id(ui.ctx(), 9.5),
         SECONDARY_TEXT,
     );
     let day_left = left + 34.0;
@@ -115,7 +116,7 @@ fn paint_day_picker(ui: &egui::Ui, popup: Rect, period: &mut QuietPeriod) {
             rect.center(),
             Align2::CENTER_CENTER,
             label,
-            FontId::proportional(9.5),
+            Typography::font_id(ui.ctx(), 9.5),
             if selected { TEXT } else { SECONDARY_TEXT },
         );
     }
@@ -134,7 +135,7 @@ fn draw_time_fields(ui: &mut egui::Ui, popup: Rect, period: &mut QuietPeriod, st
         Pos2::new(popup.left() + 12.0, top + 10.0),
         Align2::LEFT_CENTER,
         if start { "开始" } else { "结束" },
-        FontId::proportional(9.5),
+        Typography::font_id(ui.ctx(), 9.5),
         SECONDARY_TEXT,
     );
     let field_width = 42.0;
@@ -163,7 +164,7 @@ fn draw_time_fields(ui: &mut egui::Ui, popup: Rect, period: &mut QuietPeriod, st
         Pos2::new(hour_rect.right() + 4.0, hour_rect.center().y),
         Align2::CENTER_CENTER,
         ":",
-        FontId::proportional(10.0),
+        Typography::font_id(ui.ctx(), 10.0),
         TEXT,
     );
     if hour_changed || minute_changed {

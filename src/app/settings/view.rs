@@ -8,7 +8,7 @@ use super::{
 };
 use crate::extension::{ContributionDescriptor, ContributionKind, ExtensionId};
 use crate::sdk::secrets::SecretStore;
-use crate::ui::typography::Typography;
+use crate::ui::typography::{TextScale, Typography};
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
 use std::{
     collections::HashMap,
@@ -392,16 +392,16 @@ impl SettingsView {
                 .show(ui, |ui| {
                     ui.set_width(content_width - 32.0);
                     ui.vertical_centered(|ui| {
-                        ui.label(egui::RichText::new("◇").size(26.0).color(accent_color(ui)));
+                        ui.label(egui::RichText::new("◇").text_style(egui::TextStyle::Heading).color(accent_color(ui)));
                         ui.label(
                             egui::RichText::new("还没有保存的 Secret")
-                                .size(Typography::SETTINGS_HEADING)
+                                .text_style(egui::TextStyle::Body)
                                 .strong()
                                 .color(TEXT),
                         );
                         ui.label(
                             egui::RichText::new("添加 API 密钥、令牌或其他私密内容")
-                                .size(Typography::CAPTION)
+                                .text_style(egui::TextStyle::Small)
                                 .color(SECONDARY_TEXT),
                         );
                     });
@@ -419,7 +419,7 @@ impl SettingsView {
                     ui.horizontal(|ui| {
                         ui.add(
                             egui::Label::new(
-                                egui::RichText::new(&key).size(Typography::FORM_LABEL).strong().color(TEXT),
+                                egui::RichText::new(&key).text_style(egui::TextStyle::Body).strong().color(TEXT),
                             )
                             .truncate(),
                         )
@@ -458,7 +458,8 @@ impl SettingsView {
         let Some(store) = self.secret_store.clone() else {
             return general(ui, prefs);
         };
-        let mut changed = false;
+        let mut changed = general_accent(ui, prefs);
+        changed |= general_text_scale(ui, prefs);
         let encrypted = store.is_encrypted();
         let mut enabled = encrypted;
         if forms::boolean(ui, "加密保存 Secret", &mut enabled) {
@@ -467,8 +468,6 @@ impl SettingsView {
             self.encryption_confirmation.clear();
             self.encryption_error_at = None;
             self.encryption_failed = false;
-        } else {
-            changed |= general_accent(ui, prefs);
         }
         changed
     }
@@ -523,7 +522,7 @@ impl SettingsView {
             } else {
                 "关闭 Secret 加密"
             })
-            .size(15.0)
+            .text_style(egui::TextStyle::Heading)
             .strong()
             .color(TEXT),
         );
@@ -686,7 +685,7 @@ impl SettingsView {
                     } else {
                         "新增 Secret"
                     })
-                    .size(Typography::DIALOG_TITLE)
+                    .text_style(egui::TextStyle::Heading)
                     .strong()
                     .color(TEXT),
                 );
@@ -696,7 +695,7 @@ impl SettingsView {
                 }
             });
             ui.add_space(8.0);
-            ui.label(egui::RichText::new("名称").size(Typography::FORM_HINT).strong());
+            ui.label(egui::RichText::new("名称").text_style(egui::TextStyle::Small).strong());
             ui.add_sized(
                 [ui.available_width(), 28.0],
                 egui::TextEdit::singleline(&mut self.secret_key)
@@ -704,7 +703,7 @@ impl SettingsView {
                     .hint_text("例如 OPENAI_API_KEY"),
             );
             ui.add_space(10.0);
-            ui.label(egui::RichText::new("私密内容").size(Typography::FORM_HINT).strong());
+            ui.label(egui::RichText::new("私密内容").text_style(egui::TextStyle::Small).strong());
             ui.add_sized(
                 [ui.available_width(), 28.0],
                 egui::TextEdit::singleline(&mut self.secret_value)
@@ -833,7 +832,7 @@ impl SettingsView {
         }
         let mut list = child(ui, rect.shrink(5.0), "settings-plugin-navigation");
         list.add_space(4.0);
-        list.label(egui::RichText::new("扩展").size(Typography::FORM_HINT).color(SECONDARY_TEXT));
+        list.label(egui::RichText::new("扩展").text_style(egui::TextStyle::Small).color(SECONDARY_TEXT));
         list.add_space(6.0);
         egui::ScrollArea::vertical()
             .id_salt("plugin-names")
@@ -1036,7 +1035,28 @@ fn contribution_groups(
 }
 
 fn general(ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
-    general_accent(ui, prefs)
+    let mut changed = general_accent(ui, prefs);
+    changed |= general_text_scale(ui, prefs);
+    changed
+}
+
+fn general_text_scale(ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
+    forms::input_row(ui, "整体文字大小", |ui| {
+        let mut changed = false;
+        egui::ComboBox::from_id_salt("global-text-scale")
+            .width(ui.available_width())
+            .selected_text(prefs.text_scale.label())
+            .show_ui(ui, |ui| {
+                for preset in TextScale::ALL {
+                    changed |= ui.selectable_value(
+                        &mut prefs.text_scale,
+                        preset,
+                        preset.label(),
+                    ).changed();
+                }
+            });
+        changed
+    })
 }
 
 fn general_accent(ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
@@ -1204,7 +1224,7 @@ fn component_options(
             forms::row(ui, "通知中心", |ui| {
                 ui.label(
                     egui::RichText::new("固定")
-                        .size(Typography::CAPTION)
+                        .text_style(egui::TextStyle::Small)
                         .color(SECONDARY_TEXT),
                 );
                 false
@@ -1292,7 +1312,7 @@ fn menu_row(
         egui::pos2(rect.left() + 12.0, rect.center().y),
         Align2::LEFT_CENTER,
         name,
-        FontId::proportional(Typography::BODY),
+        Typography::font_id(ui.ctx(), Typography::BODY),
         if selected { TEXT } else { SECONDARY_TEXT },
     );
     if let Some(enabled) = enabled {

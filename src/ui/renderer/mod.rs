@@ -481,7 +481,7 @@ impl<'a> Renderer<'a> {
 
     fn capsule_text_style(&self, mut style: TextStyle) -> TextStyle {
         if let Some(appearance) = self.capsule_text_appearance {
-            style.font_size = FontSize::Custom(appearance.size);
+            style.font_size = FontSize::Relative(appearance.size / crate::ui::typography::Typography::BODY);
             style.font_weight = FontWeight::Bold;
             style.line_height = None;
             style.monospace = false;

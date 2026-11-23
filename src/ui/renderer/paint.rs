@@ -14,8 +14,8 @@ use std::{
     sync::Arc,
 };
 
-fn font_size(style: TextStyle) -> f32 {
-    Typography::size(style.font_size)
+fn font_size(ui: &Ui, style: TextStyle) -> f32 {
+    Typography::size(ui.ctx(), style.font_size)
 }
 
 fn galley(ui: &Ui, text: &str, style: TextStyle, width: f32, elide: bool) -> Arc<egui::Galley> {
@@ -25,7 +25,7 @@ fn galley(ui: &Ui, text: &str, style: TextStyle, width: f32, elide: bool) -> Arc
         text.into(),
         TextFormat {
             font_id: FontId::new(
-                font_size(style),
+                font_size(ui, style),
                 if style.monospace {
                     FontFamily::Monospace
                 } else {
@@ -1040,7 +1040,6 @@ impl Renderer<'_> {
                 high,
                 low,
                 unit,
-                self.theme.dark,
                 opacity,
                 color(ColorSpec::MutedText),
             ),
@@ -1168,7 +1167,6 @@ fn range_chart(
     high: &[f32],
     low: &[f32],
     unit: &str,
-    dark: bool,
     opacity: f32,
     muted: Color32,
 ) {
@@ -1184,16 +1182,8 @@ fn range_chart(
     if !minimum.is_finite() || !maximum.is_finite() || rect.width() < 74.0 || rect.height() < 56.0 {
         return;
     }
-    let warm = if dark {
-        Color32::from_rgb(255, 168, 114)
-    } else {
-        Color32::from_rgb(157, 65, 17)
-    };
-    let cool = if dark {
-        Color32::from_rgb(105, 180, 255)
-    } else {
-        Color32::from_rgb(15, 98, 169)
-    };
+    let warm = Color32::from_rgb(255, 168, 114);
+    let cool = Color32::from_rgb(105, 180, 255);
     let warm = warm.linear_multiply(opacity);
     let cool = cool.linear_multiply(opacity);
     let left = rect.left() + 13.0;
@@ -1223,7 +1213,7 @@ fn range_chart(
             pos2(x, rect.bottom() - 5.0),
             egui::Align2::CENTER_BOTTOM,
             &labels[index],
-            FontId::proportional(10.0),
+            Typography::font_id(painter.ctx(), Typography::SMALL),
             muted,
         );
         if !high.is_finite() || !low.is_finite() {
@@ -1251,7 +1241,7 @@ fn range_chart(
                     point + vec2(0.0, offset),
                     alignment,
                     format!("{value:.0}{unit}"),
-                    FontId::proportional(10.0),
+                    Typography::font_id(painter.ctx(), Typography::SMALL),
                     color,
                 );
             }
@@ -1331,7 +1321,7 @@ fn line_chart(
                 position - vec2(0.0, 5.0),
                 egui::Align2::CENTER_BOTTOM,
                 format!("{value}{unit}"),
-                FontId::proportional(11.0),
+                Typography::font_id(painter.ctx(), Typography::FORM_HINT),
                 accent,
             );
         } else {
@@ -1339,7 +1329,7 @@ fn line_chart(
                 pos2(x, (top + bottom) * 0.5),
                 egui::Align2::CENTER_CENTER,
                 "—",
-                FontId::proportional(11.0),
+                Typography::font_id(painter.ctx(), Typography::FORM_HINT),
                 muted,
             );
         }
@@ -1356,7 +1346,7 @@ fn line_chart(
             pos2(x, rect.bottom() - 1.0),
             egui::Align2::CENTER_BOTTOM,
             &point.label,
-            FontId::proportional(10.0),
+            Typography::font_id(painter.ctx(), Typography::SMALL),
             muted,
         );
         if let Some(tooltip) = &point.tooltip {

@@ -5,7 +5,7 @@ fn text(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNode {
     ViewNode::text(
         value,
         TextStyle {
-            font_size: FontSize::Custom(size),
+            font_size: FontSize::Relative(size / 12.0),
             align: Align::Start,
             ..Default::default()
         },
@@ -197,7 +197,7 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
             let title = ViewNode::text(
                 &article.title,
                 TextStyle {
-                    font_size: FontSize::Custom(12.0),
+                    font_size: FontSize::Relative(1),
                     align: Align::Start,
                     wrap: true,
                     max_lines: Some(2),

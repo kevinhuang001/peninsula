@@ -226,7 +226,7 @@ pub(super) fn show_unlock_handoff(
             shell.center(),
             egui::Align2::CENTER_CENTER,
             "已解锁",
-            egui::FontId::proportional(12.0),
+            crate::ui::typography::Typography::font_id(ui.ctx(), crate::ui::typography::Typography::BODY),
             color.linear_multiply(status_opacity),
         );
     }

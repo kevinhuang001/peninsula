@@ -9,7 +9,7 @@ fn text(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNode {
     ViewNode::text(
         value,
         TextStyle {
-            font_size: FontSize::Custom(size),
+            font_size: FontSize::Relative(size / 12.0),
             ..Default::default()
         },
     )
@@ -54,7 +54,7 @@ fn time_label(duration: Duration) -> String {
 }
 
 fn ring(fraction: f32, label: String, caption: &str, color: ColorSpec) -> ViewNode {
-    let mut ring = ViewNode::ring(fraction, label, 70.0, 4.0, 14.0).color(color);
+    let mut ring = ViewNode::ring(fraction, label, 70.0, 4.0, 1.1667).color(color);
     if let Node::ProgressRing {
         ring_style,
         text_style,

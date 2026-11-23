@@ -61,10 +61,19 @@ fn dark_only_preferences_round_trip_without_theme_field() {
     prefs.capsule_text_size = 16.0;
     prefs.capsule_text_color = Some([255, 255, 255]);
     prefs.accent_color = [109, 69, 160];
+    prefs.text_scale = crate::ui::typography::TextScale::ExtraLarge;
     let encoded = prefs.encode();
     assert!(encoded.contains("capsule_text_size=16.0"));
     assert!(encoded.contains("capsule_text_color=#ffffff"));
     assert!(encoded.contains("accent_color=#6d45a0"));
+    assert!(encoded.contains("text_scale=extra_large"));
     assert!(!encoded.contains("appearance_theme="));
     assert_eq!(AppPreferences::parse(&encoded).encode(), encoded);
+}
+
+#[test]
+fn unknown_text_scale_falls_back_to_standard() {
+    use crate::ui::typography::TextScale;
+    assert_eq!(AppPreferences::parse("text_scale=unknown").text_scale, TextScale::Standard);
+    assert_eq!(AppPreferences::parse("text_scale=large").text_scale, TextScale::Large);
 }

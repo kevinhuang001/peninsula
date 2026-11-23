@@ -4,6 +4,7 @@ use super::{
 };
 use crate::{
     builtins::registry,
+    ui::typography::TextScale,
     extension::{ContributionKind, DiagnosticCheck, ExtensionDescriptor, ExtensionId, Settings},
 };
 use std::{collections::BTreeMap, fs, io, path::PathBuf};
@@ -32,6 +33,7 @@ pub struct AppPreferences {
     pub mascot_motion: String,
     pub quiet_hours: QuietHours,
     pub accent_color: [u8; 3],
+    pub text_scale: TextScale,
     pub capsule_text_size: f32,
     pub capsule_text_color: Option<[u8; 3]>,
     pub widget_order: Vec<ExtensionId>,
@@ -58,6 +60,7 @@ impl Default for AppPreferences {
             mascot_motion: "Full".into(),
             quiet_hours: QuietHours::default(),
             accent_color: DEFAULT_ACCENT_COLOR,
+            text_scale: TextScale::default(),
             capsule_text_size: crate::ui::typography::Typography::CAPSULE_DEFAULT,
             capsule_text_color: None,
             widget_order: registry
@@ -100,6 +103,11 @@ impl AppPreferences {
                 "mascot_motion" => {
                     if ["Full", "Reduced", "Off"].contains(&value.trim()) {
                         settings.mascot_motion = value.trim().into();
+                    }
+                }
+                "text_scale" => {
+                    if let Some(preset) = TextScale::parse(value) {
+                        settings.text_scale = preset;
                     }
                 }
                 "accent_color" => {
@@ -195,6 +203,7 @@ impl AppPreferences {
                 "accent_color=#{:02x}{:02x}{:02x}",
                 self.accent_color[0], self.accent_color[1], self.accent_color[2]
             ),
+            format!("text_scale={}", self.text_scale.key()),
             format!("capsule_text_size={:.1}", self.capsule_text_size),
             format!(
                 "capsule_text_color={}",

@@ -158,7 +158,7 @@ fn add_modal(base: ViewNode, market: &MarketExtension) -> ViewNode {
                 ViewNode::text(
                     "添加自选",
                     TextStyle {
-                        font_size: FontSize::Custom(15.0),
+                        font_size: FontSize::Relative(1.25),
                         font_weight: FontWeight::Bold,
                         align: Align::Start,
                         ..Default::default()
@@ -274,7 +274,7 @@ pub(super) fn capsule(market: &MarketExtension) -> Vec<CapsuleView> {
             let price = ViewNode::text(
                 price,
                 TextStyle {
-                    font_size: FontSize::Custom(10.0),
+                    font_size: FontSize::Relative(0.8333),
                     font_weight: FontWeight::Bold,
                     monospace: true,
                     wrap: false,
@@ -338,7 +338,7 @@ fn quote_row(asset: &Asset, quote: Option<&MarketQuote>) -> Vec<ViewNode> {
             ViewNode::text(
                 &asset.symbol,
                 TextStyle {
-                    font_size: FontSize::Custom(11.0),
+                    font_size: FontSize::Relative(0.9167),
                     font_weight: FontWeight::Bold,
                     align: Align::Start,
                     wrap: false,
@@ -348,7 +348,7 @@ fn quote_row(asset: &Asset, quote: Option<&MarketQuote>) -> Vec<ViewNode> {
             ViewNode::text(
                 detail,
                 TextStyle {
-                    font_size: FontSize::Custom(9.0),
+                    font_size: FontSize::Relative(0.75),
                     align: Align::Start,
                     wrap: false,
                     ..Default::default()
@@ -401,7 +401,7 @@ fn cell(value: &str, color: ColorSpec, align: Align, monospace: bool) -> ViewNod
     ViewNode::text(
         value,
         TextStyle {
-            font_size: FontSize::Custom(10.0),
+            font_size: FontSize::Relative(0.8333),
             align,
             monospace,
             wrap: false,

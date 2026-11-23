@@ -11,7 +11,7 @@ use super::{
 
 fn text(value: impl Into<String>, size: f32, color: ColorSpec, bold: bool) -> ViewNode {
     ViewNode::text(value, TextStyle {
-        font_size: FontSize::Custom(size),
+        font_size: FontSize::Relative(size / 12.0),
         font_weight: if bold { FontWeight::Bold } else { FontWeight::Normal },
         align: Align::Center,
         wrap: false,
@@ -94,7 +94,7 @@ fn preferred_calendar_width(month: NaiveDate, settings: &CalendarSettings) -> f3
 
 fn wrapped_festival(name: String, color: ColorSpec) -> ViewNode {
     ViewNode::text(name, TextStyle {
-        font_size: FontSize::Custom(9.0),
+        font_size: FontSize::Relative(0.75),
         font_weight: FontWeight::Bold,
         align: Align::Center,
         line_height: Some(12.5),

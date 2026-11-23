@@ -3,7 +3,8 @@ mod dialog;
 use super::quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS};
 use super::theme::{accent_color, ROW, ROW_DISABLED, SECONDARY_TEXT, TEXT};
 pub(super) use dialog::QuietDialog;
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Vec2};
+use crate::ui::typography::Typography;
+use eframe::egui::{self, Align2, Color32, Pos2, Rect, Sense, Vec2};
 const DAYS: [&str; 7] = ["一", "二", "三", "四", "五", "六", "日"];
 
 const ROW_HEIGHT: f32 = 24.0;
@@ -23,7 +24,7 @@ pub(super) fn preferred_width(ctx: &egui::Context, quiet: &QuietHours) -> f32 {
         .iter()
         .map(|period| {
             painter
-                .layout_no_wrap(period_label(*period), FontId::proportional(9.2), TEXT)
+                .layout_no_wrap(period_label(*period), Typography::font_id(ui.ctx(), 9.2), TEXT)
                 .size()
                 .x
         })
@@ -48,7 +49,7 @@ pub(super) fn show(
             list.center(),
             Align2::CENTER_CENTER,
             "还没有免打扰时段",
-            FontId::proportional(10.5),
+            Typography::font_id(ui.ctx(), 10.5),
             SECONDARY_TEXT,
         );
     }
@@ -107,7 +108,7 @@ fn period_row(
         Pos2::new(row.left() + 18.0, row.center().y),
         Align2::LEFT_CENTER,
         period_label(period),
-        FontId::proportional(9.2),
+        Typography::font_id(ui.ctx(), 9.2),
         if period.enabled { TEXT } else { SECONDARY_TEXT },
     );
     let edit = action_button(
@@ -177,7 +178,7 @@ fn draw_add_button(
         } else {
             "已达到时段上限"
         },
-        FontId::proportional(11.0),
+        Typography::font_id(ui.ctx(), 11.0),
         if can_add {
             Color32::WHITE
         } else {

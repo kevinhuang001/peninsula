@@ -1,4 +1,4 @@
-use crate::ui::palette::{self, TextPalette};
+use crate::ui::{palette::{self, TextPalette}, typography::{TextScale, Typography}};
 use eframe::egui::{self, Color32};
 
 pub(super) const TEXT: Color32 = TextPalette::DEFAULT.primary;
@@ -29,7 +29,7 @@ pub(super) fn accent_selected(ui: &egui::Ui) -> Color32 {
 }
 
 /// Install a single dark UI style for native controls, popups and the renderer.
-pub(in crate::app) fn install(context: &egui::Context, accent: [u8; 3]) {
+pub(in crate::app) fn install(context: &egui::Context, accent: [u8; 3], text_scale: TextScale) {
     use egui::{CornerRadius, ThemePreference};
     context.set_theme(ThemePreference::Dark);
     palette::install_accent_tokens(context, accent);
@@ -62,6 +62,7 @@ pub(in crate::app) fn install(context: &egui::Context, accent: [u8; 3]) {
         }
         visuals.widgets.active.bg_stroke.color = tokens.accent_focus;
     });
+    Typography::install(context, text_scale);
 }
 
 pub(super) fn parse_accent_color(value: &str) -> Option<[u8; 3]> {

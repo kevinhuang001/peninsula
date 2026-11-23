@@ -894,7 +894,7 @@ fn text(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNode {
     ViewNode::text(
         value,
         TextStyle {
-            font_size: FontSize::Custom(size),
+            font_size: FontSize::Relative(size / 12.0),
             align: Align::Start,
             ..Default::default()
         },
@@ -906,7 +906,7 @@ fn strong(value: impl Into<String>, size: f32) -> ViewNode {
     ViewNode::text(
         value,
         TextStyle {
-            font_size: FontSize::Custom(size),
+            font_size: FontSize::Relative(size / 12.0),
             font_weight: FontWeight::Bold,
             align: Align::Start,
             ..Default::default()

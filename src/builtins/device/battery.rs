@@ -135,7 +135,7 @@ fn battery_prompt_layers(metrics: &PowerSnapshot) -> Vec<PromptLayer> {
             ViewNode::text(
                 label,
                 TextStyle {
-                    font_size: FontSize::Custom(12.0),
+                    font_size: FontSize::Relative(1),
                     ..Default::default()
                 },
             )
@@ -146,7 +146,7 @@ fn battery_prompt_layers(metrics: &PowerSnapshot) -> Vec<PromptLayer> {
             ViewNode::text(
                 battery_label(metrics),
                 TextStyle {
-                    font_size: FontSize::Custom(11.0),
+                    font_size: FontSize::Relative(0.9167),
                     ..Default::default()
                 },
             )
@@ -277,7 +277,7 @@ fn battery_view(metrics: &PowerSnapshot, label: String) -> ViewNode {
         ViewNode::text(
             label,
             TextStyle {
-                font_size: FontSize::Custom(11.0),
+                font_size: FontSize::Relative(0.9167),
                 align: Align::Start,
                 ..Default::default()
             },

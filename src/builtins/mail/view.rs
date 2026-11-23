@@ -11,7 +11,7 @@ fn text(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNode {
     ViewNode::text(
         value,
         TextStyle {
-            font_size: FontSize::Custom(size),
+            font_size: FontSize::Relative(size / 12.0),
             align: Align::Start,
             ..Default::default()
         },
@@ -23,7 +23,7 @@ fn wrapped_text(value: impl Into<String>, size: f32, color: ColorSpec) -> ViewNo
     ViewNode::text(
         value,
         TextStyle {
-            font_size: FontSize::Custom(size),
+            font_size: FontSize::Relative(size / 12.0),
             align: Align::Start,
             wrap: true,
             ..Default::default()
@@ -285,7 +285,7 @@ fn message_row(message: &EmailMessage, account: &Account, pending: bool) -> View
     let subject = ViewNode::text(
         &message.subject,
         TextStyle {
-            font_size: FontSize::Custom(12.0),
+            font_size: FontSize::Relative(1),
             font_weight: if message.is_read {
                 FontWeight::Normal
             } else {
