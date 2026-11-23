@@ -104,16 +104,12 @@ impl DataSourceView {
         manager: &DataSourceManager,
     ) {
         ui.label(RichText::new(format!("我的数据源 · {}", sources.len())).strong());
-        ui.add_sized([ui.available_width(), 28.0], egui::TextEdit::singleline(&mut self.filter).hint_text("搜索数据源…"));
-        ui.add_space(4.0);
+        ui.add_space(8.0);
         egui::ScrollArea::vertical()
             .id_salt("datasource-list")
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                let query = self.filter.trim().to_lowercase();
-                for source in sources.iter().filter(|source| {
-                    query.is_empty() || source.name.to_lowercase().contains(&query) || source.id.to_lowercase().contains(&query)
-                }) {
+                for source in sources {
                     let selected = self.selected.as_deref() == Some(&source.id);
                     let response = ui.allocate_response(
                         Vec2::new(ui.available_width(), 54.0),
@@ -189,9 +185,6 @@ impl DataSourceView {
             }
             ui.label(RichText::new(&source.name).text_style(egui::TextStyle::Heading).strong());
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.button("删除…").on_hover_text("删除当前数据源").clicked() {
-                    self.delete_candidate = Some(source.id.clone());
-                }
                 if ui
                     .add_enabled(
                         source.enabled,
@@ -213,9 +206,7 @@ impl DataSourceView {
             ui.add_space(4.0);
             ui.label(RichText::new(&source.description).weak());
         }
-        ui.add_space(8.0);
-        ui.label(RichText::new(if !source.enabled { "已停用" } else if source.in_flight { "正在刷新" } else if source.last_error.is_some() { "需要检查" } else { "运行中" }).small().color(if source.last_error.is_some() { ui.visuals().warn_fg_color } else { accent(ui) }));
-        ui.add_space(8.0);
+        ui.add_space(10.0);
         info_card(
             ui,
             "当前值",

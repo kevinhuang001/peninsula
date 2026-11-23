@@ -99,7 +99,6 @@ impl DataSourceView {
                         self.candidate_icon = None;
                         self.status.clear();
                         self.status_source = None;
-                        self.filter.clear();
                     }
                     Err(error) => self.set_error(format!("导入失败：{error}")),
                 }

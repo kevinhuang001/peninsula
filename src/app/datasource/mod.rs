@@ -26,7 +26,6 @@ pub(super) fn preferred_size(limit: [f32; 2]) -> Vec2 {
 #[derive(Default)]
 pub(super) struct DataSourceView {
     selected: Option<String>,
-    filter: String,
     candidate: Option<Definition>,
     candidate_icon: Option<egui::TextureHandle>,
     allow_private_network: bool,

@@ -120,11 +120,11 @@ impl Icons {
                 include_bytes!("../../assets/icons/lucide/x.svg"),
             ),
             toolbar_icons: [
-                ("toolbar-database", include_bytes!("../../assets/icons/toolbar/database.svg").as_slice()),
-                ("toolbar-dashboard", include_bytes!("../../assets/icons/toolbar/dashboard.svg").as_slice()),
-                ("toolbar-pin", include_bytes!("../../assets/icons/toolbar/pin.svg").as_slice()),
-                ("toolbar-moon", include_bytes!("../../assets/icons/toolbar/moon.svg").as_slice()),
-                ("toolbar-settings", include_bytes!("../../assets/icons/toolbar/settings.svg").as_slice()),
+                ("lucide-toolbar-database", include_bytes!("../../assets/icons/lucide/database.svg").as_slice()),
+                ("lucide-toolbar-dashboard", include_bytes!("../../assets/icons/lucide/gauge.svg").as_slice()),
+                ("lucide-toolbar-pin", include_bytes!("../../assets/icons/lucide/pin.svg").as_slice()),
+                ("lucide-toolbar-moon", include_bytes!("../../assets/icons/lucide/moon.svg").as_slice()),
+                ("lucide-toolbar-settings", include_bytes!("../../assets/icons/lucide/settings-2.svg").as_slice()),
             ]
             .map(|(name, source)| load(context, name, source)),
             widget_icons: [

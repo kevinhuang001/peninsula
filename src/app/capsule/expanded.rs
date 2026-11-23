@@ -26,7 +26,7 @@ pub(super) fn paint_header(
         icons,
         opacity,
     } = content;
-    let text = if settings_open {
+    let text = if settings_open || datasource_open {
         Color32::WHITE
     } else {
         ui.visuals().text_color()
@@ -36,11 +36,12 @@ pub(super) fn paint_header(
         .and_then(|value| value.split_once("] "))
         .map_or((None, title), |(icon, title)| (Some(icon), title));
     let button_size = Vec2::splat(20.0);
-    let datasource_rect = header_button(rect, 104.0, button_size);
-    let dashboard_rect = header_button(rect, 82.0, button_size);
+    // Left to right: dashboard, pin, quiet hours, data source, settings.
+    let dashboard_rect = header_button(rect, 104.0, button_size);
+    let datasource_rect = header_button(rect, 38.0, button_size);
     let title_bounds = Rect::from_min_max(
         Pos2::new(rect.left() + 15.0, rect.top()),
-        Pos2::new(datasource_rect.left() - 8.0, rect.top() + 46.0),
+        Pos2::new(dashboard_rect.left() - 8.0, rect.top() + 46.0),
     );
     if title_bounds.is_positive() {
         let painter = ui.painter().with_clip_rect(title_bounds);
@@ -52,21 +53,31 @@ pub(super) fn paint_header(
             ),
             text,
         );
-        let icon_size = if widget_icon.is_some() { 16.0 } else { 0.0 };
-        let gap = if widget_icon.is_some() { 6.0 } else { 0.0 };
+        let page_icon = if settings_open {
+            Some(Icon::Settings)
+        } else if datasource_open {
+            Some(Icon::Database)
+        } else {
+            None
+        };
+        let icon_size = if widget_icon.is_some() || page_icon.is_some() { 16.0 } else { 0.0 };
+        let gap = if icon_size > 0.0 { 6.0 } else { 0.0 };
         let total_width = galley.size().x + icon_size + gap;
         let center = rect
             .center()
             .x
             .min(title_bounds.right() - total_width * 0.5);
-        if let Some(icon) = widget_icon {
+        let icon_rect = Rect::from_min_size(
+            Pos2::new(center - total_width * 0.5, rect.top() + 19.0),
+            Vec2::splat(icon_size),
+        );
+        if let Some(icon) = page_icon {
+            icons.paint(&painter, icon, icon_rect, text, opacity);
+        } else if let Some(icon) = widget_icon {
             icons.paint_widget_icon(
                 &painter,
                 icon.strip_prefix("builtin.").unwrap_or(icon),
-                Rect::from_min_size(
-                    Pos2::new(center - total_width * 0.5, rect.top() + 19.0),
-                    Vec2::splat(icon_size),
-                ),
+                icon_rect,
                 text.linear_multiply(opacity),
             );
         }
@@ -103,7 +114,7 @@ pub(super) fn paint_header(
     .clicked();
     let pin_toggled = header_control(
         ui,
-        header_button(rect, 60.0, button_size),
+        header_button(rect, 82.0, button_size),
         icons,
         Icon::Pin,
         pinned,
@@ -118,7 +129,7 @@ pub(super) fn paint_header(
     .clicked();
     let quiet_toggled = header_control(
         ui,
-        header_button(rect, 38.0, button_size),
+        header_button(rect, 60.0, button_size),
         icons,
         Icon::Moon,
         do_not_disturb,
@@ -532,6 +543,20 @@ mod navigation_tests {
         assert_eq!(titles, ["通知中心", "性能监控"]);
         let mark = indicator(&output);
         assert!(mark.bottom() < text_center(&output, "性能监控").y);
+    }
+}
+
+#[cfg(test)]
+mod toolbar_tests {
+    use super::*;
+
+    #[test]
+    fn datasource_button_is_adjacent_to_settings() {
+        let bounds = Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 300.0));
+        let size = Vec2::splat(20.0);
+        let positions = [104.0, 82.0, 60.0, 38.0, 16.0];
+        let buttons = positions.map(|offset| header_button(bounds, offset, size));
+        assert!(buttons.windows(2).all(|pair| pair[0].right() < pair[1].left()));
     }
 }
 
