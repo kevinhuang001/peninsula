@@ -351,7 +351,7 @@ impl DataSourceView {
             .num_columns(2)
             .spacing([18.0, 5.0])
             .show(ui, |ui| {
-                doctor_row(ui, "Schema", "v1 · 已拒绝旧调度字段");
+                doctor_row(ui, "Schema", if source.metrics.is_empty() { "v1" } else { "v2 · 多指标" });
                 doctor_row(
                     ui,
                     "Icon",
@@ -374,35 +374,37 @@ impl DataSourceView {
                     .http_status
                     .map_or_else(|| "Unknown".to_owned(), |status| format!("HTTP {status}"));
                 doctor_row(ui, "HTTP", &http_status);
-                doctor_row(
-                    ui,
-                    "Value",
-                    if source.value.is_some() {
+                if source.metrics.is_empty() {
+                    doctor_row(ui, "Value", if source.value.is_some() {
                         "提取与数值转换成功"
                     } else {
                         "尚无有效结果"
-                    },
-                );
-                doctor_row(ui, "JSONPath", &source.value_path);
-                doctor_row(ui, "Alert", &source.alert_status);
-                let cooldown = source.last_alert_ms.map_or_else(
-                    || "此前没有已接受的提醒".to_owned(),
-                    |last| {
-                        let allowed_at = last.saturating_add(source.min_alert_interval_ms);
-                        let remaining = allowed_at.saturating_sub(now_ms);
-                        format!(
-                            "上次 {} · 最早下次 {}{}",
-                            timestamp_text(last),
-                            timestamp_text(allowed_at),
-                            if remaining > 0 {
-                                format!("（剩余 {}）", display_millis(remaining))
-                            } else {
-                                String::new()
-                            }
-                        )
-                    },
-                );
-                doctor_row(ui, "Cooldown", &cooldown);
+                    });
+                    doctor_row(ui, "JSONPath", &source.value_path);
+                    doctor_row(ui, "Alert", &source.alert_status);
+                    let cooldown = source.last_alert_ms.map_or_else(
+                        || "此前没有已接受的提醒".to_owned(),
+                        |last| {
+                            let allowed_at = last.saturating_add(source.min_alert_interval_ms);
+                            let remaining = allowed_at.saturating_sub(now_ms);
+                            format!("上次 {}，最早下次 {}{}",
+                                timestamp_text(last), timestamp_text(allowed_at),
+                                if remaining > 0 { format!("（剩余 {}）", display_millis(remaining)) }
+                                else { String::new() }
+                            )
+                        },
+                    );
+                    doctor_row(ui, "Cooldown", &cooldown);
+                } else {
+                    for metric in &source.metrics {
+                        doctor_row(ui, &format!("{} 结果", metric.name),
+                            if metric.value.is_some() { "提取成功" } else { "尚无有效结果" });
+                        doctor_row(ui, &format!("{} JSONPath", metric.name), &metric.value_path);
+                        if metric.has_alert {
+                            doctor_row(ui, &format!("{} 提醒", metric.name), &metric.alert_status);
+                        }
+                    }
+                }
                 if source.last_alert_ms.is_some_and(|last| last > now_ms)
                     || source.last_request_ms.is_some_and(|last| last > now_ms)
                 {
