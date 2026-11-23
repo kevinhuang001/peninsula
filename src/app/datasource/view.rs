@@ -82,12 +82,13 @@ impl DataSourceView {
                         );
                         ui.add_space(gap);
                         let choosing = self.picker.is_some();
+                        let button_width = ui.available_width();
                         if ui
                             .add_enabled(
                                 !choosing,
                                 egui::Button::new(if choosing { "选择文件中…" } else { "＋  导入数据源" })
                                     .fill(accent(ui))
-                                    .min_size(Vec2::new(ui.available_width(), import_height)),
+                                    .min_size(Vec2::new(button_width, import_height)),
                             )
                             .on_hover_text("选择 .pds.json 文件")
                             .clicked()
