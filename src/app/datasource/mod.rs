@@ -101,6 +101,43 @@ mod responsive_tests {
     }
 
     #[test]
+    fn metric_rows_fill_width_without_tall_grid_cards() {
+        for width in [360.0, 520.0, 790.0, 1200.0] {
+            let ctx = egui::Context::default();
+            let mut geometry = None;
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        Vec2::new(width, 500.0),
+                    )),
+                    ..Default::default()
+                },
+                |context| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(context, |ui| {
+                            let available = ui.available_width();
+                            let row = metric_row(ui, "开放 Issue", "123 个", None);
+                            geometry = Some((available, row));
+                        });
+                },
+            );
+            let (available, row) = geometry.expect("metric must be rendered");
+            assert!(
+                (row.width() - available).abs() < 4.0,
+                "width={width}: metric row {:.1} vs available {:.1}",
+                row.width(), available
+            );
+            assert!(
+                row.height() < 90.0,
+                "width={width}: metric row must stay compact (height={:.1})",
+                row.height()
+            );
+        }
+    }
+
+    #[test]
     fn source_picker_stacks_below_the_compact_breakpoint() {
         for width in [320.0, 480.0, 619.0] {
             assert!(compact_layout(width));
