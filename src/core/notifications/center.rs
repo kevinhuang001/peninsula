@@ -9,8 +9,11 @@ use crate::{
 pub const CENTER_PAGE_SIZE: usize = 8;
 const WIDTH: f32 = 320.0;
 const MIN_HEIGHT: f32 = 128.0;
-const ROW_HEIGHT: f32 = 31.0;
-const ROW_GAP: f32 = 3.0;
+// The title and body are two separate typographic lines. The old 31-point
+// allocation was shorter than their combined font metrics and clipped them
+// together. Keep the row tall enough at larger UI text scales, too.
+const ROW_HEIGHT: f32 = 60.0;
+const ROW_GAP: f32 = 5.0;
 const FOOTER_HEIGHT: f32 = 23.0;
 const FOOTER_GAP: f32 = 6.0;
 // The capsule reserves the last 15 points for the Widget page indicator.
@@ -51,6 +54,7 @@ fn item(entry: &NotificationCenterEntry) -> ViewNode {
                     FontSize::Small
                 },
                 align: Align::Start,
+                wrap: false,
                 ..Default::default()
             },
         )
@@ -59,23 +63,20 @@ fn item(entry: &NotificationCenterEntry) -> ViewNode {
         } else {
             ColorSpec::SecondaryText
         })
-        .sized(
-            Size::Fill(1.0),
-            Size::Fixed(if primary { 15.0 } else { 12.0 }),
-        )
+        .sized(Size::Fill(1.0), Size::Auto)
     };
     let content = ViewNode::row(
         vec![
             ViewNode::icon(icon, 14.0)
                 .color(ColorSpec::Info)
-                .sized(Size::Fixed(27.0), Size::Fixed(22.0)),
+                .sized(Size::Fixed(27.0), Size::Fixed(24.0)),
             ViewNode::column(
                 vec![
                     label(&entry.view.title, true),
                     label(&entry.view.body, false),
                 ],
                 Flow {
-                    gap: Some(0.0),
+                    gap: Some(3.0),
                     justify: Justify::Center,
                     ..Default::default()
                 },
@@ -123,7 +124,7 @@ fn item(entry: &NotificationCenterEntry) -> ViewNode {
             corner_radius: Some(8.0),
             ..Default::default()
         },
-        padding: [2.0, 0.0, 6.0, 0.0],
+        padding: [6.0, 3.0, 6.0, 3.0],
         ..Default::default()
     });
     row.key = Some(id);
@@ -325,6 +326,38 @@ mod tests {
             );
             assert_eq!(footer[0].size.width, Size::Fixed(44.0));
         }
+    }
+
+    #[test]
+    fn title_and_body_have_distinct_lines_in_a_full_notification_row() {
+        use eframe::egui::{self, pos2, vec2, Rect};
+        let ctx = egui::Context::default();
+        let icons = crate::app::icons::Icons::load(&ctx);
+        let mut entry = entry(1);
+        entry.view.title = "AAPL 价格提醒".into();
+        entry.view.body = "AAPL 当前价格 $342.56，已满足价格提醒条件".into();
+        let view = widget_view(&[entry], 0);
+        let out = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::ui::renderer::show_widget(
+                    ui,
+                    Rect::from_min_size(pos2(20.0, 20.0),
+                        vec2(view.preferred_size[0], view.preferred_size[1] - CAPSULE_BOTTOM)),
+                    &ExtensionId::builtin(NOTIFICATION_CENTER_ID),
+                    &view, &icons, 1.0,
+                );
+            });
+        });
+        let positions: Vec<_> = out.shapes.iter().filter_map(|shape| {
+            let egui::Shape::Text(text) = &shape.shape else { return None };
+            (text.galley.job.text.starts_with("AAPL"))
+                .then_some((text.galley.job.text.clone(), text.pos.y, text.galley.size().y))
+        }).collect();
+        assert_eq!(positions.len(), 2, "the full title and body must both be rendered");
+        assert!(
+            positions[0].1 + positions[0].2 <= positions[1].1 + 1.0,
+            "title must end before body starts: {positions:?}"
+        );
     }
 
     #[test]
