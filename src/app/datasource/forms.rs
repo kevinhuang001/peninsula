@@ -189,6 +189,64 @@ impl DataSourceView {
         preferences: &mut super::super::settings::AppPreferences,
     ) {
         section_title(ui, "显示与提醒", "与设置中的胶囊、通知配置同步");
+        if !source.metrics.is_empty() {
+            for metric in &source.metrics {
+                let title = format!("{}  {}", metric.name,
+                    metric.formatted.as_deref().unwrap_or("等待数据"));
+                form_surface(ui).show(ui, |ui| {
+                    ui.label(egui::RichText::new(&title).strong());
+                    ui.add_space(5.0);
+                    if let Ok(id) = datasource::metric_capsule_id(&source.id, &metric.id) {
+                        let mut enabled = preferences.is_enabled(&id);
+                        runtime_row(ui, "胶囊显示", |ui| {
+                            if super::super::settings::core_toggle(ui, &mut enabled, "胶囊显示")
+                                && preferences.set_capsule_item_enabled(&id, enabled)
+                            {
+                                self.preferences_dirty = true;
+                            }
+                        });
+                    }
+                    if metric.has_alert {
+                        if let Ok(id) = datasource::metric_notification_id(&source.id, &metric.id) {
+                            let descriptor = preferences.pages.iter()
+                                .flat_map(|page| &page.descriptor.contributions)
+                                .find(|entry| entry.id == id)
+                                .cloned();
+                            if let Some(descriptor) = descriptor {
+                                let mut enabled = preferences.contribution_enabled(&descriptor);
+                                runtime_row(ui, "通知提醒", |ui| {
+                                    if super::super::settings::core_toggle(ui, &mut enabled, "通知提醒") {
+                                        preferences.set_contribution_enabled(id.clone(), enabled);
+                                        self.preferences_dirty = true;
+                                    }
+                                });
+                                let values = preferences.contribution_values
+                                    .entry(id)
+                                    .or_insert_with(|| {
+                                        let mut values = crate::extension::Settings::new();
+                                        values.insert("cooldown".into(),
+                                            crate::extension::SettingValue::Duration(metric.alert_interval_ms));
+                                        values
+                                    });
+                                if let Some(crate::extension::SettingValue::Duration(ms)) = values.get_mut("cooldown") {
+                                    runtime_row(ui, "最短提醒间隔", |ui| {
+                                        let mut minutes = (*ms).div_ceil(60_000).clamp(1, 43_200);
+                                        if ui.add(egui::DragValue::new(&mut minutes)
+                                            .range(1..=43_200).suffix(" 分钟")).changed()
+                                        {
+                                            *ms = minutes * 60_000;
+                                            self.preferences_dirty = true;
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+                });
+                ui.add_space(8.0);
+            }
+            return;
+        }
         if let Ok(id) = datasource::capsule_id(&source.id) {
             let mut enabled = preferences.is_enabled(&id);
             runtime_row(ui, "胶囊显示", |ui| {
@@ -293,7 +351,7 @@ impl DataSourceView {
             .num_columns(2)
             .spacing([18.0, 5.0])
             .show(ui, |ui| {
-                doctor_row(ui, "Schema", "v1 · 已拒绝旧调度字段");
+                doctor_row(ui, "Schema", if source.metrics.is_empty() { "v1" } else { "v2 · 多指标" });
                 doctor_row(
                     ui,
                     "Icon",
@@ -316,35 +374,37 @@ impl DataSourceView {
                     .http_status
                     .map_or_else(|| "Unknown".to_owned(), |status| format!("HTTP {status}"));
                 doctor_row(ui, "HTTP", &http_status);
-                doctor_row(
-                    ui,
-                    "Value",
-                    if source.value.is_some() {
+                if source.metrics.is_empty() {
+                    doctor_row(ui, "Value", if source.value.is_some() {
                         "提取与数值转换成功"
                     } else {
                         "尚无有效结果"
-                    },
-                );
-                doctor_row(ui, "JSONPath", &source.value_path);
-                doctor_row(ui, "Alert", &source.alert_status);
-                let cooldown = source.last_alert_ms.map_or_else(
-                    || "此前没有已接受的提醒".to_owned(),
-                    |last| {
-                        let allowed_at = last.saturating_add(source.min_alert_interval_ms);
-                        let remaining = allowed_at.saturating_sub(now_ms);
-                        format!(
-                            "上次 {} · 最早下次 {}{}",
-                            timestamp_text(last),
-                            timestamp_text(allowed_at),
-                            if remaining > 0 {
-                                format!("（剩余 {}）", display_millis(remaining))
-                            } else {
-                                String::new()
-                            }
-                        )
-                    },
-                );
-                doctor_row(ui, "Cooldown", &cooldown);
+                    });
+                    doctor_row(ui, "JSONPath", &source.value_path);
+                    doctor_row(ui, "Alert", &source.alert_status);
+                    let cooldown = source.last_alert_ms.map_or_else(
+                        || "此前没有已接受的提醒".to_owned(),
+                        |last| {
+                            let allowed_at = last.saturating_add(source.min_alert_interval_ms);
+                            let remaining = allowed_at.saturating_sub(now_ms);
+                            format!("上次 {}，最早下次 {}{}",
+                                timestamp_text(last), timestamp_text(allowed_at),
+                                if remaining > 0 { format!("（剩余 {}）", display_millis(remaining)) }
+                                else { String::new() }
+                            )
+                        },
+                    );
+                    doctor_row(ui, "Cooldown", &cooldown);
+                } else {
+                    for metric in &source.metrics {
+                        doctor_row(ui, &format!("{} 结果", metric.name),
+                            if metric.value.is_some() { "提取成功" } else { "尚无有效结果" });
+                        doctor_row(ui, &format!("{} JSONPath", metric.name), &metric.value_path);
+                        if metric.has_alert {
+                            doctor_row(ui, &format!("{} 提醒", metric.name), &metric.alert_status);
+                        }
+                    }
+                }
                 if source.last_alert_ms.is_some_and(|last| last > now_ms)
                     || source.last_request_ms.is_some_and(|last| last > now_ms)
                 {

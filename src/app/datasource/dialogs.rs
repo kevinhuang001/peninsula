@@ -71,18 +71,22 @@ impl DataSourceView {
                 .on_hover_text(&origin);
             ui.add_space(8.0);
             ui.separator();
-            ui.horizontal(|ui| {
-                method_pill(ui, method_text(candidate.request.method));
-                ui.label(RichText::new("请求地址").small().weak());
-            });
-            ui.add(egui::Label::new(RichText::new(&candidate.request.url).monospace().small()).truncate())
-                .on_hover_text(&candidate.request.url);
+            for (request_id, request) in candidate.request.iter().map(|request| ("默认", request))
+                .chain(candidate.requests.iter().map(|(id, request)| (id.as_str(), request)))
+            {
+                ui.horizontal(|ui| {
+                    method_pill(ui, method_text(request.method));
+                    ui.label(RichText::new(format!("请求地址  {request_id}")).small().weak());
+                });
+                ui.add(egui::Label::new(RichText::new(&request.url).monospace().small()).truncate())
+                    .on_hover_text(&request.url);
+            }
         });
         ui.add_space(12.0);
         form_surface(ui).show(ui, |ui| {
             switch_row(ui, &mut self.allow_private_network, "允许 HTTP / localhost / 私有网络目标");
         });
-        if origin.starts_with("http://") {
+        if candidate.origins().is_ok_and(|origins| origins.iter().any(|origin| origin.starts_with("http://"))) {
             ui.colored_label(ui.visuals().warn_fg_color,
                 "该目标使用未加密的 HTTP；开启上述权限后才会执行请求。");
         }

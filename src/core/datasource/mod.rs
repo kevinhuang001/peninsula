@@ -12,7 +12,7 @@ use schema::input_numeric_value;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs,
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
@@ -22,8 +22,8 @@ use std::{
 use url::Url;
 
 pub use schema::{
-    parse_duration, AlertOperator, Definition, HttpMethod, IconSpec, InputDefinition, InputType,
-    ValueDefinition,
+    parse_duration, AlertMode, AlertOperator, Definition, HttpMethod, IconSpec, InputDefinition, InputType,
+    MetricDefinition, ValueDefinition,
 };
 
 const MAX_RESPONSE_BYTES: usize = 1_048_576;
@@ -54,6 +54,8 @@ struct SourceConfig {
     origin: String,
     #[serde(default)]
     inputs: BTreeMap<String, Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name_override: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -87,6 +89,34 @@ struct SavedState {
     last_alert_ms: Option<u64>,
     #[serde(default)]
     pending_alert: Option<PendingAlertMarker>,
+    #[serde(default)]
+    metrics: BTreeMap<String, MetricState>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MetricState {
+    #[serde(default)]
+    value: Option<f64>,
+    #[serde(default)]
+    previous: Option<f64>,
+    #[serde(default)]
+    formatted: Option<String>,
+    #[serde(default)]
+    pending_delta: f64,
+    #[serde(default)]
+    last_alert_ms: Option<u64>,
+    #[serde(default)]
+    pending_alert: Option<PendingAlertMarker>,
+    #[serde(default)]
+    last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct MetricSwitch {
+    capsule: bool,
+    alerts: bool,
+    alert_interval_ms: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -102,6 +132,7 @@ struct ManagedSource {
     capsule: bool,
     active_alerts: bool,
     alert_interval_ms: u64,
+    metric_switches: BTreeMap<String, MetricSwitch>,
     next_refresh: Instant,
     last_request: Option<Instant>,
     in_flight: bool,
@@ -116,6 +147,8 @@ struct ManagedSource {
 pub struct SourceSnapshot {
     pub id: String,
     pub name: String,
+    pub name_template: Option<String>,
+    pub name_override: Option<String>,
     pub description: String,
     pub origin: String,
     pub enabled: bool,
@@ -125,6 +158,7 @@ pub struct SourceSnapshot {
     pub inputs: BTreeMap<String, Value>,
     pub input_schema: BTreeMap<String, InputDefinition>,
     pub value_path: String,
+    pub metrics: Vec<MetricSnapshot>,
     pub value: Option<f64>,
     pub formatted: Option<String>,
     pub updated_ms: Option<u64>,
@@ -138,6 +172,20 @@ pub struct SourceSnapshot {
     pub storage_error: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct MetricSnapshot {
+    pub id: String,
+    pub name: String,
+    pub value_path: String,
+    pub value: Option<f64>,
+    pub last_error: Option<String>,
+    pub formatted: Option<String>,
+    pub pending_delta: f64,
+    pub has_alert: bool,
+    pub alert_status: String,
+    pub alert_interval_ms: u64,
+}
+
 struct FinishedRequest {
     id: String,
     generation: u64,
@@ -146,11 +194,18 @@ struct FinishedRequest {
 
 #[derive(Debug)]
 struct FetchResult {
-    value: f64,
-    formatted: String,
+    metrics: BTreeMap<String, ExtractedMetric>,
+    errors: BTreeMap<String, String>,
     status: u16,
 }
 
+#[derive(Debug)]
+struct ExtractedMetric {
+    value: f64,
+    formatted: String,
+}
+
+#[derive(Debug)]
 struct FetchError {
     message: String,
     status: Option<u16>,
@@ -180,8 +235,20 @@ impl crate::extension::RuntimeExtension for DataSourceCatalog {
 pub(super) fn notification_source_local(id: &ExtensionId) -> Option<&str> {
     let key = id.as_str();
     key.strip_prefix("datasource/")
-        .and_then(|key| key.strip_suffix("/notification"))
+        .and_then(|key| key.split_once('/').map(|(source, _)| source))
         .or_else(|| key.strip_prefix("datasource."))
+}
+
+fn notification_metric_local(id: &ExtensionId) -> Option<(&str, &str)> {
+    let tail = id.as_str().strip_prefix("datasource/")?;
+    let (source, rest) = tail.split_once('/')?;
+    let metric = rest.strip_suffix("/notification")?;
+    (!metric.is_empty()).then_some((source, metric))
+}
+
+pub(crate) fn metric_notification_id(id: &str, metric: &str) -> Result<ExtensionId, String> {
+    ExtensionId::new(format!("datasource/{id}/{metric}/notification"))
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn notification_id(id: &str) -> Result<ExtensionId, String> {
@@ -300,6 +367,7 @@ impl DataSourceManager {
                         capsule: false,
                         active_alerts: false,
                         alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
+                        metric_switches: BTreeMap::new(),
                         next_refresh,
                         last_request: None,
                         in_flight: false,
@@ -336,7 +404,9 @@ impl DataSourceManager {
                 let alert_status = alert_diagnostic(source, now_ms);
                 SourceSnapshot {
                     id: id.clone(),
-                    name: source.definition.name.clone(),
+                    name: source_display_name(source),
+                    name_template: source.definition.name_template.clone(),
+                    name_override: source.config.name_override.clone(),
                     description: source.definition.description.clone(),
                     origin: source.config.origin.clone(),
                     enabled: source.config.enabled,
@@ -348,7 +418,26 @@ impl DataSourceManager {
                         .as_millis() as u64,
                     inputs: source.config.inputs.clone(),
                     input_schema: source.definition.inputs.clone(),
-                    value_path: source.definition.value.path.clone(),
+                    value_path: source.definition.value.as_ref().map_or_else(
+                        || source.definition.values.values().next().map_or(String::new(), |metric| metric.value.path.clone()),
+                        |value| value.path.clone()
+                    ),
+                    metrics: source.definition.values.iter().map(|(metric_id, metric)| {
+                        let state = source.state.metrics.get(metric_id);
+                        let runtime = source.metric_switches.get(metric_id);
+                        MetricSnapshot {
+                            id: metric_id.clone(),
+                            name: metric.name.clone(),
+                            value_path: metric.value.path.clone(),
+                            value: state.and_then(|state| state.value),
+                            last_error: state.and_then(|state| state.last_error.clone()),
+                            formatted: state.and_then(|state| state.formatted.clone()),
+                            pending_delta: state.map_or(0.0, |state| state.pending_delta),
+                            has_alert: metric.alert.is_some(),
+                            alert_status: metric_alert_diagnostic(source, metric_id, now_ms),
+                            alert_interval_ms: runtime.map_or(source.config.min_alert_interval_ms, |runtime| runtime.alert_interval_ms),
+                        }
+                    }).collect(),
                     value: source.state.value,
                     formatted: source.state.formatted.clone(),
                     updated_ms: source.state.updated_ms,
@@ -369,48 +458,55 @@ impl DataSourceManager {
         use crate::extension::{
             ContributionDescriptor as Descriptor, ContributionKind, SettingSchema, SettingValue,
         };
-        self.sources
-            .values()
-            .flat_map(|source| {
-                let mut entries = Vec::with_capacity(2);
-                let id = &source.definition.id;
+        let mut entries = Vec::new();
+        for source in self.sources.values() {
+            let id = &source.definition.id;
+            let display_name = source_display_name(source);
+            if source.definition.is_multi() {
+                for (metric_id, metric) in &source.definition.values {
+                    if let Ok(capsule) = metric_capsule_id(id, metric_id) {
+                        entries.push(Descriptor::new(
+                            capsule, ContributionKind::Capsule,
+                            format!("{display_name} {}", metric.name), "chart", false, 150,
+                        ));
+                    }
+                    if metric.alert.is_some() {
+                        if let Ok(alert) = metric_notification_id(id, metric_id) {
+                            entries.push(Descriptor::new(
+                                alert, ContributionKind::Notification,
+                                format!("{display_name} {} 提醒", metric.name),
+                                "bell", false, 150,
+                            ).with_settings(1, vec![SettingSchema::new(
+                                ALERT_COOLDOWN,
+                                SettingValue::Duration(source.config.min_alert_interval_ms),
+                                "最短提醒间隔",
+                            ).range(MIN_ALERT_INTERVAL_MS as f64, MAX_ALERT_INTERVAL_MS as f64)
+                             .duration_minutes()]));
+                        }
+                    }
+                }
+            } else {
                 if let Ok(capsule) = capsule_id(id) {
                     entries.push(Descriptor::new(
-                        capsule,
-                        ContributionKind::Capsule,
-                        source.definition.name.clone(),
-                        "chart",
-                        false,
-                        150,
+                        capsule, ContributionKind::Capsule, display_name.clone(), "chart", false, 150,
                     ));
                 }
                 if source.definition.alert.is_some() {
                     if let Ok(alert) = notification_id(id) {
-                        entries.push(
-                            Descriptor::new(
-                                alert,
-                                ContributionKind::Notification,
-                                format!("{} 提醒", source.definition.name),
-                                "bell",
-                                source.config.alerts,
-                                150,
-                            )
-                            .with_settings(
-                                1,
-                                vec![SettingSchema::new(
-                                    ALERT_COOLDOWN,
-                                    SettingValue::Duration(source.config.min_alert_interval_ms),
-                                    "最短提醒间隔",
-                                )
-                                .range(MIN_ALERT_INTERVAL_MS as f64, MAX_ALERT_INTERVAL_MS as f64)
-                                .duration_minutes()],
-                            ),
-                        );
+                        entries.push(Descriptor::new(
+                            alert, ContributionKind::Notification,
+                            format!("{display_name} 提醒"), "bell", source.config.alerts, 150,
+                        ).with_settings(1, vec![SettingSchema::new(
+                            ALERT_COOLDOWN,
+                            SettingValue::Duration(source.config.min_alert_interval_ms),
+                            "最短提醒间隔",
+                        ).range(MIN_ALERT_INTERVAL_MS as f64, MAX_ALERT_INTERVAL_MS as f64)
+                         .duration_minutes()]));
                     }
                 }
-                entries
-            })
-            .collect()
+            }
+        }
+        entries
     }
 
     pub fn apply_contributions(&mut self, host: &crate::core::extension_manager::ExtensionManager) {
@@ -418,19 +514,51 @@ impl DataSourceManager {
         let mut enabled_changed = false;
         for (id, source) in &mut self.sources {
             let was_running = source.config.enabled;
-            source.capsule = capsule_id(id).is_ok_and(|id| host.contribution_running(&id));
-            source.active_alerts = notification_id(id).is_ok_and(|id| {
-                if let Some(crate::extension::SettingValue::Duration(ms)) = host
-                    .configured_contribution_settings(&id)
-                    .and_then(|values| values.get(ALERT_COOLDOWN))
-                {
-                    source.alert_interval_ms = *ms;
+            let previous_switches = source.metric_switches.clone();
+            if source.definition.is_multi() {
+                let mut switches = BTreeMap::new();
+                for (metric_id, metric) in &source.definition.values {
+                    let capsule = metric_capsule_id(id, metric_id)
+                        .is_ok_and(|id| host.contribution_running(&id));
+                    let mut alert_interval_ms = source.config.min_alert_interval_ms;
+                    let alerts = metric.alert.is_some()
+                        && metric_notification_id(id, metric_id).is_ok_and(|id| {
+                            if let Some(crate::extension::SettingValue::Duration(ms)) = host
+                                .configured_contribution_settings(&id)
+                                .and_then(|values| values.get(ALERT_COOLDOWN))
+                            {
+                                alert_interval_ms = *ms;
+                            }
+                            host.accepts_notification(&id)
+                        });
+                    switches.insert(metric_id.clone(), MetricSwitch {
+                        capsule, alerts, alert_interval_ms,
+                    });
                 }
-                host.accepts_notification(&id)
-            });
-            // The Core contribution registry owns the enable state.
-            // Do not keep a separate source switch that could disagree.
+                source.capsule = switches.values().any(|metric| metric.capsule);
+                source.active_alerts = switches.values().any(|metric| metric.alerts);
+                source.metric_switches = switches;
+            } else {
+                source.capsule = capsule_id(id).is_ok_and(|id| host.contribution_running(&id));
+                source.active_alerts = notification_id(id).is_ok_and(|id| {
+                    if let Some(crate::extension::SettingValue::Duration(ms)) = host
+                        .configured_contribution_settings(&id)
+                        .and_then(|values| values.get(ALERT_COOLDOWN))
+                    {
+                        source.alert_interval_ms = *ms;
+                    }
+                    host.accepts_notification(&id)
+                });
+            }
             let running = owner_enabled && (source.capsule || source.active_alerts);
+            if source.metric_switches != previous_switches && was_running && running {
+                // Avoid completing requests that no longer have enabled consumers.
+                source.generation = source.generation.wrapping_add(1);
+                if let Some(token) = &source.cancellation {
+                    token.cancel();
+                }
+                source.next_refresh = Instant::now();
+            }
             if source.config.enabled != running {
                 source.config.enabled = running;
                 source.generation = source.generation.wrapping_add(1);
@@ -455,10 +583,18 @@ impl DataSourceManager {
     }
 
     pub fn accepts_notification(&self, id: &ExtensionId) -> bool {
-        notification_source_local(id).is_some_and(|local| {
-            self.sources.get(local).is_some_and(|source| {
-                source.config.enabled && source.active_alerts && source.definition.alert.is_some()
-            })
+        let Some(local) = notification_source_local(id) else { return false; };
+        self.sources.get(local).is_some_and(|source| {
+            if !source.config.enabled { return false; }
+            if source.definition.is_multi() {
+                notification_metric_local(id).is_some_and(|(_, metric)| {
+                    source.metric_switches.get(metric).is_some_and(|settings| settings.alerts)
+                        && source.definition.metric_alert(metric).is_some()
+                })
+            } else {
+                source.active_alerts && source.definition.alert.is_some()
+                    && notification_id(local).is_ok_and(|expected| expected == *id)
+            }
         })
     }
 
@@ -470,58 +606,33 @@ impl DataSourceManager {
     }
 
     pub fn capsule_views(&self) -> Vec<CapsuleView> {
-        self.sources
-            .iter()
-            .filter(|(_, source)| source.config.enabled && source.capsule)
-            .filter_map(|(id, source)| {
-                let id = capsule_id(id).ok()?;
-                let icon_key = format!(
-                    "datasource-icon/{}/{}",
-                    source.definition.id,
-                    icon_hash(source.definition.icon.as_ref())
-                );
-                let leading = if source.definition.icon.is_some() && source.icon_warning.is_none() {
-                    ViewNode::new(crate::ui::declarative::Node::Image { asset: icon_key })
-                } else {
-                    ViewNode::icon("chart", 18.0)
-                };
-                let value = source.state.formatted.clone().unwrap_or_else(|| "—".into());
-                let text = ViewNode::text(
-                    value,
-                    TextStyle {
-                        font_size: FontSize::Relative(1.0833),
-                        font_weight: FontWeight::Bold,
-                        wrap: false,
-                        ..Default::default()
-                    },
-                )
-                .color(ColorSpec::PrimaryText);
-                let content = ViewNode::capsule(
-                    leading,
-                    text,
-                    CapsuleLayout {
-                        leading_size: [18.0, 18.0],
-                        gap: 5.0,
-                        content_size: crate::ui::declarative::SizeSpec {
-                            width: crate::ui::declarative::Size::Auto,
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
-                );
-                Some(CapsuleView {
-                    id: id.clone(),
-                    source_extension_id: id.clone(),
-                    content,
-                    visibility: Default::default(),
-                    min_width: 48.0,
-                    preferred_width: 78.0,
-                    fit_width: true,
-                    priority: 0,
-                    tooltip: Some(source.definition.name.clone()),
-                })
-            })
-            .collect()
+        let mut views = Vec::new();
+        for (id, source) in &self.sources {
+            if !source.config.enabled { continue; }
+            if source.definition.is_multi() {
+                for (metric_id, metric) in &source.definition.values {
+                    if !source.metric_switches.get(metric_id).is_some_and(|switch| switch.capsule) {
+                        continue;
+                    }
+                    if let Ok(capsule) = metric_capsule_id(id, metric_id) {
+                        let formatted = source.state.metrics.get(metric_id)
+                            .and_then(|state| state.formatted.as_deref()).unwrap_or("—");
+                        views.push(capsule_view_for(
+                            source, capsule, formatted,
+                            format!("{} {}", source_display_name(source), metric.name),
+                        ));
+                    }
+                }
+            } else if source.capsule {
+                if let Ok(capsule) = capsule_id(id) {
+                    views.push(capsule_view_for(
+                        source, capsule, source.state.formatted.as_deref().unwrap_or("—"),
+                        source_display_name(source),
+                    ));
+                }
+            }
+        }
+        views
     }
 
     pub fn register_icons(&mut self, context: &egui::Context) {
@@ -618,7 +729,12 @@ impl DataSourceManager {
             .map_or(0, |source| source.generation.wrapping_add(1));
         let state = previous.as_ref().map_or_else(SavedState::default, |old| {
             if old.definition.origin().ok() == Some(origin.clone())
-                && old.definition.value.path == definition.value.path
+                && old.definition.request == definition.request
+                && old.definition.requests == definition.requests
+                && old.definition.value.as_ref().map(|v| &v.path) == definition.value.as_ref().map(|v| &v.path)
+                && old.definition.values.iter().map(|(key, metric)| (key, &metric.value.path)).eq(
+                    definition.values.iter().map(|(key, metric)| (key, &metric.value.path))
+                )
             {
                 old.state.clone()
             } else {
@@ -649,6 +765,7 @@ impl DataSourceManager {
                 capsule,
                 active_alerts: false,
                 alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
+                metric_switches: previous.as_ref().map_or_else(BTreeMap::new, |old| old.metric_switches.clone()),
                 next_refresh: now,
                 last_request: None,
                 in_flight,
@@ -749,6 +866,24 @@ impl DataSourceManager {
         Ok(())
     }
 
+    pub fn set_display_name(&mut self, id: &str, template: String) -> Result<(), String> {
+        let source = self.source_mut(id)?;
+        let text = template.trim();
+        if text.chars().count() > 80 { return Err("名称最多 80 个字符".into()); }
+        if !text.is_empty() {
+            schema::validate_placeholders(text, &source.definition, false)?;
+        }
+        let previous = source.config.name_override.replace(text.to_owned());
+        if text.is_empty() { source.config.name_override = None; }
+        if let Err(error) = self.save_all() {
+            if let Some(source) = self.sources.get_mut(id) {
+                source.config.name_override = previous;
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
     pub fn set_input(&mut self, id: &str, key: &str, value: Value) -> Result<(), String> {
         let source = self.source_mut(id)?;
         let input = source
@@ -758,7 +893,16 @@ impl DataSourceManager {
             .ok_or_else(|| "参数不存在".to_owned())?;
         validate_runtime_input(input, &value)?;
         let input_kind = input.kind;
+        let old_metrics = source.state.metrics.clone();
+        let old_value = source.state.value;
+        let old_formatted = source.state.formatted.clone();
         let previous = source.config.inputs.insert(key.to_owned(), value);
+        if source.definition.is_multi() {
+            source.state.metrics.clear();
+        } else {
+            source.state.value = None;
+            source.state.formatted = None;
+        }
         let previous_next_refresh = source.next_refresh;
         let previous_force_refresh = source.force_refresh;
         let previous_retry_at = source.state.retry_at_ms;
@@ -792,6 +936,9 @@ impl DataSourceManager {
                 }
                 source.next_refresh = previous_next_refresh;
                 source.force_refresh = previous_force_refresh;
+                source.state.metrics = old_metrics;
+                source.state.value = old_value;
+                source.state.formatted = old_formatted;
                 source.state.retry_at_ms = previous_retry_at;
                 source.retry_count = previous_retry_count;
                 source.state.last_error = previous_error;
@@ -865,22 +1012,60 @@ impl DataSourceManager {
             source.force_refresh = false;
             match finished.result {
                 Ok(result) => {
-                    source.state.value = Some(result.value);
-                    source.state.formatted = Some(result.formatted);
+                    let updated_metrics: Vec<String> = result.metrics.keys().cloned().collect();
+                    let failed_metrics = result.errors;
+                    for (metric_id, metric) in result.metrics {
+                        if source.definition.is_multi() {
+                            let state = source.state.metrics.entry(metric_id).or_default();
+                            if let Some(previous) = state.value {
+                                let difference = metric.value - previous;
+                                if difference.is_finite() {
+                                    state.pending_delta += difference;
+                                }
+                            }
+                            state.previous = state.value;
+                            state.value = Some(metric.value);
+                            state.formatted = Some(metric.formatted);
+                            state.last_error = None;
+                        } else {
+                            source.state.value = Some(metric.value);
+                            source.state.formatted = Some(metric.formatted);
+                        }
+                    }
+                    for (metric_id, error) in &failed_metrics {
+                        source.state.metrics.entry(metric_id.clone()).or_default().last_error = Some(error.clone());
+                    }
                     source.state.updated_ms = Some(timestamp_ms());
-                    source.state.last_error = None;
+                    source.state.last_error = if failed_metrics.is_empty() {
+                        None
+                    } else {
+                        Some(format!("{} 个指标更新失败", failed_metrics.len()))
+                    };
                     source.state.http_status = Some(result.status);
                     source.state.retry_at_ms = None;
                     source.retry_count = 0;
                     source.next_refresh = now + configured_interval(source);
                     if source.active_alerts {
-                        if let Some(alert) = evaluate_alert(source, timestamp_ms()) {
+                        let at = timestamp_ms();
+                        if source.definition.is_multi() {
+                            for metric_id in &updated_metrics {
+                                if let Some(alert) = evaluate_metric_alert(source, metric_id, at) {
+                                    notifications.push(alert);
+                                }
+                            }
+                        } else if let Some(alert) = evaluate_alert(source, at) {
                             notifications.push(alert);
                         }
                     }
                     changed = true;
                 }
                 Err(error) => {
+                    for (metric_id, runtime) in &source.metric_switches {
+                        if runtime.capsule || runtime.alerts {
+                            source.state.metrics.entry(metric_id.clone()).or_default()
+                                .last_error = Some(error.message.clone());
+                        }
+                    }
                     source.state.last_error = Some(error.message);
                     source.state.http_status = error.status;
                     source.retry_count = source.retry_count.saturating_add(1);
@@ -990,8 +1175,13 @@ impl DataSourceManager {
             resolve_input_secret_refs(&mut inputs, &store)?;
             validate_required_inputs(&source.definition, &inputs)?;
             let cancellation = crate::sdk::tasks::CancellationToken::default();
+            let active_metrics = source.metric_switches.iter()
+                .filter(|(_, control)| control.capsule || control.alerts)
+                .map(|(id, _)| id.clone())
+                .collect();
             let task = RequestTask {
                 definition: source.definition.clone(),
+                active_metrics,
                 inputs,
                 origin: source.config.origin.clone(),
                 allow_private_network: source.config.allow_private_network,
@@ -1117,24 +1307,30 @@ impl DataSourceManager {
         notification_id: &str,
         alerted_at_ms: u64,
     ) -> Result<(), String> {
-        let Some(source) = self.sources.get_mut(id) else {
-            return Ok(());
-        };
-        if source
-            .state
-            .pending_alert
-            .as_ref()
-            .is_none_or(|pending| pending.notification_id != notification_id)
-        {
-            return Ok(());
+        let Some(source) = self.sources.get_mut(id) else { return Ok(()); };
+        if let Some(metric) = metric_from_notification(notification_id) {
+            let Some(state) = source.state.metrics.get_mut(metric) else { return Ok(()); };
+            if state.pending_alert.as_ref()
+                .is_none_or(|pending| pending.notification_id != notification_id)
+            {
+                return Ok(());
+            }
+            state.last_alert_ms = Some(state.last_alert_ms.map_or(
+                alerted_at_ms, |previous| previous.max(alerted_at_ms),
+            ));
+            state.pending_delta = 0.0;
+            state.pending_alert = None;
+        } else {
+            if source.state.pending_alert.as_ref()
+                .is_none_or(|pending| pending.notification_id != notification_id)
+            {
+                return Ok(());
+            }
+            source.state.last_alert_ms = Some(source.state.last_alert_ms.map_or(
+                alerted_at_ms, |previous| previous.max(alerted_at_ms),
+            ));
+            source.state.pending_alert = None;
         }
-        source.state.last_alert_ms = Some(
-            source
-                .state
-                .last_alert_ms
-                .map_or(alerted_at_ms, |previous| previous.max(alerted_at_ms)),
-        );
-        source.state.pending_alert = None;
         self.save_state()
     }
 
@@ -1145,30 +1341,42 @@ impl DataSourceManager {
         alerted_at_ms: u64,
     ) -> Result<(), String> {
         let source = self.sources.get_mut(id).ok_or("数据源不存在")?;
-        let previous = source.state.pending_alert.clone();
-        source.state.pending_alert = Some(PendingAlertMarker {
-            notification_id: notification_id.to_owned(),
-            alerted_at_ms,
-        });
-        if let Err(error) = self.save_state() {
-            if let Some(source) = self.sources.get_mut(id) {
-                source.state.pending_alert = previous;
+        let marker = PendingAlertMarker { notification_id: notification_id.to_owned(), alerted_at_ms };
+        if let Some(metric) = metric_from_notification(notification_id) {
+            let state = source.state.metrics.get_mut(metric).ok_or("指标不存在")?;
+            let previous = state.pending_alert.replace(marker);
+            if let Err(error) = self.save_state() {
+                if let Some(source) = self.sources.get_mut(id) {
+                    if let Some(state) = source.state.metrics.get_mut(metric) {
+                        state.pending_alert = previous;
+                    }
+                }
+                return Err(error);
             }
-            return Err(error);
+        } else {
+            let previous = source.state.pending_alert.replace(marker);
+            if let Err(error) = self.save_state() {
+                if let Some(source) = self.sources.get_mut(id) {
+                    source.state.pending_alert = previous;
+                }
+                return Err(error);
+            }
         }
         Ok(())
     }
 
     pub fn cancel_pending_alert(&mut self, id: &str, notification_id: &str) {
         if let Some(source) = self.sources.get_mut(id) {
-            if source
-                .state
-                .pending_alert
-                .as_ref()
-                .is_some_and(|pending| pending.notification_id == notification_id)
-            {
-                source.state.pending_alert = None;
-                let _ = self.save_state();
+            let pending = if let Some(metric) = metric_from_notification(notification_id) {
+                source.state.metrics.get_mut(metric).map(|state| &mut state.pending_alert)
+            } else {
+                Some(&mut source.state.pending_alert)
+            };
+            if let Some(pending) = pending {
+                if pending.as_ref().is_some_and(|item| item.notification_id == notification_id) {
+                    *pending = None;
+                    let _ = self.save_state();
+                }
             }
         }
     }
@@ -1179,27 +1387,32 @@ impl DataSourceManager {
     ) -> Result<(), String> {
         let mut changed = false;
         for (id, source) in &mut self.sources {
-            let Some(pending) = source.state.pending_alert.take() else {
-                continue;
-            };
-            let key = format!("datasource.{id}:{}", pending.notification_id);
-            if accepted.contains_key(&key) {
-                source.state.last_alert_ms = Some(
-                    source
-                        .state
-                        .last_alert_ms
-                        .map_or(pending.alerted_at_ms, |last| {
-                            last.max(pending.alerted_at_ms)
-                        }),
-                );
+            if let Some(pending) = source.state.pending_alert.take() {
+                let key = format!("datasource.{id}:{}", pending.notification_id);
+                if accepted.contains_key(&key) {
+                    source.state.last_alert_ms = Some(source.state.last_alert_ms.map_or(
+                        pending.alerted_at_ms, |last| last.max(pending.alerted_at_ms),
+                    ));
+                }
+                changed = true;
             }
-            changed = true;
+            for state in source.state.metrics.values_mut() {
+                if let Some(pending) = state.pending_alert.take() {
+                    let key = format!("datasource.{id}:{}", pending.notification_id);
+                    if accepted.contains_key(&key) {
+                        state.last_alert_ms = Some(state.last_alert_ms.map_or(
+                            pending.alerted_at_ms, |last| last.max(pending.alerted_at_ms),
+                        ));
+                        state.pending_delta = 0.0;
+                    }
+                    changed = true;
+                }
+            }
         }
-        if changed {
-            self.save_state()?;
-        }
+        if changed { self.save_state()?; }
         Ok(())
     }
+
 }
 
 impl Drop for DataSourceManager {
@@ -1211,6 +1424,29 @@ impl Drop for DataSourceManager {
         }
         self.request_tasks.shutdown();
     }
+}
+
+fn metric_from_notification(notification_id: &str) -> Option<&str> {
+    let remainder = notification_id.strip_prefix("metric:")?;
+    let (metric, suffix) = remainder.split_once(':')?;
+    (!metric.is_empty() && suffix.starts_with("alert-")).then_some(metric)
+}
+
+fn source_display_name(source: &ManagedSource) -> String {
+    let Some(template) = source.config.name_override.as_deref() else {
+        return source.definition.display_name(&source.config.inputs);
+    };
+    let mut result = template.to_owned();
+    for (key, value) in &source.config.inputs {
+        let name = value_to_string(value);
+        let replacement = if name.starts_with('$') && name.ends_with('$') {
+            "****"
+        } else {
+            name.as_str()
+        };
+        result = result.replace(&format!("${{input.{key}}}"), replacement);
+    }
+    if result.trim().is_empty() { source.definition.name.clone() } else { result }
 }
 
 fn new_config(
@@ -1230,12 +1466,56 @@ fn new_config(
             .iter()
             .filter_map(|(key, input)| input.default.clone().map(|value| (key.clone(), value)))
             .collect(),
+        name_override: None,
     }
+}
+
+pub(crate) fn metric_capsule_id(id: &str, metric: &str) -> Result<ExtensionId, String> {
+    ExtensionId::new(format!("{DATA_SOURCE_CAPSULE_PREFIX}{id}/{metric}/value"))
+        .map_err(|_| "数据源指标 id 无效".to_owned())
 }
 
 pub(crate) fn capsule_id(id: &str) -> Result<ExtensionId, String> {
     ExtensionId::new(format!("{DATA_SOURCE_CAPSULE_PREFIX}{id}/value"))
         .map_err(|_| "数据源 id 无效".to_owned())
+}
+
+fn capsule_view_for(source: &ManagedSource, id: ExtensionId, formatted: &str, tooltip: String) -> CapsuleView {
+    let icon_key = format!(
+        "datasource-icon/{}/{}", source.definition.id,
+        icon_hash(source.definition.icon.as_ref())
+    );
+    let leading = if source.definition.icon.is_some() && source.icon_warning.is_none() {
+        ViewNode::new(crate::ui::declarative::Node::Image { asset: icon_key })
+    } else {
+        ViewNode::icon("chart", 18.0)
+    };
+    let text = ViewNode::text(formatted.to_owned(), TextStyle {
+        font_size: FontSize::Relative(1.0833),
+        font_weight: FontWeight::Bold,
+        wrap: false,
+        ..Default::default()
+    }).color(ColorSpec::PrimaryText);
+    let content = ViewNode::capsule(leading, text, CapsuleLayout {
+        leading_size: [18.0, 18.0],
+        gap: 5.0,
+        content_size: crate::ui::declarative::SizeSpec {
+            width: crate::ui::declarative::Size::Auto,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    CapsuleView {
+        id: id.clone(),
+        source_extension_id: id,
+        content,
+        visibility: Default::default(),
+        min_width: 48.0,
+        preferred_width: 78.0,
+        fit_width: true,
+        priority: 0,
+        tooltip: Some(tooltip),
+    }
 }
 
 fn icon_hash(icon: Option<&IconSpec>) -> u64 {
@@ -1559,6 +1839,7 @@ fn validate_required_inputs(
 
 struct RequestTask {
     definition: Definition,
+    active_metrics: BTreeSet<String>,
     inputs: BTreeMap<String, Value>,
     origin: String,
     allow_private_network: bool,
@@ -1572,14 +1853,108 @@ fn run_request(task: RequestTask) -> Result<FetchResult, FetchError> {
         .ok_or_else(|| fetch_error("请求已取消"))?
 }
 
+fn request_needed_by_active_metric(
+    definition: &Definition,
+    active_metrics: &BTreeSet<String>,
+    request_id: &str,
+) -> bool {
+    definition.values.iter().any(|(id, metric)| {
+        active_metrics.contains(id) && metric.request.as_deref() == Some(request_id)
+    })
+}
+
 async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
     if task.cancellation.is_cancelled() {
         return Err(fetch_error("请求已取消"));
     }
-    let request = &task.definition.request;
+    let mut metrics = BTreeMap::new();
+    let mut errors = BTreeMap::new();
+    let mut first_error: Option<FetchError> = None;
+    let mut status = None;
+    if !task.definition.requests.is_empty() {
+        // Request IDs determine which independently fetched JSON feeds each metric.
+        // One failed endpoint does not discard successful values from other endpoints.
+        for (request_id, request) in &task.definition.requests {
+            // Skip URLs for metrics whose capsule and notifications are both disabled.
+            if !request_needed_by_active_metric(
+                &task.definition, &task.active_metrics, request_id,
+            ) {
+                continue;
+            }
+            if task.cancellation.is_cancelled() {
+                return Err(fetch_error("请求已取消"));
+            }
+            match fetch_request_json(&task, request).await {
+                Ok((json, http_status)) => {
+                    status = Some(http_status);
+                    for (id, metric) in &task.definition.values {
+                        if !task.active_metrics.contains(id)
+                            || metric.request.as_deref() != Some(request_id.as_str())
+                        {
+                            continue;
+                        }
+                        match extract_metric(&json, &metric.value) {
+                            Ok(value) => { metrics.insert(id.clone(), value); }
+                            Err(error) => {
+                                errors.insert(id.clone(), format!("{request_id}: {}", error.message));
+                                if first_error.is_none() { first_error = Some(error); }
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    for (id, metric) in &task.definition.values {
+                        if task.active_metrics.contains(id)
+                            && metric.request.as_deref() == Some(request_id.as_str())
+                        {
+                            errors.insert(id.clone(), format!("{request_id}: {}", error.message));
+                        }
+                    }
+                    if first_error.is_none() { first_error = Some(error); }
+                }
+            }
+        }
+    } else {
+        let request = task.definition.request.as_ref()
+            .ok_or_else(|| fetch_error("请求定义缺失"))?;
+        let (json, http_status) = fetch_request_json(&task, request).await?;
+        status = Some(http_status);
+        if task.definition.is_multi() {
+            for (id, metric) in &task.definition.values {
+                if !task.active_metrics.contains(id) { continue; }
+                match extract_metric(&json, &metric.value) {
+                    Ok(value) => { metrics.insert(id.clone(), value); }
+                    Err(error) => {
+                        errors.insert(id.clone(), error.message.clone());
+                        if first_error.is_none() { first_error = Some(error); }
+                    }
+                }
+            }
+        } else if let Some(spec) = &task.definition.value {
+            metrics.insert("value".to_owned(), extract_metric(&json, spec)?);
+        }
+    }
+    if metrics.is_empty() {
+        return Err(first_error.unwrap_or_else(|| fetch_error("所有指标均未返回有效数值")));
+    }
+    Ok(FetchResult { metrics, errors, status: status.unwrap_or(200) })
+}
+
+async fn fetch_request_json(
+    task: &RequestTask,
+    request: &schema::RequestDefinition,
+) -> Result<(Value, u16), FetchError> {
+    if task.cancellation.is_cancelled() {
+        return Err(fetch_error("请求已取消"));
+    }
     let url_template = expand_string(&request.url, &task.inputs, true)?;
     let mut url = Url::parse(&url_template).map_err(|_| fetch_error("请求 URL 无效"))?;
-    if url.origin().ascii_serialization() != task.origin {
+    if task.origin != task.definition.origin()
+        .map_err(|_| fetch_error("授权 Origin 无效"))?
+        || !task.definition.origins()
+            .map_err(|_| fetch_error("授权 Origin 无效"))?
+            .contains(&url.origin().ascii_serialization())
+    {
         return Err(fetch_error("请求目标与授权 Origin 不匹配"));
     }
     if url.scheme() != "https" && !task.allow_private_network {
@@ -1692,38 +2067,24 @@ async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
         }
         bytes.extend_from_slice(&chunk);
     }
-    let json: Value =
-        serde_json::from_slice(&bytes).map_err(|_| fetch_error("响应不是合法 JSON"))?;
+    let json: Value = serde_json::from_slice(&bytes)
+        .map_err(|_| fetch_error("响应不是合法 JSON"))?;
+    Ok((json, status.as_u16()))
+}
+
+fn extract_metric(json: &Value, spec: &ValueDefinition) -> Result<ExtractedMetric, FetchError> {
     let mut selector = jsonpath_lib::Selector::new();
-    selector
-        .str_path(&task.definition.value.path)
-        .map_err(|_| fetch_error("JSONPath 无效"))?;
-    selector.value(&json);
-    let values = selector
-        .select()
-        .map_err(|_| fetch_error("JSONPath 解析失败"))?;
-    if values.len() != 1 {
-        return Err(fetch_error("JSONPath 必须匹配唯一数值"));
-    }
-    let raw = values[0]
-        .as_f64()
-        .or_else(|| {
-            values[0]
-                .as_str()
-                .and_then(|value| value.trim().parse::<f64>().ok())
-        })
+    selector.str_path(&spec.path).map_err(|_| fetch_error("JSONPath 无效"))?;
+    selector.value(json);
+    let values = selector.select().map_err(|_| fetch_error("JSONPath 解析失败"))?;
+    if values.len() != 1 { return Err(fetch_error("JSONPath 必须匹配唯一数值")); }
+    let raw = values[0].as_f64()
+        .or_else(|| values[0].as_str().and_then(|v| v.trim().parse::<f64>().ok()))
         .filter(|value| value.is_finite())
         .ok_or_else(|| fetch_error("提取结果不是有限数值"))?;
-    let spec = &task.definition.value;
     let value = raw * spec.multiply / spec.divide + spec.offset;
-    if !value.is_finite() {
-        return Err(fetch_error("数值转换结果无效"));
-    }
-    Ok(FetchResult {
-        value,
-        formatted: format_value(value, spec),
-        status: status.as_u16(),
-    })
+    if !value.is_finite() { return Err(fetch_error("数值转换结果无效")); }
+    Ok(ExtractedMetric { value, formatted: format_value(value, spec) })
 }
 
 fn fetch_error(message: &str) -> FetchError {
@@ -1927,6 +2288,94 @@ fn evaluate_alert(source: &ManagedSource, now_ms: u64) -> Option<PendingAlert> {
     })
 }
 
+fn metric_delta_text(delta: f64) -> String {
+    if delta.fract() == 0.0 && delta.abs() < i64::MAX as f64 {
+        format!("{}", delta as i64)
+    } else {
+        format!("{delta}")
+    }
+}
+
+fn evaluate_metric_alert(source: &ManagedSource, metric_id: &str, now_ms: u64) -> Option<PendingAlert> {
+    let alert = source.definition.metric_alert(metric_id)?;
+    let state = source.state.metrics.get(metric_id)?;
+    if state.last_error.is_some() { return None; }
+    let runtime = source.metric_switches.get(metric_id)?;
+    if !runtime.alerts { return None; }
+    let value = state.value?;
+    if alert.mode == AlertMode::Change && state.previous.is_none() {
+        return None; // First fetch establishes the baseline; it is not a change.
+    }
+    let compared = if alert.mode == AlertMode::Change { state.pending_delta } else { value };
+    let threshold = alert_threshold(source, alert)?;
+    if !should_notify(
+        compared, threshold, alert.operator, state.last_alert_ms,
+        runtime.alert_interval_ms, now_ms,
+    ) {
+        return None;
+    }
+    let current = state.formatted.as_deref().unwrap_or("—");
+    let previous = state.previous.map_or_else(|| "—".to_owned(), metric_delta_text);
+    let delta = metric_delta_text(state.pending_delta);
+    let title = expand_metric_alert_template(&alert.title, current, &previous, &delta, &source.config.inputs);
+    let body = expand_metric_alert_template(&alert.message, current, &previous, &delta, &source.config.inputs);
+    Some(PendingAlert {
+        source_id: source.definition.id.clone(),
+        alerted_at_ms: now_ms,
+        notification: Notification {
+            source_id: metric_notification_id(&source.definition.id, metric_id).ok()?,
+            id: format!("metric:{metric_id}:alert-{now_ms}"),
+            title,
+            body,
+            icon: None,
+            priority: NotificationPriority::Normal,
+            actions: vec![],
+            created_at: UNIX_EPOCH + Duration::from_millis(now_ms),
+        },
+    })
+}
+
+fn metric_alert_diagnostic(source: &ManagedSource, metric_id: &str, now_ms: u64) -> String {
+    let Some(alert) = source.definition.metric_alert(metric_id) else {
+        return "未配置提醒".into();
+    };
+    let Some(runtime) = source.metric_switches.get(metric_id) else {
+        return "提醒已关闭".into();
+    };
+    if !runtime.alerts { return "提醒已关闭".into(); }
+    let Some(state) = source.state.metrics.get(metric_id) else {
+        return "等待首次采样".into();
+    };
+    if let Some(error) = &state.last_error { return format!("最近请求失败：{error}"); }
+    let Some(value) = state.value else { return "等待首次采样".into(); };
+    if alert.mode == AlertMode::Change && state.previous.is_none() {
+        return "已记录基准值，等待变化".into();
+    }
+    let compared = if alert.mode == AlertMode::Change { state.pending_delta } else { value };
+    let Some(threshold) = alert_threshold(source, alert) else { return "阈值参数无效".into(); };
+    if !compare_alert(compared, threshold, alert.operator) {
+        return if alert.mode == AlertMode::Change { "当前无待提醒的变化".into() }
+        else { "当前数值未达到阈值".into() };
+    }
+    if let Some(last) = state.last_alert_ms {
+        let elapsed = now_ms.saturating_sub(last);
+        if elapsed < runtime.alert_interval_ms {
+            return format!("冷却剩余 {}", duration_text(runtime.alert_interval_ms - elapsed));
+        }
+    }
+    "满足通知条件".into()
+}
+
+fn expand_metric_alert_template(
+    template: &str, value: &str, previous: &str, delta: &str,
+    inputs: &BTreeMap<String, Value>,
+) -> String {
+    expand_alert_template(
+        &template.replace("${previous}", previous).replace("${delta}", delta),
+        value, inputs,
+    )
+}
+
 fn alert_threshold(source: &ManagedSource, alert: &schema::AlertDefinition) -> Option<f64> {
     if let Some(number) = alert.threshold.as_f64() {
         return Some(number);
@@ -2066,6 +2515,7 @@ mod tests {
             capsule: true,
             active_alerts: false,
             alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
+            metric_switches: BTreeMap::new(),
             next_refresh: Instant::now(),
             last_request: None,
             in_flight: false,
@@ -2075,6 +2525,139 @@ mod tests {
             cancellation: None,
             icon_warning: None,
         }
+    }
+
+    fn multi_definition() -> Definition {
+        Definition::parse(&serde_json::json!({
+            "schema": "peninsula.datasource/v2",
+            "id": "github-repository",
+            "name": "GitHub",
+            "name_template": "${input.repo}",
+            "inputs": {"repo": {"type": "string", "label": "仓库", "default": "peninsula"}},
+            "request": {"method": "GET", "url": "https://example.org"},
+            "values": {
+                "issues": {
+                    "name": "Issue 数",
+                    "value": {"path": "$.data.issues", "decimals": 0},
+                    "alert": {
+                        "mode": "change", "operator": "gt", "threshold": 0,
+                        "title": "${input.repo} 新 Issue",
+                        "message": "新增 ${delta} 个，之前 ${previous}，现在 ${value}"
+                    }
+                },
+                "stars": {"name": "Star 数", "value": {"path": "$.data.stars", "decimals": 0}}
+            }
+        }).to_string()).unwrap()
+    }
+
+    #[test]
+    fn configured_names_use_inputs_and_survive_restart() {
+        let root = tempfile::tempdir().unwrap();
+        {
+            let mut manager = DataSourceManager::open(root.path());
+            manager.import(multi_definition(), false).unwrap();
+            manager.set_display_name("github-repository", "代码 ${input.repo}".into()).unwrap();
+            assert_eq!(manager.snapshots()[0].name, "代码 peninsula");
+            manager.set_input("github-repository", "repo", Value::String("fiex".into())).unwrap();
+            assert_eq!(manager.snapshots()[0].name, "代码 fiex");
+            assert!(manager.set_display_name("github-repository", "${input.unknown}".into()).is_err());
+        }
+        let manager = DataSourceManager::open(root.path());
+        let source = &manager.snapshots()[0];
+        assert_eq!(source.name, "代码 fiex");
+        assert_eq!(source.name_override.as_deref(), Some("代码 ${input.repo}"));
+    }
+
+    #[test]
+    fn multiple_metrics_extract_from_one_response() {
+        let definition = multi_definition();
+        let json = serde_json::json!({"data": {"issues": 3, "stars": 101}});
+        let issues = extract_metric(&json, definition.metric_value("issues").unwrap()).unwrap();
+        let stars = extract_metric(&json, definition.metric_value("stars").unwrap()).unwrap();
+        assert_eq!(issues.value, 3.0);
+        assert_eq!(stars.value, 101.0);
+    }
+
+    #[test]
+    fn change_alert_uses_delta_not_total_and_first_fetch_is_baseline() {
+        let definition = multi_definition();
+        let mut source = managed_source();
+        source.config = new_config(&definition, definition.origin().unwrap(), false);
+        source.definition = definition;
+        source.metric_switches.insert("issues".into(), MetricSwitch {
+            capsule: true, alerts: true, alert_interval_ms: 60_000,
+        });
+        source.state.metrics.insert("issues".into(), MetricState {
+            value: Some(30.0),
+            formatted: Some("30".into()),
+            ..MetricState::default()
+        });
+        assert!(evaluate_metric_alert(&source, "issues", 10_000).is_none());
+        let state = source.state.metrics.get_mut("issues").unwrap();
+        state.previous = Some(30.0);
+        state.value = Some(32.0);
+        state.formatted = Some("32".into());
+        state.pending_delta = 2.0;
+        let alert = evaluate_metric_alert(&source, "issues", 10_000).unwrap();
+        assert_eq!(alert.notification.body, "新增 2 个，之前 30，现在 32");
+        assert_eq!(alert.notification.source_id,
+            metric_notification_id("github-repository", "issues").unwrap());
+        assert!(evaluate_metric_alert(&source, "stars", 10_000).is_none());
+    }
+
+    #[test]
+    fn multi_url_requests_only_run_for_enabled_metrics() {
+        let mut definition = multi_definition();
+        definition.requests = BTreeMap::from([
+            ("issues_endpoint".into(), schema::RequestDefinition {
+                method: HttpMethod::Get,
+                url: "https://api.github.com/search/issues".into(),
+                headers: BTreeMap::new(),
+                query: BTreeMap::new(),
+                body: None,
+                body_text: None,
+                timeout_ms: 10_000,
+            }),
+            ("star_endpoint".into(), schema::RequestDefinition {
+                method: HttpMethod::Get,
+                url: "https://api.github.com/repos/owner/repo".into(),
+                headers: BTreeMap::new(),
+                query: BTreeMap::new(),
+                body: None,
+                body_text: None,
+                timeout_ms: 10_000,
+            }),
+        ]);
+        definition.request = None;
+        definition.values.get_mut("issues").unwrap().request = Some("issues_endpoint".into());
+        definition.values.get_mut("stars").unwrap().request = Some("star_endpoint".into());
+        definition.validate().unwrap();
+        let active = BTreeSet::from(["stars".to_owned()]);
+        assert!(request_needed_by_active_metric(&definition, &active, "star_endpoint"));
+        assert!(!request_needed_by_active_metric(&definition, &active, "issues_endpoint"));
+        assert!(!request_needed_by_active_metric(&definition, &active, "unknown_endpoint"));
+    }
+
+    #[test]
+    fn accepted_metric_alert_clears_pending_delta_and_persists() {
+        let root = tempfile::tempdir().unwrap();
+        let mut manager = DataSourceManager::open(root.path());
+        manager.import(multi_definition(), false).unwrap();
+        let source = manager.sources.get_mut("github-repository").unwrap();
+        source.state.metrics.insert("issues".into(), MetricState {
+            value: Some(4.0),
+            previous: Some(1.0),
+            pending_delta: 3.0,
+            ..MetricState::default()
+        });
+        let notification_id = "metric:issues:alert-3000";
+        manager.prepare_alert("github-repository", notification_id, 3_000).unwrap();
+        manager.alert_accepted("github-repository", notification_id, 3_000).unwrap();
+        drop(manager);
+        let manager = DataSourceManager::open(root.path());
+        let state = &manager.sources["github-repository"].state.metrics["issues"];
+        assert_eq!(state.pending_delta, 0.0);
+        assert_eq!(state.last_alert_ms, Some(3_000));
     }
 
     #[test]
@@ -2224,6 +2807,7 @@ mod tests {
         let cancellation = crate::sdk::tasks::CancellationToken::default();
         cancellation.cancel();
         let error = run_request(RequestTask {
+            active_metrics: BTreeSet::new(),
             definition: definition(),
             inputs: BTreeMap::new(),
             origin: String::new(),
