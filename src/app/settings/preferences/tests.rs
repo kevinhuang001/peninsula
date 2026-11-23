@@ -62,6 +62,8 @@ fn dark_only_preferences_round_trip_without_theme_field() {
     prefs.capsule_text_color = Some([255, 255, 255]);
     prefs.accent_color = [109, 69, 160];
     prefs.text_scale = crate::ui::typography::TextScale::ExtraLarge;
+    // Persisted order is canonical after a normalizing parse.
+    prefs.normalize_order();
     let encoded = prefs.encode();
     assert!(encoded.contains("capsule_text_size=16.0"));
     assert!(encoded.contains("capsule_text_color=#ffffff"));
