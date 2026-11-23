@@ -21,10 +21,13 @@ impl DataSourceView {
             ui.label("此数据源没有用户参数。");
             return;
         }
-        // Parameters follow the same one-row-per-item, full-width layout.
         let columns_count = 1;
+
         let spacing = 10.0;
-        let card_width = ui.available_width().max(1.0);
+        let card_width = ((ui.available_width().min(CARD_CONTENT_WIDTH + 24.0)
+            - spacing * (columns_count - 1) as f32)
+            / columns_count as f32)
+            .max(220.0);
         egui::Grid::new(("datasource-input-cards", &source.id))
             .num_columns(columns_count)
             .spacing([spacing, spacing])
@@ -41,7 +44,7 @@ impl DataSourceView {
                     let mut invalid_number = false;
 
                     form_surface(ui).show(ui, |ui| {
-                        ui.set_width((card_width - 24.0).max(1.0));
+                        ui.set_width((card_width - 24.0).max(180.0));
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(&schema.label).strong());
                             if schema.required {
@@ -187,52 +190,61 @@ impl DataSourceView {
     ) {
         section_title(ui, "显示与提醒", "与设置中的胶囊、通知配置同步");
         if !source.metrics.is_empty() {
-            // A source owns a vertical list of metrics, never a card grid.
-            // Each metric receives the entire available width; only its
-            // controls rearrange when the viewport becomes narrow.
             for metric in &source.metrics {
-                let outer_width = ui.available_width().max(1.0);
                 form_surface(ui).show(ui, |ui| {
-                    let inner_width = (outer_width - 24.0).max(1.0);
-                    ui.set_width(inner_width);
-                    let show_details = |ui: &mut egui::Ui| {
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(&metric.name)
-                                    .size(Typography::font_id(ui.ctx(), Typography::SETTINGS_HEADING).size)
-                                    .strong(),
-                            ).truncate(),
-                        ).on_hover_text(&metric.name);
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(format!("胶囊预览  {}", metric.capsule_text))
-                                    .size(Typography::font_id(ui.ctx(), Typography::FORM_HINT).size)
-                                    .weak(),
-                            ).truncate(),
-                        ).on_hover_text(&metric.capsule_text);
-                    };
-                    if inner_width >= 820.0 {
-                        ui.horizontal(|ui| {
-                            // Reserve enough width for all controls at larger
-                            // typography scales, then align them to the right.
-                            ui.allocate_ui_with_layout(
-                                Vec2::new(inner_width - 420.0, 42.0),
-                                Layout::top_down(Align::Min),
-                                show_details,
-                            );
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                self.metric_controls(ui, source, metric, preferences, true);
-                            });
-                        });
-                    } else {
-                        show_details(ui);
-                        ui.add_space(5.0);
-                        ui.horizontal_wrapped(|ui| {
-                            self.metric_controls(ui, source, metric, preferences, false);
+                    ui.label(egui::RichText::new(&metric.name).strong());
+                    ui.label(egui::RichText::new(
+                        format!("胶囊：{}", metric.capsule_text),
+                    ).text_style(egui::TextStyle::Small).weak());
+                    ui.add_space(4.0);
+                    if let Ok(id) = datasource::metric_capsule_id(&source.id, &metric.id) {
+                        let mut enabled = preferences.is_enabled(&id);
+                        runtime_row(ui, "胶囊显示", |ui| {
+                            if super::super::settings::core_toggle(ui, &mut enabled, "胶囊显示")
+                                && preferences.set_capsule_item_enabled(&id, enabled)
+                            {
+                                self.preferences_dirty = true;
+                            }
                         });
                     }
+                    if metric.has_alert {
+                        if let Ok(id) = datasource::metric_notification_id(&source.id, &metric.id) {
+                            let descriptor = preferences.pages.iter()
+                                .flat_map(|page| &page.descriptor.contributions)
+                                .find(|entry| entry.id == id)
+                                .cloned();
+                            if let Some(descriptor) = descriptor {
+                                let mut enabled = preferences.contribution_enabled(&descriptor);
+                                runtime_row(ui, "通知提醒", |ui| {
+                                    if super::super::settings::core_toggle(ui, &mut enabled, "通知提醒") {
+                                        preferences.set_contribution_enabled(id.clone(), enabled);
+                                        self.preferences_dirty = true;
+                                    }
+                                });
+                                let values = preferences.contribution_values
+                                    .entry(id)
+                                    .or_insert_with(|| {
+                                        let mut values = crate::extension::Settings::new();
+                                        values.insert("cooldown".into(),
+                                            crate::extension::SettingValue::Duration(metric.alert_interval_ms));
+                                        values
+                                    });
+                                if let Some(crate::extension::SettingValue::Duration(ms)) = values.get_mut("cooldown") {
+                                    runtime_row(ui, "最短提醒间隔", |ui| {
+                                        let mut minutes = (*ms).div_ceil(60_000).clamp(1, 43_200);
+                                        if ui.add(egui::DragValue::new(&mut minutes)
+                                            .range(1..=43_200).suffix(" 分钟")).changed()
+                                        {
+                                            *ms = minutes * 60_000;
+                                            self.preferences_dirty = true;
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
                 });
-                ui.add_space(5.0);
+                ui.add_space(6.0);
             }
             return;
         }
