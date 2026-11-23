@@ -22,7 +22,7 @@ use std::{
 use url::Url;
 
 pub use schema::{
-    parse_duration, AlertMode, AlertOperator, Definition, HttpMethod, IconSpec, InputDefinition, InputType,
+    parse_duration, AlertMode, AlertOperator, CapsuleTextLayout, Definition, HttpMethod, IconSpec, InputDefinition, InputType,
     MetricDefinition, ValueDefinition,
 };
 
@@ -54,7 +54,9 @@ struct SourceConfig {
     origin: String,
     #[serde(default)]
     inputs: BTreeMap<String, Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    // Read legacy name overrides but do not write or apply them. Names now
+    // come exclusively from the imported schema and its input template.
+    #[serde(default, skip_serializing)]
     name_override: Option<String>,
 }
 
@@ -149,8 +151,6 @@ struct ManagedSource {
 pub struct SourceSnapshot {
     pub id: String,
     pub name: String,
-    pub name_template: Option<String>,
-    pub name_override: Option<String>,
     pub capsule_text: String,
     pub description: String,
     pub origin: String,
@@ -410,8 +410,6 @@ impl DataSourceManager {
                 SourceSnapshot {
                     id: id.clone(),
                     name: source_display_name(source),
-                    name_template: source.definition.name_template.clone(),
-                    name_override: source.config.name_override.clone(),
                     capsule_text: render_capsule_text(
                         source.definition.capsule_text.as_deref(),
                         source.state.formatted.as_deref().unwrap_or("—"),
@@ -637,6 +635,7 @@ impl DataSourceManager {
                         views.push(capsule_view_for(
                             source, capsule, &text,
                             format!("{} {}", source_display_name(source), metric.name),
+                            metric.capsule_layout,
                         ));
                     }
                 }
@@ -649,6 +648,7 @@ impl DataSourceManager {
                     views.push(capsule_view_for(
                         source, capsule, &text,
                         source_display_name(source),
+                        source.definition.capsule_layout,
                     ));
                 }
             }
@@ -883,24 +883,6 @@ impl DataSourceManager {
         source.state.last_error = None;
         source.state.http_status = None;
         source.next_refresh = Instant::now();
-        Ok(())
-    }
-
-    pub fn set_display_name(&mut self, id: &str, template: String) -> Result<(), String> {
-        let source = self.source_mut(id)?;
-        let text = template.trim();
-        if text.chars().count() > 80 { return Err("名称最多 80 个字符".into()); }
-        if !text.is_empty() {
-            schema::validate_placeholders(text, &source.definition, false)?;
-        }
-        let previous = source.config.name_override.replace(text.to_owned());
-        if text.is_empty() { source.config.name_override = None; }
-        if let Err(error) = self.save_all() {
-            if let Some(source) = self.sources.get_mut(id) {
-                source.config.name_override = previous;
-            }
-            return Err(error);
-        }
         Ok(())
     }
 
@@ -1460,20 +1442,7 @@ fn metric_from_notification(notification_id: &str) -> Option<&str> {
 }
 
 fn source_display_name(source: &ManagedSource) -> String {
-    let Some(template) = source.config.name_override.as_deref() else {
-        return source.definition.display_name(&source.config.inputs);
-    };
-    let mut result = template.to_owned();
-    for (key, value) in &source.config.inputs {
-        let name = value_to_string(value);
-        let replacement = if name.starts_with('$') && name.ends_with('$') {
-            "****"
-        } else {
-            name.as_str()
-        };
-        result = result.replace(&format!("${{input.{key}}}"), replacement);
-    }
-    if result.trim().is_empty() { source.definition.name.clone() } else { result }
+    source.definition.display_name(&source.config.inputs)
 }
 
 fn new_config(
@@ -1511,7 +1480,13 @@ fn render_capsule_text(template: Option<&str>, formatted: &str) -> String {
     template.map_or_else(|| formatted.to_owned(), |text| text.replace("${value}", formatted))
 }
 
-fn capsule_view_for(source: &ManagedSource, id: ExtensionId, formatted: &str, tooltip: String) -> CapsuleView {
+fn capsule_view_for(
+    source: &ManagedSource,
+    id: ExtensionId,
+    formatted: &str,
+    tooltip: String,
+    text_layout: CapsuleTextLayout,
+) -> CapsuleView {
     let icon_key = format!(
         "datasource-icon/{}/{}", source.definition.id,
         icon_hash(source.definition.icon.as_ref())
@@ -1527,7 +1502,29 @@ fn capsule_view_for(source: &ManagedSource, id: ExtensionId, formatted: &str, to
         wrap: false,
         ..Default::default()
     }).color(ColorSpec::PrimaryText);
-    let content = ViewNode::capsule(leading, text, CapsuleLayout {
+    let content = if text_layout == CapsuleTextLayout::TwoLine {
+        ViewNode::column(
+            vec![
+                ViewNode::text(
+                    source_display_name(source),
+                    TextStyle {
+                        font_size: FontSize::Relative(0.88),
+                        font_weight: FontWeight::Bold,
+                        wrap: false,
+                        ..Default::default()
+                    },
+                ).color(ColorSpec::SecondaryText),
+                text,
+            ],
+            crate::ui::declarative::Flow {
+                gap: Some(0.0),
+                ..Default::default()
+            },
+        )
+    } else {
+        text
+    };
+    let content = ViewNode::capsule(leading, content, CapsuleLayout {
         leading_size: [18.0, 18.0],
         gap: 5.0,
         content_size: crate::ui::declarative::SizeSpec {
@@ -2590,21 +2587,13 @@ mod tests {
     }
 
     #[test]
-    fn configured_names_use_inputs_and_survive_restart() {
+    fn datasource_display_names_use_declared_template_and_input() {
         let root = tempfile::tempdir().unwrap();
-        {
-            let mut manager = DataSourceManager::open(root.path());
-            manager.import(multi_definition(), false).unwrap();
-            manager.set_display_name("github-repository", "代码 ${input.repo}".into()).unwrap();
-            assert_eq!(manager.snapshots()[0].name, "代码 peninsula");
-            manager.set_input("github-repository", "repo", Value::String("fiex".into())).unwrap();
-            assert_eq!(manager.snapshots()[0].name, "代码 fiex");
-            assert!(manager.set_display_name("github-repository", "${input.unknown}".into()).is_err());
-        }
-        let manager = DataSourceManager::open(root.path());
-        let source = &manager.snapshots()[0];
-        assert_eq!(source.name, "代码 fiex");
-        assert_eq!(source.name_override.as_deref(), Some("代码 ${input.repo}"));
+        let mut manager = DataSourceManager::open(root.path());
+        manager.import(multi_definition(), false).unwrap();
+        assert_eq!(manager.snapshots()[0].name, "peninsula");
+        manager.set_input("github-repository", "repo", Value::String("fiex".into())).unwrap();
+        assert_eq!(manager.snapshots()[0].name, "fiex");
     }
 
     #[test]
