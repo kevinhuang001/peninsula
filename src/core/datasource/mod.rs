@@ -12,7 +12,7 @@ use schema::input_numeric_value;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs,
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
@@ -112,7 +112,7 @@ struct MetricState {
     last_error: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct MetricSwitch {
     capsule: bool,
     alerts: bool,
@@ -514,6 +514,7 @@ impl DataSourceManager {
         let mut enabled_changed = false;
         for (id, source) in &mut self.sources {
             let was_running = source.config.enabled;
+            let previous_switches = source.metric_switches.clone();
             if source.definition.is_multi() {
                 let mut switches = BTreeMap::new();
                 for (metric_id, metric) in &source.definition.values {
@@ -550,6 +551,14 @@ impl DataSourceManager {
                 });
             }
             let running = owner_enabled && (source.capsule || source.active_alerts);
+            if source.metric_switches != previous_switches && was_running && running {
+                // Avoid completing requests that no longer have enabled consumers.
+                source.generation = source.generation.wrapping_add(1);
+                if let Some(token) = &source.cancellation {
+                    token.cancel();
+                }
+                source.next_refresh = Instant::now();
+            }
             if source.config.enabled != running {
                 source.config.enabled = running;
                 source.generation = source.generation.wrapping_add(1);
@@ -1160,8 +1169,13 @@ impl DataSourceManager {
             resolve_input_secret_refs(&mut inputs, &store)?;
             validate_required_inputs(&source.definition, &inputs)?;
             let cancellation = crate::sdk::tasks::CancellationToken::default();
+            let active_metrics = source.metric_switches.iter()
+                .filter(|(_, control)| control.capsule || control.alerts)
+                .map(|(id, _)| id.clone())
+                .collect();
             let task = RequestTask {
                 definition: source.definition.clone(),
+                active_metrics,
                 inputs,
                 origin: source.config.origin.clone(),
                 allow_private_network: source.config.allow_private_network,
@@ -1819,6 +1833,7 @@ fn validate_required_inputs(
 
 struct RequestTask {
     definition: Definition,
+    active_metrics: BTreeSet<String>,
     inputs: BTreeMap<String, Value>,
     origin: String,
     allow_private_network: bool,
@@ -1844,6 +1859,13 @@ async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
         // Request IDs determine which independently fetched JSON feeds each metric.
         // One failed endpoint does not discard successful values from other endpoints.
         for (request_id, request) in &task.definition.requests {
+            // Skip URLs for metrics whose capsule and notifications are both disabled.
+            if !task.definition.values.iter().any(|(id, metric)| {
+                task.active_metrics.contains(id)
+                    && metric.request.as_deref() == Some(request_id.as_str())
+            }) {
+                continue;
+            }
             if task.cancellation.is_cancelled() {
                 return Err(fetch_error("请求已取消"));
             }
@@ -1851,7 +1873,9 @@ async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
                 Ok((json, http_status)) => {
                     status = Some(http_status);
                     for (id, metric) in &task.definition.values {
-                        if metric.request.as_deref() != Some(request_id.as_str()) {
+                        if !task.active_metrics.contains(id)
+                            || metric.request.as_deref() != Some(request_id.as_str())
+                        {
                             continue;
                         }
                         match extract_metric(&json, &metric.value) {
@@ -1865,7 +1889,9 @@ async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
                 }
                 Err(error) => {
                     for (id, metric) in &task.definition.values {
-                        if metric.request.as_deref() == Some(request_id.as_str()) {
+                        if task.active_metrics.contains(id)
+                            && metric.request.as_deref() == Some(request_id.as_str())
+                        {
                             errors.insert(id.clone(), format!("{request_id}: {}", error.message));
                         }
                     }
@@ -1880,6 +1906,7 @@ async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
         status = Some(http_status);
         if task.definition.is_multi() {
             for (id, metric) in &task.definition.values {
+                if !task.active_metrics.contains(id) { continue; }
                 match extract_metric(&json, &metric.value) {
                     Ok(value) => { metrics.insert(id.clone(), value); }
                     Err(error) => {
@@ -2732,6 +2759,7 @@ mod tests {
         let cancellation = crate::sdk::tasks::CancellationToken::default();
         cancellation.cancel();
         let error = run_request(RequestTask {
+            active_metrics: BTreeSet::new(),
             definition: definition(),
             inputs: BTreeMap::new(),
             origin: String::new(),
