@@ -191,7 +191,7 @@ impl DataSourceView {
         section_title(ui, "显示与提醒", "与设置中的胶囊、通知配置同步");
         if !source.metrics.is_empty() {
             for metric in &source.metrics {
-                let title = format!("{}  ·  {}", metric.name,
+                let title = format!("{}  {}", metric.name,
                     metric.formatted.as_deref().unwrap_or("等待数据"));
                 form_surface(ui).show(ui, |ui| {
                     ui.label(egui::RichText::new(&title).strong());
