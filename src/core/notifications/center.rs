@@ -9,11 +9,11 @@ use crate::{
 pub const CENTER_PAGE_SIZE: usize = 8;
 const WIDTH: f32 = 320.0;
 const MIN_HEIGHT: f32 = 128.0;
-// The title and body are two separate typographic lines. The old 31-point
-// allocation was shorter than their combined font metrics and clipped them
-// together. Keep the row tall enough at larger UI text scales, too.
-const ROW_HEIGHT: f32 = 60.0;
-const ROW_GAP: f32 = 5.0;
+// Title and body must have separate lines. 31pt caused overlap, while
+// 60pt left excessive empty space. 48pt leaves room for both natural-height
+// lines and their gap at the standard text scale.
+const ROW_HEIGHT: f32 = 48.0;
+const ROW_GAP: f32 = 4.0;
 const FOOTER_HEIGHT: f32 = 23.0;
 const FOOTER_GAP: f32 = 6.0;
 // The capsule reserves the last 15 points for the Widget page indicator.
@@ -76,7 +76,7 @@ fn item(entry: &NotificationCenterEntry) -> ViewNode {
                     label(&entry.view.body, false),
                 ],
                 Flow {
-                    gap: Some(3.0),
+                    gap: Some(2.0),
                     justify: Justify::Center,
                     ..Default::default()
                 },
@@ -124,7 +124,7 @@ fn item(entry: &NotificationCenterEntry) -> ViewNode {
             corner_radius: Some(8.0),
             ..Default::default()
         },
-        padding: [6.0, 3.0, 6.0, 3.0],
+        padding: [5.0, 2.0, 5.0, 2.0],
         ..Default::default()
     });
     row.key = Some(id);
@@ -326,6 +326,16 @@ mod tests {
             );
             assert_eq!(footer[0].size.width, Size::Fixed(44.0));
         }
+    }
+
+    #[test]
+    fn notification_rows_are_compact_but_preserve_two_lines() {
+        assert!((46.0..=50.0).contains(&ROW_HEIGHT));
+        assert!(ROW_GAP <= 4.0);
+        let view = widget_view(&[entry(1), entry(2), entry(3)], 0);
+        let expected = (ROW_HEIGHT * 3.0 + ROW_GAP * 2.0)
+            + FOOTER_GAP + FOOTER_HEIGHT + CAPSULE_BOTTOM;
+        assert_eq!(view.preferred_size[1], expected.max(MIN_HEIGHT));
     }
 
     #[test]
