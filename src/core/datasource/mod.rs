@@ -139,6 +139,8 @@ struct ManagedSource {
     generation: u64,
     retry_count: u8,
     force_refresh: bool,
+    /// A one-shot preview may read metrics while all contribution switches are off.
+    manual_refresh: bool,
     cancellation: Option<crate::sdk::tasks::CancellationToken>,
     icon_warning: Option<String>,
 }
@@ -149,6 +151,7 @@ pub struct SourceSnapshot {
     pub name: String,
     pub name_template: Option<String>,
     pub name_override: Option<String>,
+    pub capsule_text: String,
     pub description: String,
     pub origin: String,
     pub enabled: bool,
@@ -176,6 +179,7 @@ pub struct SourceSnapshot {
 pub struct MetricSnapshot {
     pub id: String,
     pub name: String,
+    pub capsule_text: String,
     pub value_path: String,
     pub value: Option<f64>,
     pub last_error: Option<String>,
@@ -374,6 +378,7 @@ impl DataSourceManager {
                         generation: 0,
                         retry_count: 0,
                         force_refresh: false,
+                        manual_refresh: false,
                         cancellation: None,
                         icon_warning,
                     },
@@ -407,6 +412,10 @@ impl DataSourceManager {
                     name: source_display_name(source),
                     name_template: source.definition.name_template.clone(),
                     name_override: source.config.name_override.clone(),
+                    capsule_text: render_capsule_text(
+                        source.definition.capsule_text.as_deref(),
+                        source.state.formatted.as_deref().unwrap_or("—"),
+                    ),
                     description: source.definition.description.clone(),
                     origin: source.config.origin.clone(),
                     enabled: source.config.enabled,
@@ -428,6 +437,10 @@ impl DataSourceManager {
                         MetricSnapshot {
                             id: metric_id.clone(),
                             name: metric.name.clone(),
+                            capsule_text: render_capsule_text(
+                                metric.capsule_text.as_deref(),
+                                state.and_then(|state| state.formatted.as_deref()).unwrap_or("—"),
+                            ),
                             value_path: metric.value.path.clone(),
                             value: state.and_then(|state| state.value),
                             last_error: state.and_then(|state| state.last_error.clone()),
@@ -566,9 +579,12 @@ impl DataSourceManager {
             }
             if !running {
                 source.force_refresh = false;
-                if let Some(token) = &source.cancellation {
-                    if !token.is_cancelled() {
-                        token.cancel();
+                // Preference sync must not cancel an explicit one-off preview.
+                if !source.manual_refresh {
+                    if let Some(token) = &source.cancellation {
+                        if !token.is_cancelled() {
+                            token.cancel();
+                        }
                     }
                 }
             } else if !was_running {
@@ -617,16 +633,21 @@ impl DataSourceManager {
                     if let Ok(capsule) = metric_capsule_id(id, metric_id) {
                         let formatted = source.state.metrics.get(metric_id)
                             .and_then(|state| state.formatted.as_deref()).unwrap_or("—");
+                        let text = render_capsule_text(metric.capsule_text.as_deref(), formatted);
                         views.push(capsule_view_for(
-                            source, capsule, formatted,
+                            source, capsule, &text,
                             format!("{} {}", source_display_name(source), metric.name),
                         ));
                     }
                 }
             } else if source.capsule {
                 if let Ok(capsule) = capsule_id(id) {
+                    let text = render_capsule_text(
+                        source.definition.capsule_text.as_deref(),
+                        source.state.formatted.as_deref().unwrap_or("—"),
+                    );
                     views.push(capsule_view_for(
-                        source, capsule, source.state.formatted.as_deref().unwrap_or("—"),
+                        source, capsule, &text,
                         source_display_name(source),
                     ));
                 }
@@ -772,6 +793,7 @@ impl DataSourceManager {
                 generation,
                 retry_count: 0,
                 force_refresh: false,
+                        manual_refresh: false,
                 cancellation: None,
                 icon_warning,
             },
@@ -846,9 +868,6 @@ impl DataSourceManager {
 
     pub fn refresh_now(&mut self, id: &str) -> Result<(), String> {
         let source = self.source_mut(id)?;
-        if !source.config.enabled {
-            return Err("请先启用此数据源".into());
-        }
         if source.in_flight {
             if let Some(token) = &source.cancellation {
                 token.cancel();
@@ -856,6 +875,7 @@ impl DataSourceManager {
             source.generation = source.generation.wrapping_add(1);
         }
         source.force_refresh = true;
+        source.manual_refresh = true;
         source.state.retry_at_ms = None;
         source.retry_count = 0;
         // Drop the old failure text so the button visibly starts a new attempt instead of
@@ -981,8 +1001,8 @@ impl DataSourceManager {
             .values()
             .filter(|source| {
                 !source.in_flight
-                    && source.config.enabled
-                    && (source.capsule || source.active_alerts)
+                    && (source.manual_refresh
+                        || (source.config.enabled && (source.capsule || source.active_alerts)))
             })
             .map(|source| source.next_refresh)
             .min()
@@ -1010,6 +1030,7 @@ impl DataSourceManager {
             source.cancellation = None;
             source.last_request = Some(now);
             source.force_refresh = false;
+            source.manual_refresh = false;
             match finished.result {
                 Ok(result) => {
                     let updated_metrics: Vec<String> = result.metrics.keys().cloned().collect();
@@ -1093,9 +1114,10 @@ impl DataSourceManager {
             .filter(|(_, source)| {
                 !source.in_flight
                     && self.active_requests < MAX_CONCURRENT_REQUESTS
-                    && source.config.enabled
-                    && (source.capsule || source.active_alerts)
-                    && (source.force_refresh || source.next_refresh <= now)
+                    && (source.manual_refresh
+                        || (source.config.enabled
+                            && (source.capsule || source.active_alerts)
+                            && (source.force_refresh || source.next_refresh <= now)))
             })
             .map(|(id, _)| id.clone())
             .take(MAX_CONCURRENT_REQUESTS.saturating_sub(self.active_requests))
@@ -1106,6 +1128,7 @@ impl DataSourceManager {
                     source.state.last_error = Some(error);
                     source.state.http_status = None;
                     source.force_refresh = false;
+                    source.manual_refresh = false;
                     let retry_wait = source
                         .state
                         .retry_at_ms
@@ -1135,14 +1158,14 @@ impl DataSourceManager {
         let now_ms = timestamp_ms();
         let (task, generation, previous_last_request, previous_last_request_ms, previous_retry_at) = {
             let source = self.sources.get_mut(id).ok_or("数据源不存在")?;
-            if !source.config.enabled {
+            if !source.config.enabled && !source.manual_refresh {
                 return Err("数据源已停用".into());
             }
             // Explicit parameter edits/refresh skip the local 30 s floor. A scheduled retry
             // already has its own backoff (which may be shorter than 30 s), so let it run
             // too instead of overwriting the real failure with a misleading rate-limit error.
             let is_retry = source.state.retry_at_ms.is_some();
-            if !source.force_refresh && !is_retry {
+            if !source.force_refresh && !source.manual_refresh && !is_retry {
                 if source
                     .last_request
                     .is_some_and(|last| last.elapsed() < schema::MIN_REFRESH)
@@ -1175,10 +1198,14 @@ impl DataSourceManager {
             resolve_input_secret_refs(&mut inputs, &store)?;
             validate_required_inputs(&source.definition, &inputs)?;
             let cancellation = crate::sdk::tasks::CancellationToken::default();
-            let active_metrics = source.metric_switches.iter()
-                .filter(|(_, control)| control.capsule || control.alerts)
-                .map(|(id, _)| id.clone())
-                .collect();
+            let active_metrics = if source.manual_refresh && source.definition.is_multi() {
+                source.definition.values.keys().cloned().collect()
+            } else {
+                source.metric_switches.iter()
+                    .filter(|(_, control)| control.capsule || control.alerts)
+                    .map(|(id, _)| id.clone())
+                    .collect()
+            };
             let task = RequestTask {
                 definition: source.definition.clone(),
                 active_metrics,
@@ -1478,6 +1505,10 @@ pub(crate) fn metric_capsule_id(id: &str, metric: &str) -> Result<ExtensionId, S
 pub(crate) fn capsule_id(id: &str) -> Result<ExtensionId, String> {
     ExtensionId::new(format!("{DATA_SOURCE_CAPSULE_PREFIX}{id}/value"))
         .map_err(|_| "数据源 id 无效".to_owned())
+}
+
+fn render_capsule_text(template: Option<&str>, formatted: &str) -> String {
+    template.map_or_else(|| formatted.to_owned(), |text| text.replace("${value}", formatted))
 }
 
 fn capsule_view_for(source: &ManagedSource, id: ExtensionId, formatted: &str, tooltip: String) -> CapsuleView {
@@ -2529,6 +2560,7 @@ mod tests {
             generation: 0,
             retry_count: 0,
             force_refresh: false,
+                        manual_refresh: false,
             cancellation: None,
             icon_warning: None,
         }
@@ -2573,6 +2605,45 @@ mod tests {
         let source = &manager.snapshots()[0];
         assert_eq!(source.name, "代码 fiex");
         assert_eq!(source.name_override.as_deref(), Some("代码 ${input.repo}"));
+    }
+
+    #[test]
+    fn capsule_template_renders_formatted_value_for_each_metric() {
+        assert_eq!(render_capsule_text(Some("Star: ${value}"), "1 个"), "Star: 1 个");
+        assert_eq!(render_capsule_text(Some("PR ${value}"), "—"), "PR —");
+        assert_eq!(render_capsule_text(None, "42"), "42");
+
+        let root = tempfile::tempdir().unwrap();
+        let mut manager = DataSourceManager::open(root.path());
+        let mut definition = multi_definition();
+        definition.values.get_mut("stars").unwrap().capsule_text = Some("Star: ${value}".into());
+        manager.import(definition, false).unwrap();
+        let snap = manager.snapshots();
+        let stars = snap[0].metrics.iter().find(|metric| metric.id == "stars").unwrap();
+        assert_eq!(stars.capsule_text, "Star: —");
+    }
+
+    #[test]
+    fn manual_refresh_works_without_any_running_capsule_or_alert() {
+        let root = tempfile::tempdir().unwrap();
+        let mut manager = DataSourceManager::open(root.path());
+        manager.import(multi_definition(), false).unwrap();
+        let source = manager.sources.get_mut("github-repository").unwrap();
+        source.config.enabled = false;
+        source.capsule = false;
+        source.active_alerts = false;
+        assert!(!source.manual_refresh);
+
+        manager.refresh_now("github-repository").unwrap();
+        let source = &manager.sources["github-repository"];
+        assert!(!source.config.enabled, "manual preview must not enable background polling");
+        assert!(source.manual_refresh);
+        assert!(manager.next_wake().is_some());
+
+        // Completion closes the one-off scheduling state rather than
+        // creating a recurring polling task for a disabled data source.
+        manager.sources.get_mut("github-repository").unwrap().manual_refresh = false;
+        assert!(manager.next_wake().is_none());
     }
 
     #[test]
@@ -2766,7 +2837,10 @@ mod tests {
             .as_ref()
             .is_some_and(|token| token.is_cancelled()));
         manager.set_enabled(id, false).unwrap();
-        assert!(manager.refresh_now(id).is_err());
+        manager.refresh_now(id).unwrap();
+        let source = manager.sources.get(id).unwrap();
+        assert!(!source.config.enabled);
+        assert!(source.manual_refresh, "one-off refresh is allowed while automatic monitoring is off");
     }
 
     #[test]

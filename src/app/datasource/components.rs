@@ -6,8 +6,8 @@ pub(super) fn surface(ui: &egui::Ui) -> egui::Frame {
     egui::Frame::new()
         .fill(fill)
         .stroke(Stroke::new(1.0_f32, border))
-        .corner_radius(12.0)
-        .inner_margin(egui::Margin::same(16))
+        .corner_radius(10.0)
+        .inner_margin(egui::Margin::same(12))
 }
 
 pub(super) fn form_surface(ui: &egui::Ui) -> egui::Frame {
@@ -68,7 +68,7 @@ pub(super) fn method_pill(ui: &mut egui::Ui, method: &str) {
 }
 
 pub(super) fn section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
-    ui.label(RichText::new(title).text_style(egui::TextStyle::Heading).strong());
+    ui.label(RichText::new(title).size(Typography::font_id(ui.ctx(), Typography::TITLE).size).strong());
     if !subtitle.is_empty() {
         ui.label(
             RichText::new(subtitle)
@@ -76,7 +76,7 @@ pub(super) fn section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
                 .color(ui.visuals().weak_text_color()),
         );
     }
-    ui.add_space(8.0);
+    ui.add_space(5.0);
 }
 
 pub(super) fn switch(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
@@ -185,26 +185,28 @@ pub(super) fn runtime_row(
     });
 }
 
-pub(super) fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) {
-    form_surface(ui).show(ui, |ui| {
-        let (rect, _) = ui.allocate_exact_size(
-            Vec2::new(ui.available_width().min(CARD_CONTENT_WIDTH), 28.0),
-            egui::Sense::hover(),
-        );
-        ui.painter().text(
-            rect.left_center(),
-            egui::Align2::LEFT_CENTER,
-            label,
-            Typography::font_id(ui.ctx(), 12.0),
-            ui.visuals().weak_text_color(),
-        );
-        ui.painter().text(
-            rect.right_center(),
-            egui::Align2::RIGHT_CENTER,
-            value,
-            egui::FontId::proportional(value_size),
-            ui.visuals().text_color(),
-        );
+/// Fixed-size metric summary tile; the tile grid owns the columns and
+/// retains full-width alignment across DPI and window-size changes.
+pub(super) fn metric_tile(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &str,
+    error: Option<&str>,
+    width: f32,
+) {
+    let outer_width = width.max(1.0);
+    surface(ui).show(ui, |ui| {
+        ui.set_width((outer_width - 24.0).max(1.0));
+        ui.set_min_height(77.0);
+        ui.label(RichText::new(label).size(Typography::font_id(ui.ctx(), Typography::BODY).size).color(ui.visuals().weak_text_color()));
+        ui.add_space(4.0);
+        ui.add(egui::Label::new(RichText::new(value).size(Typography::font_id(ui.ctx(), Typography::HEADING * 1.3).size).strong()).truncate())
+            .on_hover_text(value);
+        if let Some(error) = error {
+            ui.add_space(2.0);
+            ui.add(egui::Label::new(RichText::new(error).size(Typography::font_id(ui.ctx(), Typography::FORM_HINT).size).color(
+                ui.visuals().warn_fg_color,
+            )).truncate()).on_hover_text(error);
+        }
     });
 }
-
