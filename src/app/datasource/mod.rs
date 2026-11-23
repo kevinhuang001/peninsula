@@ -8,6 +8,7 @@ use std::{collections::HashMap, fs, sync::mpsc, time::Duration};
 mod components;
 mod dialogs;
 mod forms;
+mod metric_controls;
 mod support;
 mod view;
 use components::*;
