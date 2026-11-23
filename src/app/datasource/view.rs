@@ -271,6 +271,7 @@ impl DataSourceView {
         let draft_key = format!("{}::display-name", source.id);
         let draft = self.text_drafts.entry(draft_key)
             .or_insert_with(|| configured_template.to_owned());
+        let mut name_update = None;
         form_surface(ui).show(ui, |ui| {
             ui.label(egui::RichText::new("显示名称").strong());
             ui.label(egui::RichText::new("可使用 ${input.repo} 等参数；留空使用数据源默认名称").small().weak());
@@ -278,9 +279,12 @@ impl DataSourceView {
             let commit = response.lost_focus()
                 || (response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)));
             if commit && draft.trim() != configured_template {
-                self.set_source_status(&source.id, manager.set_display_name(&source.id, draft.clone()));
+                name_update = Some(draft.clone());
             }
         });
+        if let Some(name) = name_update {
+            self.set_source_status(&source.id, manager.set_display_name(&source.id, name));
+        }
         ui.add_space(10.0);
         if source.metrics.is_empty() {
             info_card(ui, "当前值", source.formatted.as_deref().unwrap_or("—"), 13.0);
