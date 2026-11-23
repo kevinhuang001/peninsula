@@ -2,6 +2,7 @@ use super::*;
 
 impl DataSourceView {
     pub(in crate::app) fn show(&mut self, ui: &mut egui::Ui, manager: &mut DataSourceManager, preferences: &mut super::super::settings::AppPreferences) -> bool {
+        self.poll_definition(ui.ctx(), manager);
         ui.spacing_mut().item_spacing.y = 8.0;
         self.content(ui, manager, preferences);
         std::mem::take(&mut self.preferences_dirty)
@@ -80,16 +81,18 @@ impl DataSourceView {
                             |ui| self.source_list(ui, sources, manager),
                         );
                         ui.add_space(gap);
+                        let choosing = self.picker.is_some();
                         if ui
-                            .add_sized(
-                                [ui.available_width(), import_height],
-                                egui::Button::new("＋  导入数据源")
-                                    .fill(accent(ui)),
+                            .add_enabled(
+                                !choosing,
+                                egui::Button::new(if choosing { "选择文件中…" } else { "＋  导入数据源" })
+                                    .fill(accent(ui))
+                                    .min_size(Vec2::new(ui.available_width(), import_height)),
                             )
                             .on_hover_text("选择 .pds.json 文件")
                             .clicked()
                         {
-                            self.pick_definition(ui.ctx(), manager);
+                            self.pick_definition(ui.ctx());
                         }
                     },
                 );
