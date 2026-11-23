@@ -18,6 +18,16 @@ const COLUMN_GAP: f32 = 12.0;
 const CARD_CONTENT_WIDTH: f32 = 470.0;
 const VIEW_WIDTH: f32 = 790.0;
 const VIEW_HEIGHT: f32 = 570.0;
+const COMPACT_WIDTH: f32 = 620.0;
+
+/// Resolution-based layout, never based on physical pixels or OS DPI directly.
+fn compact_layout(width: f32) -> bool {
+    width < COMPACT_WIDTH
+}
+
+fn sidebar_width(width: f32) -> f32 {
+    LEFT_WIDTH.min((width * 0.32).max(164.0))
+}
 
 pub(super) fn preferred_size(limit: [f32; 2]) -> Vec2 {
     // The available native viewport is already in logical points after OS
@@ -38,6 +48,18 @@ mod responsive_tests {
             let size = preferred_size([w, h]);
             assert!(size.x > 0.0 && size.x <= w);
             assert!(size.y > 0.0 && size.y <= h);
+        }
+    }
+
+    #[test]
+    fn source_picker_stacks_below_the_compact_breakpoint() {
+        for width in [320.0, 480.0, 619.0] {
+            assert!(compact_layout(width));
+        }
+        for width in [620.0, 790.0, 1440.0] {
+            assert!(!compact_layout(width));
+            assert!(sidebar_width(width) <= LEFT_WIDTH);
+            assert!(sidebar_width(width) + COLUMN_GAP < width);
         }
     }
 }

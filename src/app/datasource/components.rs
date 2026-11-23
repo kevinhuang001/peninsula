@@ -169,11 +169,19 @@ pub(super) fn runtime_row(
     control: impl FnOnce(&mut egui::Ui),
 ) {
     form_surface(ui).show(ui, |ui| {
-        ui.set_width((ui.available_width() - 24.0).max(1.0).min(CARD_CONTENT_WIDTH));
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(label).strong());
-            ui.with_layout(Layout::right_to_left(Align::Center), control);
-        });
+        let width = (ui.available_width() - 24.0).max(1.0).min(CARD_CONTENT_WIDTH);
+        ui.set_width(width);
+        if width < 260.0 {
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new(label).strong());
+                ui.with_layout(Layout::right_to_left(Align::Center), control);
+            });
+        } else {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(label).strong());
+                ui.with_layout(Layout::right_to_left(Align::Center), control);
+            });
+        }
     });
 }
 
