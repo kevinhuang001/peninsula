@@ -13,7 +13,8 @@ V2 是声明式数据源的多指标格式。**一个数据源可以声明一个
 - 每个 `values.<id>.request`：在多请求模式下必填，必须引用 `requests` 中存在的请求 ID。多个指标可以绑定同一个请求，共用那次返回的 JSON。
 - `values`：最多 32 个指标，以稳定的 ASCII 指标 ID 为键；每个指标有 `name`、`value`、可选的 `capsule_text` 和 `alert`。V2 不使用根级 `value` 或 `alert`。
 
-每个指标可用 `capsule_text` 定义胶囊展示文字，例如 `"Star: ${value}"` 会显示 `Star: 1 个`（取决于 `suffix` 等格式设定）。不指定时只显示格式化数值；模板必须包含 `${value}`，最多 80 个字符，不允许引用 `${input.*}` 等参数，以免误展示密钥。V1 也允许在根级设置 `capsule_text`。
+每个指标可用 `capsule_text` 定义胶囊展示文字，例如 `"Star: ${value}"` 会显示 `Star: 1 个`（取决于 `suffix` 等格式设定）。
+可选 `"capsule_layout": "two_line"` 时，胶囊上方显示数据源自动名称（例如 `${input.repo}` 解析出的仓库名），下方显示 `capsule_text` 的格式化数值。未设置时保持 `single_line`。两行胶囊与内置网络胶囊使用同一套缩字、宽度测量和高度规则，按实际内容给框分配宽度。用户不能从数据源管理界面覆盖名称；名称由规约 `name_template` 和当前输入决定。不指定时只显示格式化数值；模板必须包含 `${value}`，最多 80 个字符，不允许引用 `${input.*}` 等参数，以免误展示密钥。V1 也允许在根级设置 `capsule_text`。
 
 指标 `value` 的数值提取与 V1 相同：`path` 为 JSONPath，必须恰好匹配一个有限数值；支持 `multiply`、`divide`、`offset`、`decimals`、`separator`、`prefix`、`suffix`。
 
@@ -82,6 +83,7 @@ V2 是声明式数据源的多指标格式。**一个数据源可以声明一个
       "name": "Star 数",
       "request": "stars",
       "capsule_text": "Star: ${value}",
+      "capsule_layout": "two_line",
       "value": {"path": "$.stargazers_count", "decimals": 0}
     }
   }
