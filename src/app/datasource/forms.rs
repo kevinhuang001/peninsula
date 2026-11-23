@@ -95,10 +95,7 @@ impl DataSourceView {
                 } else {
                     ui.horizontal(|ui| {
                         let label_width = (inner_width - 240.0).max(1.0);
-                        ui.add_sized(
-                            [label_width, 28.0],
-                            egui::Label::new(egui::RichText::new(&schema.label).strong()).truncate(),
-                        ).on_hover_text(&schema.label);
+                        left_aligned_label(ui, &schema.label, label_width);
                         ui.allocate_ui_with_layout(
                             Vec2::new(224.0, 28.0), Layout::right_to_left(Align::Center),
                             &mut control,
