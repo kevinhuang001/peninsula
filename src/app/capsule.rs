@@ -159,10 +159,11 @@ pub(super) fn show(
         (settings, pin_toggled)
     };
     renderer::context_menu(&capsule, |ui| {
+        let tokens = crate::ui::palette::accent_tokens(ui.ctx());
         let clicked = ui
             .add(
-                egui::Button::new(egui::RichText::new("退出灵动岛").color(egui::Color32::WHITE))
-                    .fill(crate::ui::palette::accent_tokens(ui.ctx(), ui.visuals().dark_mode).accent),
+                egui::Button::new(egui::RichText::new("退出灵动岛").color(tokens.on_accent))
+                    .fill(tokens.accent),
             )
             .clicked();
         if clicked {
@@ -220,7 +221,7 @@ pub(super) fn show_unlock_handoff(
     );
     let status_opacity = handoff.status_opacity();
     if status_opacity > 0.0 {
-        let color = crate::ui::palette::TextPalette::for_mode(ui.visuals().dark_mode).secondary;
+        let color = crate::ui::palette::TextPalette::DEFAULT.secondary;
         surface.painter().text(
             shell.center(),
             egui::Align2::CENTER_CENTER,
@@ -283,17 +284,12 @@ fn drag_handle_bounds(rect: Rect, progress: f32) -> Rect {
 pub(super) fn paint_shell(ui: &egui::Ui, rect: Rect, progress: f32, settings_open: bool) {
     let painter = ui.painter();
     let corner_radius = corner_radius(progress);
-    let dark = ui.visuals().dark_mode || settings_open;
     let fill = if settings_open {
         super::settings::theme::WIDGET_SURFACE_DARK
     } else {
         ui.visuals().panel_fill
     };
-    let border = if dark {
-        Color32::from_rgb(43, 56, 76)
-    } else {
-        Color32::from_rgb(202, 213, 230)
-    };
+    let border = Color32::from_rgb(43, 56, 76);
     painter.rect_filled(rect, corner_radius, fill);
     painter.rect_stroke(
         rect,

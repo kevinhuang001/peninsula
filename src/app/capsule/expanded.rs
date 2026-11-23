@@ -188,12 +188,7 @@ fn header_button(rect: Rect, from_right: f32, size: Vec2) -> Rect {
 
 pub(in crate::app) const NAVIGATION_HEIGHT: f32 = 22.0;
 fn navigation_font(screen_width: f32) -> f32 {
-    let screen_width = if screen_width.is_finite() {
-        screen_width.max(1.0)
-    } else {
-        1440.0
-    };
-    10.0 * (screen_width / 1440.0).sqrt().clamp(0.9, 1.2)
+    crate::ui::typography::Typography::capsule_navigation(screen_width)
 }
 const TAB_PADDING: f32 = 3.0;
 const NAVIGATION_SIDE: f32 = 28.0;
@@ -258,7 +253,7 @@ pub(super) fn paint_tabs(
         return;
     }
     let primary = ui.visuals().text_color().linear_multiply(opacity);
-    let muted = crate::ui::palette::TextPalette::for_mode(ui.visuals().dark_mode)
+    let muted = crate::ui::palette::TextPalette::DEFAULT
         .muted
         .linear_multiply(opacity);
     let active_key = ui.id().with("navigation-active-widget");

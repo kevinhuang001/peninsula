@@ -2,12 +2,13 @@ use super::{
     forms,
     model::Section,
     quiet_view::{self, QuietDialog},
-    theme::{accent_color, accent_selected, AppearanceTheme, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT},
+    theme::{accent_color, accent_selected, BORDER, PANEL, ROW, SECONDARY_TEXT, TEXT},
     notifications,
     AppPreferences,
 };
 use crate::extension::{ContributionDescriptor, ContributionKind, ExtensionId};
 use crate::sdk::secrets::SecretStore;
+use crate::ui::typography::Typography;
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
 use std::{
     collections::HashMap,
@@ -394,13 +395,13 @@ impl SettingsView {
                         ui.label(egui::RichText::new("◇").size(26.0).color(accent_color(ui)));
                         ui.label(
                             egui::RichText::new("还没有保存的 Secret")
-                                .size(12.5)
+                                .size(Typography::SETTINGS_HEADING)
                                 .strong()
                                 .color(TEXT),
                         );
                         ui.label(
                             egui::RichText::new("添加 API 密钥、令牌或其他私密内容")
-                                .size(10.5)
+                                .size(Typography::CAPTION)
                                 .color(SECONDARY_TEXT),
                         );
                     });
@@ -418,7 +419,7 @@ impl SettingsView {
                     ui.horizontal(|ui| {
                         ui.add(
                             egui::Label::new(
-                                egui::RichText::new(&key).size(11.5).strong().color(TEXT),
+                                egui::RichText::new(&key).size(Typography::FORM_LABEL).strong().color(TEXT),
                             )
                             .truncate(),
                         )
@@ -457,7 +458,7 @@ impl SettingsView {
         let Some(store) = self.secret_store.clone() else {
             return general(ui, prefs);
         };
-        let mut changed = general_theme(ui, prefs);
+        let mut changed = false;
         let encrypted = store.is_encrypted();
         let mut enabled = encrypted;
         if forms::boolean(ui, "加密保存 Secret", &mut enabled) {
@@ -536,6 +537,7 @@ impl SettingsView {
             [editor.available_width(), 28.0],
             egui::TextEdit::singleline(&mut self.encryption_password)
                 .password(true)
+                .text_color(TEXT)
                 .hint_text(if enable { "密码" } else { "当前密码" }),
         );
         if password_response.changed() {
@@ -556,6 +558,7 @@ impl SettingsView {
                 [editor.available_width(), 28.0],
                 egui::TextEdit::singleline(&mut self.encryption_confirmation)
                     .password(true)
+                    .text_color(TEXT)
                     .hint_text("确认密码"),
             );
             if confirmation_response.changed() {
@@ -683,7 +686,7 @@ impl SettingsView {
                     } else {
                         "新增 Secret"
                     })
-                    .size(17.0)
+                    .size(Typography::DIALOG_TITLE)
                     .strong()
                     .color(TEXT),
                 );
@@ -693,17 +696,20 @@ impl SettingsView {
                 }
             });
             ui.add_space(8.0);
-            ui.label(egui::RichText::new("名称").size(11.0).strong());
+            ui.label(egui::RichText::new("名称").size(Typography::FORM_HINT).strong());
             ui.add_sized(
                 [ui.available_width(), 28.0],
-                egui::TextEdit::singleline(&mut self.secret_key).hint_text("例如 OPENAI_API_KEY"),
+                egui::TextEdit::singleline(&mut self.secret_key)
+                    .text_color(TEXT)
+                    .hint_text("例如 OPENAI_API_KEY"),
             );
             ui.add_space(10.0);
-            ui.label(egui::RichText::new("私密内容").size(11.0).strong());
+            ui.label(egui::RichText::new("私密内容").size(Typography::FORM_HINT).strong());
             ui.add_sized(
                 [ui.available_width(), 28.0],
                 egui::TextEdit::singleline(&mut self.secret_value)
                     .password(!self.secret_revealed)
+                    .text_color(TEXT)
                     .hint_text(if editing {
                         "输入新内容以替换"
                     } else {
@@ -827,7 +833,7 @@ impl SettingsView {
         }
         let mut list = child(ui, rect.shrink(5.0), "settings-plugin-navigation");
         list.add_space(4.0);
-        list.label(egui::RichText::new("扩展").size(11.0).color(SECONDARY_TEXT));
+        list.label(egui::RichText::new("扩展").size(Typography::FORM_HINT).color(SECONDARY_TEXT));
         list.add_space(6.0);
         egui::ScrollArea::vertical()
             .id_salt("plugin-names")
@@ -1030,26 +1036,7 @@ fn contribution_groups(
 }
 
 fn general(ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
-    let mut changed = general_theme(ui, prefs);
-    changed |= general_accent(ui, prefs);
-    changed
-}
-
-fn general_theme(ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
-    forms::input_row(ui, "主题", |ui| {
-        let mut changed = false;
-        egui::ComboBox::from_id_salt("global-theme")
-            .width(ui.available_width())
-            .selected_text(theme_label(prefs.appearance_theme))
-            .show_ui(ui, |ui| {
-                for theme in [AppearanceTheme::System, AppearanceTheme::Dark, AppearanceTheme::Light] {
-                    changed |= ui
-                        .selectable_value(&mut prefs.appearance_theme, theme, theme_label(theme))
-                        .changed();
-                }
-            });
-        changed
-    })
+    general_accent(ui, prefs)
 }
 
 fn general_accent(ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
@@ -1065,24 +1052,14 @@ fn general_accent(ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
             .selected_text(selected)
             .show_ui(ui, |ui| {
                 for (name, color) in colors {
-                    let label = egui::RichText::new(name)
-                        .color(Color32::from_rgb(color[0], color[1], color[2]));
                     changed |= ui
-                        .selectable_value(&mut prefs.accent_color, color, label)
+                        .selectable_value(&mut prefs.accent_color, color, name)
                         .changed();
                 }
             });
         changed
     })
 }
-fn theme_label(theme: AppearanceTheme) -> &'static str {
-    match theme {
-        AppearanceTheme::System => "跟随系统",
-        AppearanceTheme::Dark => "深色",
-        AppearanceTheme::Light => "浅色",
-    }
-}
-
 fn capsule_options(
     ui: &mut egui::Ui,
     prefs: &mut AppPreferences,
@@ -1141,7 +1118,7 @@ fn capsule_options(
             });
             changed |= forms::row(ui, "文字颜色", |ui| {
                 let mut follow_theme = prefs.capsule_text_color.is_none();
-                let mut changed = forms::toggle(ui, &mut follow_theme, "跟随主题");
+                let mut changed = forms::toggle(ui, &mut follow_theme, "使用默认文字颜色");
                 if changed {
                     prefs.capsule_text_color = (!follow_theme).then_some([245, 248, 255]);
                 }
@@ -1227,7 +1204,7 @@ fn component_options(
             forms::row(ui, "通知中心", |ui| {
                 ui.label(
                     egui::RichText::new("固定")
-                        .size(10.5)
+                        .size(Typography::CAPTION)
                         .color(SECONDARY_TEXT),
                 );
                 false
@@ -1315,7 +1292,7 @@ fn menu_row(
         egui::pos2(rect.left() + 12.0, rect.center().y),
         Align2::LEFT_CENTER,
         name,
-        FontId::proportional(12.0),
+        FontId::proportional(Typography::BODY),
         if selected { TEXT } else { SECONDARY_TEXT },
     );
     if let Some(enabled) = enabled {
@@ -1354,18 +1331,9 @@ fn child(ui: &mut egui::Ui, rect: Rect, id: &str) -> egui::Ui {
     child
 }
 fn configure(ui: &mut egui::Ui) {
-    let selected_accent = accent_selected(ui);
+    // Visuals are installed once on Context, including popups and password fields.
+    // Settings only overrides its local layout density.
     let style = ui.style_mut();
-    style.visuals = egui::Visuals::dark();
-    style.visuals.override_text_color = Some(TEXT);
-    style.visuals.selection.bg_fill = selected_accent;
-    style.visuals.selection.stroke = Stroke::new(1.0_f32, TEXT);
-    style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(44, 49, 59);
-    style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT);
-    style.visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER);
-    style.visuals.widgets.hovered.bg_fill = selected_accent;
-    style.visuals.widgets.hovered.fg_stroke.color = TEXT;
-    style.visuals.widgets.active.fg_stroke.color = TEXT;
     style.spacing.item_spacing = egui::vec2(6.0, 4.0);
     style.spacing.interact_size.y = 24.0;
 }

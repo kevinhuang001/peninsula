@@ -184,7 +184,7 @@ fn every_procedural_motion_fits_both_small_and_large_slots() {
                 let pose = animation::sample(motion, phase, 10.0 * phase, 0.0, MotionPolicy::Full);
                 let output = ctx.run(egui::RawInput::default(), |ctx| {
                     let painter = ctx.layer_painter(egui::LayerId::background());
-                    paint(&painter, rect, pose, true);
+                    paint(&painter, rect, pose);
                 });
                 assert!(!output.shapes.is_empty(), "{motion:?} emitted no shapes");
                 for entry in output.shapes {

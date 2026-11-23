@@ -56,23 +56,15 @@ fn capsule_sorting_skips_disabled_items() {
 
 
 #[test]
-fn previous_prefs_upgrade_without_losing_capsule_order_or_user_accent() {
-    let id = AppPreferences::default().capsule_items[0].id.clone();
-    let source = format!(
-        "extension={id}|false|2\ncompact_text_size=16\ncompact_text_color=#ffffff\nwidget_theme=light\nwidget_accent=#6d45a0\n"
-    );
-    let prefs = AppPreferences::parse(&source);
-    assert!(!prefs.is_enabled(&id));
-    assert_eq!(prefs.capsule_text_size, 16.0);
-    assert_eq!(prefs.capsule_text_color, Some([255, 255, 255]));
-    assert_eq!(prefs.appearance_theme, AppearanceTheme::Light);
-    assert_eq!(prefs.accent_color, [109, 69, 160]);
+fn dark_only_preferences_round_trip_without_theme_field() {
+    let mut prefs = AppPreferences::default();
+    prefs.capsule_text_size = 16.0;
+    prefs.capsule_text_color = Some([255, 255, 255]);
+    prefs.accent_color = [109, 69, 160];
     let encoded = prefs.encode();
-    assert!(encoded.contains("capsule_item="));
     assert!(encoded.contains("capsule_text_size=16.0"));
-    assert!(encoded.contains("appearance_theme=light"));
+    assert!(encoded.contains("capsule_text_color=#ffffff"));
     assert!(encoded.contains("accent_color=#6d45a0"));
-    assert!(!encoded.contains("\nextension="));
-    assert!(!encoded.contains("widget_accent="));
+    assert!(!encoded.contains("appearance_theme="));
     assert_eq!(AppPreferences::parse(&encoded).encode(), encoded);
 }

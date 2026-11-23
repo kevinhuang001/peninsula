@@ -1,6 +1,6 @@
 use super::{
     quiet_hours::{QuietHours, QuietPeriod, MAX_QUIET_PERIODS},
-    theme::{parse_accent_color, AppearanceTheme, DEFAULT_ACCENT_COLOR},
+    theme::{parse_accent_color, DEFAULT_ACCENT_COLOR},
 };
 use crate::{
     builtins::registry,
@@ -31,7 +31,6 @@ pub struct AppPreferences {
     pub mascot_enabled: bool,
     pub mascot_motion: String,
     pub quiet_hours: QuietHours,
-    pub appearance_theme: AppearanceTheme,
     pub accent_color: [u8; 3],
     pub capsule_text_size: f32,
     pub capsule_text_color: Option<[u8; 3]>,
@@ -58,9 +57,8 @@ impl Default for AppPreferences {
             mascot_enabled: true,
             mascot_motion: "Full".into(),
             quiet_hours: QuietHours::default(),
-            appearance_theme: AppearanceTheme::default(),
             accent_color: DEFAULT_ACCENT_COLOR,
-            capsule_text_size: 11.0,
+            capsule_text_size: crate::ui::typography::Typography::CAPSULE_DEFAULT,
             capsule_text_color: None,
             widget_order: registry
                 .by_kind(ContributionKind::Widget)
@@ -104,24 +102,22 @@ impl AppPreferences {
                         settings.mascot_motion = value.trim().into();
                     }
                 }
-                "widget_theme" | "appearance_theme" => {
-                    if let Some(theme) = AppearanceTheme::parse(value) {
-                        settings.appearance_theme = theme;
-                    }
-                }
-                "widget_accent" | "accent_color" => {
+                "accent_color" => {
                     if let Some(accent) = parse_accent_color(value) {
                         settings.accent_color = accent;
                     }
                 }
-                "compact_text_size" | "capsule_text_size" => {
+                "capsule_text_size" => {
                     if let Ok(size) = value.trim().parse::<f32>() {
                         if size.is_finite() {
-                            settings.capsule_text_size = size.clamp(8.0, 18.0);
+                            settings.capsule_text_size = size.clamp(
+                                crate::ui::typography::Typography::CAPSULE_MIN,
+                                crate::ui::typography::Typography::CAPSULE_MAX,
+                            );
                         }
                     }
                 }
-                "compact_text_color" | "capsule_text_color" => {
+                "capsule_text_color" => {
                     settings.capsule_text_color = if value.trim() == "theme" {
                         None
                     } else {
@@ -134,16 +130,6 @@ impl AppPreferences {
                         .filter_map(|v| ExtensionId::new(v.trim()).ok())
                         .collect()
                 }
-                // Preserve Widget visibility saved before the contribution lifecycle merge.
-                "widget_disabled" => {
-                    for value in value.split(',') {
-                        if let Ok(id) = ExtensionId::new(value.trim()) {
-                            if registry().get(&id).is_some_and(|entry| entry.kind == ContributionKind::Widget) {
-                                settings.contribution_enabled.insert(id, false);
-                            }
-                        }
-                    }
-                }
                 "contribution_enabled" => {
                     if let Some((id, enabled)) = value.split_once('|') {
                         if let (Ok(id), Some(enabled)) =
@@ -153,7 +139,7 @@ impl AppPreferences {
                         }
                     }
                 }
-                "extension" | "capsule_item" => {
+                "capsule_item" => {
                     let fields: Vec<_> = value.split('|').collect();
                     if fields.len() != 3 {
                         continue;
@@ -205,7 +191,6 @@ impl AppPreferences {
             format!("motion_off={}", self.motion_off),
             format!("mascot_enabled={}", self.mascot_enabled),
             format!("mascot_motion={}", self.mascot_motion),
-            format!("appearance_theme={}", self.appearance_theme.name()),
             format!(
                 "accent_color=#{:02x}{:02x}{:02x}",
                 self.accent_color[0], self.accent_color[1], self.accent_color[2]
@@ -235,16 +220,7 @@ impl AppPreferences {
         let source = preference_path()
             .and_then(|p| fs::read_to_string(p).ok())
             .unwrap_or_default();
-        let settings = Self::parse(&source);
-        if source.lines().any(|line| {
-            ["extension=", "compact_text_size=", "compact_text_color=",
-             "widget_theme=", "widget_accent="]
-                .iter()
-                .any(|prefix| line.starts_with(prefix))
-        }) {
-            let _ = settings.save(); // Atomic and idempotent one-time preference migration.
-        }
-        settings
+        Self::parse(&source)
     }
     pub fn refresh_status(&mut self, host: &crate::core::extension_manager::ExtensionManager) {
         for page in &mut self.pages {

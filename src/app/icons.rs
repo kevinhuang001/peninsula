@@ -771,10 +771,7 @@ mod live_indicator_tests {
                 &ctx,
                 [accent.r(), accent.g(), accent.b()],
             );
-            let actual_accent = crate::ui::palette::accent_tokens(
-                &ctx,
-                ctx.style().visuals.dark_mode,
-            ).accent;
+            let actual_accent = crate::ui::palette::accent_tokens(&ctx).accent;
             let output = ctx.run(
                 egui::RawInput {
                     time: Some(time),

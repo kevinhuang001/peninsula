@@ -2,7 +2,7 @@ use super::{animation::ease, MascotPose};
 use eframe::egui::{vec2, Painter, Rect, Shape, Stroke};
 use std::f32::consts::TAU;
 
-pub(crate) fn paint(painter: &Painter, rect: Rect, pose: MascotPose, dark: bool) {
+pub(crate) fn paint(painter: &Painter, rect: Rect, pose: MascotPose) {
     if !rect.is_positive() {
         return;
     }
@@ -16,7 +16,7 @@ pub(crate) fn paint(painter: &Painter, rect: Rect, pose: MascotPose, dark: bool)
         center + unit * vec2(x * cos - y * sin, x * sin + y * cos)
     };
 
-    let ink = crate::ui::palette::TextPalette::for_mode(dark).primary;
+    let ink = crate::ui::palette::TextPalette::DEFAULT.primary;
 
     for (index, side) in [-1.0, 1.0].into_iter().enumerate() {
         let x = side * (0.38 + 0.08 * pose.spacing) + 0.19 * pose.gaze[0];

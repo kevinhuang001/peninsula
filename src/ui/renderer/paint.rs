@@ -4,7 +4,7 @@ use super::{
     assets::{self, image},
     layout, point, Renderer, MAX_DEPTH,
 };
-use crate::{app::icons::Icon, ui::declarative::*};
+use crate::{app::icons::Icon, ui::{declarative::*, typography::Typography}};
 use eframe::egui::{
     self, pos2, vec2, Color32, FontFamily, FontId, Id, Rect, Sense, Stroke, StrokeKind, Ui,
     UiBuilder, Vec2,
@@ -15,13 +15,7 @@ use std::{
 };
 
 fn font_size(style: TextStyle) -> f32 {
-    match style.font_size {
-        FontSize::Small => 10.0,
-        FontSize::Body => 12.0,
-        FontSize::Title => 14.0,
-        FontSize::Heading => 18.0,
-        FontSize::Custom(size) => point(size).clamp(1.0, 256.0),
-    }
+    Typography::size(style.font_size)
 }
 
 fn galley(ui: &Ui, text: &str, style: TextStyle, width: f32, elide: bool) -> Arc<egui::Galley> {
@@ -297,50 +291,58 @@ impl Renderer<'_> {
             Paint::default()
         };
         let normal = node.style.normal;
+        // Disabled controls have their own legible colors, not reduced opacity.
+        let opacity = opacity
+            * active.opacity.or(normal.opacity)
+                .filter(|v| v.is_finite())
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+        let color = |value| self.theme.color(ui, value).linear_multiply(opacity);
+        let background = if !enabled
+            && matches!(node.kind, Node::Control { .. })
+            && active.background.is_none()
+        {
+            color(ColorSpec::DisabledSurface)
+        } else {
+            active.background.or(normal.background).map(color).unwrap_or_else(|| match node.kind {
+                Node::Control {
+                    kind: ControlKind::Link, ..
+                }
+                | Node::ActionArea { .. } => Color32::TRANSPARENT,
+                Node::Control { .. } => response.as_ref().map_or(
+                    color(ColorSpec::SurfaceVariant),
+                    |r| ui.style().interact(r).bg_fill.linear_multiply(opacity),
+                ),
+                Node::Badge(_) => color(ColorSpec::SurfaceVariant),
+                _ => Color32::TRANSPARENT,
+            })
+        };
+        let is_button = matches!(node.kind, Node::Control {
+            kind: ControlKind::Button | ControlKind::Action,
+            ..
+        });
         let foreground = effects.color.unwrap_or_else(|| {
-            active.foreground.or(normal.foreground).map_or_else(
+            let requested = active.foreground.or(normal.foreground);
+            let candidate = requested.map_or_else(
                 || {
                     let default = match node.kind {
-                        Node::Control {
-                            kind: ControlKind::Button | ControlKind::Action,
-                            ..
-                        } => ColorSpec::OnAccent,
-                        Node::Control {
-                            kind: ControlKind::Link,
-                            ..
-                        } => ColorSpec::Info,
+                        Node::Control { .. } if !enabled => ColorSpec::DisabledText,
+                        Node::Control { kind: ControlKind::Link, .. } => ColorSpec::Info,
                         _ if inherited != Color32::PLACEHOLDER => return inherited,
                         _ => ColorSpec::PrimaryText,
                     };
                     self.theme.color(ui, default)
                 },
-                |color| self.theme.color(ui, color),
-            )
+                |value| self.theme.color(ui, value),
+            );
+            if is_button && background.a() == 255 {
+                crate::ui::palette::ensure_text_contrast(
+                    candidate, background, crate::ui::palette::readable_on(background),
+                )
+            } else {
+                candidate
+            }
         });
-        let opacity = opacity
-            * active
-                .opacity
-                .or(normal.opacity)
-                .filter(|v| v.is_finite())
-                .unwrap_or(if enabled { 1.0 } else { 0.55 })
-                .clamp(0.0, 1.0);
-        let color = |color| self.theme.color(ui, color).linear_multiply(opacity);
-        let background = active
-            .background
-            .or(normal.background)
-            .map(color)
-            .unwrap_or_else(|| match node.kind {
-                Node::Control {
-                    kind: ControlKind::Link,
-                    ..
-                }
-                | Node::ActionArea { .. } => Color32::TRANSPARENT,
-                Node::Control { .. } => response.as_ref().map_or(Color32::TRANSPARENT, |r| {
-                    ui.style().interact(r).bg_fill.linear_multiply(opacity)
-                }),
-                Node::Badge(_) => color(ColorSpec::SurfaceVariant),
-                _ => Color32::TRANSPARENT,
-            });
         let radius = point(active.corner_radius.or(normal.corner_radius).unwrap_or(
             if interactive || matches!(node.kind, Node::Badge(_)) {
                 self.theme.radius
@@ -634,7 +636,10 @@ impl Renderer<'_> {
                     rect.size(),
                     egui::TextEdit::singleline(&mut value)
                         .id(id.with(key))
-                        .hint_text(hint)
+                        .hint_text(egui::RichText::new(hint).color(
+                            crate::ui::palette::TextPalette::DEFAULT.placeholder,
+                        ))
+                        .text_color(crate::ui::palette::TextPalette::DEFAULT.primary)
                         .char_limit(2048),
                 );
                 if response.changed() {
@@ -651,7 +656,10 @@ impl Renderer<'_> {
                     rect.size(),
                     egui::TextEdit::singleline(&mut value)
                         .id(id.with(key))
-                        .hint_text(hint)
+                        .hint_text(egui::RichText::new(hint).color(
+                            crate::ui::palette::TextPalette::DEFAULT.placeholder,
+                        ))
+                        .text_color(crate::ui::palette::TextPalette::DEFAULT.primary)
                         .char_limit(2048)
                         .password(true),
                 );
@@ -740,7 +748,7 @@ impl Renderer<'_> {
             Node::CoreMascot(pose) => {
                 let mut mascot_painter = painter.with_clip_rect(rect);
                 mascot_painter.multiply_opacity(opacity);
-                crate::core::mascot::paint(&mascot_painter, rect, *pose, ui.visuals().dark_mode);
+                crate::core::mascot::paint(&mascot_painter, rect, *pose);
             }
             Node::SpriteSequence(spec) => {
                 let index = self.sprite_index(ui, id, spec);

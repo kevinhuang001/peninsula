@@ -689,27 +689,31 @@ fn vertical_scroll_reveals_items_outside_the_original_viewport() {
 }
 
 #[test]
-fn semantic_colors_follow_theme_and_custom_colors_do_not() {
+fn text_roles_do_not_change_when_accent_changes() {
     let ctx = egui::Context::default();
     let icons = Icons::load(&ctx);
-    let read = |theme| {
+    let read = |accent| {
+        crate::ui::palette::install_accent_tokens(&ctx, accent);
         let colors = Cell::new(None);
-        ctx.set_theme(theme);
         let _ = ctx.run(RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let theme = Renderer::new(ui, &icons).theme;
                 colors.set(Some([
                     theme.color(ui, ColorSpec::PrimaryText),
+                    theme.color(ui, ColorSpec::DisabledText),
+                    theme.color(ui, ColorSpec::Accent),
                     theme.color(ui, ColorSpec::rgb(24, 89, 146)),
                 ]));
             });
         });
         colors.get().unwrap()
     };
-    let dark = read(egui::Theme::Dark);
-    let light = read(egui::Theme::Light);
-    assert_ne!(dark[0], light[0]);
-    assert_eq!(dark[1], light[1]);
+    let blue = read([37, 87, 156]);
+    let violet = read([109, 69, 160]);
+    assert_eq!(blue[0], violet[0]);
+    assert_eq!(blue[1], violet[1]);
+    assert_ne!(blue[2], violet[2]);
+    assert_eq!(blue[3], violet[3]);
 }
 
 #[test]
@@ -740,34 +744,30 @@ fn content_height_grows_for_wrapped_text_and_additional_rows() {
 }
 
 #[test]
-fn semantic_text_uses_the_shared_palette_in_both_themes() {
+fn semantic_text_uses_the_dark_palette() {
     let ctx = egui::Context::default();
     let icons = Icons::load(&ctx);
-    for dark in [true, false] {
-        ctx.set_theme(if dark {
-            egui::Theme::Dark
-        } else {
-            egui::Theme::Light
+    let _ = ctx.run(RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let theme = Renderer::new(ui, &icons).theme;
+            let text = TextPalette::DEFAULT;
+            for (role, expected) in [
+                (ColorSpec::PrimaryText, text.primary),
+                (ColorSpec::SecondaryText, text.secondary),
+                (ColorSpec::MutedText, text.muted),
+                (ColorSpec::DisabledText, text.disabled),
+                (ColorSpec::PlaceholderText, text.placeholder),
+                (ColorSpec::Success, text.success),
+                (ColorSpec::Warning, text.warning),
+                (ColorSpec::Danger, text.danger),
+                (ColorSpec::Info, text.info),
+                (ColorSpec::Cyan, text.cyan),
+                (ColorSpec::Violet, text.violet),
+            ] {
+                assert_eq!(theme.color(ui, role), expected);
+            }
         });
-        let _ = ctx.run(RawInput::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                let theme = Renderer::new(ui, &icons).theme;
-                let palette = TextPalette::for_mode(dark);
-                for (role, expected) in [
-                    (ColorSpec::SecondaryText, palette.secondary),
-                    (ColorSpec::MutedText, palette.muted),
-                    (ColorSpec::Success, palette.success),
-                    (ColorSpec::Warning, palette.warning),
-                    (ColorSpec::Danger, palette.danger),
-                    (ColorSpec::Info, palette.info),
-                    (ColorSpec::Cyan, palette.cyan),
-                    (ColorSpec::Violet, palette.violet),
-                ] {
-                    assert_eq!(theme.color(ui, role), expected);
-                }
-            });
-        });
-    }
+    });
 }
 
 #[test]

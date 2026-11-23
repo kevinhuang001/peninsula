@@ -10,7 +10,7 @@ pub(crate) use assets::register_svg;
 use crate::{
     app::icons::Icons,
     extension::{ActionInvocation, ExtensionId},
-    ui::{declarative::*, palette::TextPalette},
+    ui::{declarative::*, palette::{self, TextPalette}},
 };
 use eframe::egui::{self, pos2, vec2, Color32, Id, Rect, Ui, UiBuilder, Vec2};
 use std::collections::HashMap;
@@ -319,7 +319,6 @@ struct Theme {
     gap: f32,
     radius: f32,
     tokens: crate::ui::palette::ThemeTokens,
-    dark: bool,
 }
 
 impl Theme {
@@ -328,19 +327,21 @@ impl Theme {
         Self {
             gap: ui.spacing().item_spacing.x,
             radius: f32::from(visuals.widgets.inactive.corner_radius.nw),
-            tokens: crate::ui::palette::accent_tokens(ui.ctx(), visuals.dark_mode),
-            dark: visuals.dark_mode,
+            tokens: palette::accent_tokens(ui.ctx()),
         }
     }
 
     fn color(&self, ui: &Ui, color: ColorSpec) -> Color32 {
         use ColorSpec::*;
-        let text = TextPalette::for_mode(self.dark);
+        let text = TextPalette::DEFAULT;
         match color {
-            PrimaryText => ui.visuals().text_color(),
+            PrimaryText => text.primary,
             SecondaryText => text.secondary,
             MutedText => text.muted,
+            DisabledText => text.disabled,
+            PlaceholderText => text.placeholder,
             Surface => ui.visuals().panel_fill,
+            DisabledSurface => palette::CONTROL_DISABLED,
             SurfaceVariant => ui.visuals().widgets.noninteractive.bg_fill,
             Accent => self.tokens.accent,
             OnAccent => self.tokens.on_accent,

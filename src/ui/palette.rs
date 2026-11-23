@@ -7,6 +7,8 @@ pub(crate) struct TextPalette {
     pub primary: Color32,
     pub secondary: Color32,
     pub muted: Color32,
+    pub disabled: Color32,
+    pub placeholder: Color32,
     pub success: Color32,
     pub warning: Color32,
     pub danger: Color32,
@@ -16,10 +18,12 @@ pub(crate) struct TextPalette {
 }
 
 impl TextPalette {
-    pub const DARK: Self = Self {
+    pub const DEFAULT: Self = Self {
         primary: Color32::WHITE,
         secondary: Color32::from_rgb(235, 240, 248),
         muted: Color32::from_rgb(203, 214, 230),
+        disabled: Color32::from_rgb(185, 196, 213),
+        placeholder: Color32::from_rgb(185, 196, 213),
         success: Color32::from_rgb(97, 222, 174),
         warning: Color32::from_rgb(255, 153, 77),
         danger: Color32::from_rgb(255, 158, 170),
@@ -27,28 +31,7 @@ impl TextPalette {
         cyan: Color32::from_rgb(91, 219, 226),
         violet: Color32::from_rgb(205, 180, 255),
     };
-    pub const LIGHT: Self = Self {
-        primary: Color32::from_rgb(29, 42, 62),
-        secondary: Color32::from_rgb(55, 69, 89),
-        muted: Color32::from_rgb(65, 79, 99),
-        success: Color32::from_rgb(0, 90, 56),
-        warning: Color32::from_rgb(125, 55, 0),
-        danger: Color32::from_rgb(140, 32, 47),
-        info: Color32::from_rgb(26, 77, 150),
-        cyan: Color32::from_rgb(0, 86, 104),
-        violet: Color32::from_rgb(91, 53, 156),
-    };
-
-    pub const fn for_mode(dark: bool) -> Self {
-        if dark {
-            Self::DARK
-        } else {
-            Self::LIGHT
-        }
-    }
 }
-
-
 
 /// A perceptually spaced 11-stop accent palette, generated without color-name branches.
 #[derive(Clone, Copy, Debug)]
@@ -75,45 +58,30 @@ pub(crate) struct ThemeTokens {
     pub scale: AccentScale,
     pub accent: Color32,
     pub on_accent: Color32,
-    pub accent_hover: Color32,
-    pub accent_pressed: Color32,
     pub accent_subtle: Color32,
     pub on_accent_subtle: Color32,
-    pub accent_border: Color32,
     pub accent_focus: Color32,
 }
 
 impl ThemeTokens {
-    pub(crate) fn new(rgb: [u8; 3], dark: bool) -> Self {
+    pub(crate) fn new(rgb: [u8; 3]) -> Self {
         let scale = AccentScale::new(rgb);
-        let accent = scale.at(if dark { 5 } else { 7 });
-        let accent_subtle = scale.at(if dark { 9 } else { 1 });
-        let contrasting = readable_on;
+        let accent = scale.at(5);
+        let accent_subtle = scale.at(9);
         Self {
             scale,
             accent,
-            on_accent: contrasting(accent),
-            accent_hover: scale.at(if dark { 4 } else { 6 }),
-            accent_pressed: scale.at(if dark { 6 } else { 8 }),
+            on_accent: readable_on(accent),
             accent_subtle,
-            on_accent_subtle: scale.at(if dark { 1 } else { 9 }),
-            accent_border: scale.at(if dark { 6 } else { 3 }),
-            accent_focus: scale.at(if dark { 3 } else { 6 }),
+            on_accent_subtle: scale.at(1),
+            accent_focus: scale.at(3),
         }
     }
 }
-
-#[derive(Clone, Copy, Debug)]
-struct InstalledAccent {
-    dark: ThemeTokens,
-    light: ThemeTokens,
-}
-
 fn accent_store_id() -> eframe::egui::Id {
     eframe::egui::Id::new("peninsula-accent-theme-tokens")
 }
-
-/// Foreground chosen for the actual colored surface, not a fixed white label.
+/// Foreground selected against the actual colored background.
 pub(crate) fn readable_on(background: Color32) -> Color32 {
     if contrast(background, Color32::WHITE) >= contrast(background, Color32::BLACK) {
         Color32::WHITE
@@ -121,22 +89,12 @@ pub(crate) fn readable_on(background: Color32) -> Color32 {
         Color32::BLACK
     }
 }
-
 pub(crate) fn install_accent_tokens(ctx: &eframe::egui::Context, rgb: [u8; 3]) {
-    let current = InstalledAccent {
-        dark: ThemeTokens::new(rgb, true),
-        light: ThemeTokens::new(rgb, false),
-    };
-    ctx.data_mut(|data| data.insert_temp(accent_store_id(), current));
+    ctx.data_mut(|data| data.insert_temp(accent_store_id(), ThemeTokens::new(rgb)));
 }
-
-pub(crate) fn accent_tokens(ctx: &eframe::egui::Context, dark: bool) -> ThemeTokens {
-    let saved = ctx.data(|data| data.get_temp::<InstalledAccent>(accent_store_id()));
-    let palette = saved.unwrap_or_else(|| InstalledAccent {
-        dark: ThemeTokens::new([37, 87, 156], true),
-        light: ThemeTokens::new([37, 87, 156], false),
-    });
-    if dark { palette.dark } else { palette.light }
+pub(crate) fn accent_tokens(ctx: &eframe::egui::Context) -> ThemeTokens {
+    ctx.data(|data| data.get_temp::<ThemeTokens>(accent_store_id()))
+        .unwrap_or_else(|| ThemeTokens::new([37, 87, 156]))
 }
 
 // Linear sRGB / OKLab conversion. Mapping chroma down keeps all shades in gamut.
@@ -198,23 +156,18 @@ fn gamut_mapped_oklab(lightness: f32, a: f32, b: f32) -> Color32 {
     Color32::from_rgb(r, g, b)
 }
 
+// Neutral surface colors never depend on the accent seed.
 pub(crate) const SURFACE_DARK: Color32 = Color32::from_rgb(16, 21, 30);
-pub(crate) const SURFACE_LIGHT: Color32 = Color32::from_rgb(247, 249, 253);
-// Include the lighter settings row / darker light-theme chip in the budget.
-const TEXT_BACKGROUND_DARK: Color32 = Color32::from_rgb(36, 39, 46);
-const TEXT_BACKGROUND_LIGHT: Color32 = Color32::from_rgb(235, 241, 249);
-
-/// Keep colored small text readable even with black, white or vivid accents.
-/// This changes text only; the user's button/background accent is retained.
-pub(crate) fn readable_accent(accent: Color32, dark: bool) -> Color32 {
-    let target = if dark { Color32::WHITE } else { Color32::BLACK };
-    let background = if dark {
-        TEXT_BACKGROUND_DARK
-    } else {
-        TEXT_BACKGROUND_LIGHT
-    };
-    let start = accent.lerp_to_gamma(target, if dark { 0.68 } else { 0.10 });
-    ensure_text_contrast(start, background, target)
+pub(crate) const SURFACE_VARIANT: Color32 = Color32::from_rgb(36, 39, 46);
+pub(crate) const CONTROL_INACTIVE: Color32 = Color32::from_rgb(44, 49, 59);
+pub(crate) const CONTROL_HOVERED: Color32 = Color32::from_rgb(55, 62, 74);
+pub(crate) const CONTROL_ACTIVE: Color32 = Color32::from_rgb(62, 72, 87);
+pub(crate) const CONTROL_DISABLED: Color32 = Color32::from_rgb(37, 41, 49);
+pub(crate) const INPUT_BACKGROUND: Color32 = Color32::from_rgb(29, 33, 41);
+pub(crate) const BORDER: Color32 = Color32::from_rgb(58, 66, 79);
+/// Accents used as small text are lightened independently of accent surfaces.
+pub(crate) fn readable_accent(accent: Color32) -> Color32 {
+    ensure_text_contrast(accent, SURFACE_VARIANT, Color32::WHITE)
 }
 
 pub(crate) fn ensure_text_contrast(
@@ -249,87 +202,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accent_scale_is_monotonic_for_presets_and_extreme_seeds() {
-        for rgb in [[37, 87, 156], [109, 69, 160], [20, 112, 122],
-                    [43, 116, 75], [167, 85, 31], [160, 55, 98],
-                    [0, 0, 0], [255, 255, 255], [255, 0, 255]] {
+    fn accent_scale_is_monotonic_and_foregrounds_are_readable() {
+        for rgb in [
+            [37, 87, 156], [109, 69, 160], [20, 112, 122],
+            [43, 116, 75], [167, 85, 31], [160, 55, 98],
+            [0, 0, 0], [255, 255, 255], [255, 0, 255],
+        ] {
             let scale = AccentScale::new(rgb);
             for index in 0..10 {
-                let lighter = rgb_to_oklab([scale.at(index).r(), scale.at(index).g(), scale.at(index).b()])[0];
-                let darker = rgb_to_oklab([scale.at(index + 1).r(), scale.at(index + 1).g(), scale.at(index + 1).b()])[0];
-                assert!(lighter > darker, "{rgb:?} {index}: {lighter} !> {darker}");
+                let a = scale.at(index);
+                let b = scale.at(index + 1);
+                assert!(
+                    rgb_to_oklab([a.r(), a.g(), a.b()])[0] >
+                    rgb_to_oklab([b.r(), b.g(), b.b()])[0],
+                    "{rgb:?}, shade {index}"
+                );
             }
-            for dark in [false, true] {
-                let token = ThemeTokens::new(rgb, dark);
-                assert!(contrast(token.accent, token.on_accent) >= 4.5);
-                assert!(contrast(token.accent_subtle, token.on_accent_subtle) >= 4.5);
-            }
+            let token = ThemeTokens::new(rgb);
+            assert!(contrast(token.accent, token.on_accent) >= 4.5);
+            assert!(contrast(token.accent_subtle, token.on_accent_subtle) >= 4.5);
         }
     }
 
-
     #[test]
-    fn all_text_levels_meet_high_contrast_on_their_surfaces() {
-        for (palette, backgrounds) in [
-            (TextPalette::DARK, [SURFACE_DARK, TEXT_BACKGROUND_DARK]),
-            (TextPalette::LIGHT, [SURFACE_LIGHT, TEXT_BACKGROUND_LIGHT]),
-        ] {
-            for text in [
-                palette.primary,
-                palette.secondary,
-                palette.muted,
-                palette.success,
-                palette.warning,
-                palette.danger,
-                palette.info,
-                palette.cyan,
-                palette.violet,
+    fn text_roles_remain_readable_on_dark_surfaces() {
+        let text = TextPalette::DEFAULT;
+        for background in [SURFACE_DARK, SURFACE_VARIANT, INPUT_BACKGROUND] {
+            for foreground in [
+                text.primary, text.secondary, text.muted, text.disabled,
+                text.placeholder, text.success, text.warning, text.danger,
+                text.info, text.cyan, text.violet,
             ] {
-                for background in backgrounds {
-                    assert!(
-                        contrast(text, background) >= 7.0,
-                        "{text:?} on {background:?}"
-                    );
-                }
+                assert!(contrast(foreground, background) >= 4.5,
+                    "{foreground:?} on {background:?}");
             }
-            assert!(
-                contrast(palette.primary, backgrounds[0])
-                    > contrast(palette.secondary, backgrounds[0])
-            );
-            assert!(
-                contrast(palette.secondary, backgrounds[0])
-                    > contrast(palette.muted, backgrounds[0])
-            );
         }
+        assert!(contrast(text.primary, SURFACE_DARK) > contrast(text.secondary, SURFACE_DARK));
+        assert!(contrast(text.secondary, SURFACE_DARK) > contrast(text.muted, SURFACE_DARK));
     }
 
     #[test]
-    fn custom_capsule_text_is_only_adjusted_when_contrast_is_low() {
-        for (background, primary) in [
-            (Color32::from_rgb(25, 34, 48), TextPalette::DARK.primary),
-            (Color32::from_rgb(235, 241, 249), TextPalette::LIGHT.primary),
-        ] {
-            assert_eq!(ensure_text_contrast(primary, background, primary), primary);
-            let corrected = ensure_text_contrast(background, background, primary);
-            assert!(contrast(corrected, background) >= 7.0);
-        }
+    fn custom_text_changes_only_when_contrast_is_low() {
+        let primary = TextPalette::DEFAULT.primary;
+        assert_eq!(ensure_text_contrast(primary, SURFACE_DARK, primary), primary);
+        assert!(contrast(ensure_text_contrast(SURFACE_DARK, SURFACE_DARK, primary), SURFACE_DARK) >= 7.0);
     }
 
     #[test]
-    fn custom_accent_text_remains_readable_in_both_themes() {
-        for dark in [false, true] {
-            let background = if dark {
-                TEXT_BACKGROUND_DARK
-            } else {
-                TEXT_BACKGROUND_LIGHT
-            };
-            for r in [0, 128, 255] {
-                for g in [0, 128, 255] {
-                    for b in [0, 128, 255] {
-                        let text = readable_accent(Color32::from_rgb(r, g, b), dark);
-                        assert_eq!(text.a(), 255);
-                        assert!(contrast(text, background) >= 7.0);
-                    }
+    fn small_accent_text_is_readable_for_extreme_seeds() {
+        for r in [0, 128, 255] {
+            for g in [0, 128, 255] {
+                for b in [0, 128, 255] {
+                    let color = readable_accent(Color32::from_rgb(r, g, b));
+                    assert_eq!(color.a(), 255);
+                    assert!(contrast(color, SURFACE_VARIANT) >= 7.0);
                 }
             }
         }

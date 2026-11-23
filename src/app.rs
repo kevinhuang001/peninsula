@@ -109,9 +109,7 @@ struct IslandApp {
 impl IslandApp {
     fn new(context: &egui::Context) -> Self {
         let mut preferences = AppPreferences::load();
-        preferences
-            .appearance_theme
-            .install(context, preferences.accent_color);
+        settings::theme::install(context, preferences.accent_color);
         let mut extensions = ExtensionManager::new(
             crate::builtins::runtimes(),
             preferences.contribution_preferences(),
@@ -1000,9 +998,7 @@ impl eframe::App for IslandApp {
                 self.preferences.read_extension_settings(&self.extensions);
                 self.preferences
                     .read_contribution_settings(&self.extensions);
-                self.preferences
-                    .appearance_theme
-                    .install(context, self.preferences.accent_color);
+                settings::theme::install(context, self.preferences.accent_color);
                 if let Err(error) = self.preferences.save() {
                     eprintln!("Unable to save settings: {error}");
                 }

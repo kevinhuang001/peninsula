@@ -9,18 +9,9 @@ const LEFT_WIDTH: f32 = 215.0;
 const COLUMN_GAP: f32 = 28.0;
 const CARD_CONTENT_WIDTH: f32 = 430.0;
 
-fn surface(ui: &egui::Ui) -> egui::Frame {
-    let visuals = ui.visuals();
-    let fill = if visuals.dark_mode {
-        Color32::from_rgb(25, 29, 36)
-    } else {
-        Color32::WHITE
-    };
-    let border = if visuals.dark_mode {
-        Color32::from_rgb(48, 55, 66)
-    } else {
-        Color32::from_rgb(211, 217, 225)
-    };
+fn surface(_ui: &egui::Ui) -> egui::Frame {
+    let fill = Color32::from_rgb(25, 29, 36);
+    let border = crate::ui::palette::BORDER;
     egui::Frame::new()
         .fill(fill)
         .stroke(Stroke::new(1.0_f32, border))
@@ -33,7 +24,7 @@ fn form_surface(ui: &egui::Ui) -> egui::Frame {
 }
 
 fn accent(ui: &egui::Ui) -> Color32 {
-    crate::ui::palette::accent_tokens(ui.ctx(), ui.visuals().dark_mode).accent
+    crate::ui::palette::accent_tokens(ui.ctx()).accent
 }
 
 fn panel(ui: &egui::Ui) -> egui::Frame {
@@ -311,15 +302,6 @@ impl DataSourceWindow {
         manager: &mut DataSourceManager,
         preferences: &mut super::settings::AppPreferences,
     ) {
-        if ui.visuals().dark_mode {
-            let visuals = ui.visuals_mut();
-            visuals.extreme_bg_color = Color32::from_rgb(31, 37, 46);
-            visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 47, 58);
-            visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(40, 47, 58);
-            visuals.widgets.hovered.bg_fill = Color32::from_rgb(51, 61, 74);
-            visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(51, 61, 74);
-            visuals.widgets.active.bg_fill = Color32::from_rgb(58, 70, 85);
-        }
         let sources = manager.snapshots();
         if self
             .selected

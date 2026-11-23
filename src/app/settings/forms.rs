@@ -1,4 +1,5 @@
 use super::theme::{BORDER, ROW, SECONDARY_TEXT, TEXT};
+use crate::ui::typography::Typography;
 use crate::extension::{
     DurationDisplay, EditorHint, ExtensionId, SearchOption, SettingSchema, SettingValue,
 };
@@ -31,7 +32,7 @@ pub(super) fn section(ui: &mut egui::Ui, title: &str) {
     ui.add_space(6.0);
     ui.label(
         egui::RichText::new(title)
-            .size(11.5)
+            .size(Typography::FORM_LABEL)
             .strong()
             .color(SECONDARY_TEXT),
     );
@@ -68,7 +69,7 @@ fn row_impl(
     let width = if ui.is_sizing_pass() {
         let label_width = ui
             .painter()
-            .layout_no_wrap(label.into(), FontId::proportional(11.5), TEXT)
+            .layout_no_wrap(label.into(), FontId::proportional(Typography::FORM_LABEL), TEXT)
             .size()
             .x;
         (label_width + CONTROL_WIDTH + 30.0)
@@ -82,7 +83,7 @@ fn row_impl(
     let label_width = (width - control_width - 30.0).max(1.0);
     let galley = ui
         .painter()
-        .layout(label.into(), FontId::proportional(11.5), TEXT, label_width);
+        .layout(label.into(), FontId::proportional(Typography::FORM_LABEL), TEXT, label_width);
     let height = (galley.size().y + 16.0).max(36.0);
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     if framed {
@@ -154,7 +155,7 @@ pub(super) fn boolean(ui: &mut egui::Ui, label: &str, value: &mut bool) -> bool 
 pub(super) fn value(ui: &mut egui::Ui, label: &str, text: &str) {
     row(ui, label, |ui| {
         ui.add(
-            egui::Label::new(egui::RichText::new(text).size(11.0).color(SECONDARY_TEXT)).truncate(),
+            egui::Label::new(egui::RichText::new(text).size(Typography::FORM_HINT).color(SECONDARY_TEXT)).truncate(),
         )
         .on_hover_text(text);
         false
@@ -169,10 +170,10 @@ pub(super) fn doctor(ui: &mut egui::Ui, checks: &[crate::extension::DiagnosticCh
             .corner_radius(9.0)
             .inner_margin(egui::Margin::symmetric(12, 11))
             .show(ui, |ui| {
-                ui.label(egui::RichText::new("暂无检查项").size(11.5).color(TEXT));
+                ui.label(egui::RichText::new("暂无检查项").size(Typography::FORM_LABEL).color(TEXT));
                 ui.label(
                     egui::RichText::new("此扩展尚未提供诊断结果")
-                        .size(10.5)
+                        .size(Typography::CAPTION)
                         .color(SECONDARY_TEXT),
                 );
             });
@@ -199,7 +200,7 @@ pub(super) fn doctor(ui: &mut egui::Ui, checks: &[crate::extension::DiagnosticCh
             .show(ui, |ui| {
                 let width = if ui.is_sizing_pass() {
                     (ui.painter()
-                        .layout_no_wrap(check.title.clone(), FontId::proportional(11.5), TEXT)
+                        .layout_no_wrap(check.title.clone(), FontId::proportional(Typography::FORM_LABEL), TEXT)
                         .size()
                         .x
                         + 90.0)
@@ -214,12 +215,12 @@ pub(super) fn doctor(ui: &mut egui::Ui, checks: &[crate::extension::DiagnosticCh
                         .corner_radius(6.0)
                         .inner_margin(egui::Margin::symmetric(7, 2))
                         .show(ui, |ui| {
-                            ui.label(egui::RichText::new(symbol).size(12.0).strong().color(color));
+                            ui.label(egui::RichText::new(symbol).size(Typography::BODY).strong().color(color));
                         });
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(&check.title)
-                                .size(11.5)
+                                .size(Typography::FORM_LABEL)
                                 .strong()
                                 .color(TEXT),
                         )
@@ -233,7 +234,7 @@ pub(super) fn doctor(ui: &mut egui::Ui, checks: &[crate::extension::DiagnosticCh
                     ui.add_space(5.0);
                     ui.label(
                         egui::RichText::new(format!("建议 · {remediation}"))
-                            .size(10.5)
+                            .size(Typography::CAPTION)
                             .color(color),
                     );
                 }
@@ -284,6 +285,7 @@ pub(super) fn setting_control(
                 ui.add_sized(
                     [ui.available_width(), 24.0],
                     egui::TextEdit::singleline(v)
+                        .text_color(TEXT)
                         .char_limit(field.constraints.max_length.unwrap_or(4096)),
                 );
             }
@@ -356,6 +358,7 @@ pub(super) fn setting_control_with_draft(
         let response = ui.add_sized(
             [ui.available_width().max(24.0), 25.0],
             egui::TextEdit::singleline(draft)
+                .text_color(TEXT)
                 .hint_text(field.presentation.placeholder.as_deref().unwrap_or("")),
         );
         if response.changed() {
@@ -370,7 +373,7 @@ pub(super) fn setting_control_with_draft(
     });
     if parse_number_text(field, draft).is_none() {
         ui.label(egui::RichText::new("请输入有效范围内的数字")
-            .size(10.5).color(SECONDARY_TEXT));
+            .size(Typography::CAPTION).color(SECONDARY_TEXT));
     }
     changed
 }
@@ -388,7 +391,7 @@ pub(super) fn search_setting(
     ui.add_space(5.0);
     ui.label(
         egui::RichText::new(&field.description)
-            .size(11.5)
+            .size(Typography::FORM_LABEL)
             .strong()
             .color(TEXT),
     );
@@ -401,6 +404,7 @@ pub(super) fn search_setting(
         let response = ui.add_sized(
             [width, 25.0],
             egui::TextEdit::singleline(&mut state.query)
+                .text_color(TEXT)
                 .hint_text(&schema.placeholder)
                 .char_limit(128),
         );
@@ -421,7 +425,7 @@ pub(super) fn search_setting(
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(format!("已选择：{}", option.label))
-                        .size(10.5)
+                        .size(Typography::CAPTION)
                         .color(SECONDARY_TEXT),
                 )
                 .on_hover_text(if option.detail.is_empty() {
@@ -439,13 +443,13 @@ pub(super) fn search_setting(
     if state.searching {
         ui.label(
             egui::RichText::new("正在搜索…")
-                .size(10.5)
+                .size(Typography::CAPTION)
                 .color(SECONDARY_TEXT),
         );
     } else if let Some(error) = &state.error {
         ui.label(
             egui::RichText::new(error)
-                .size(10.5)
+                .size(Typography::CAPTION)
                 .color(Color32::LIGHT_RED),
         );
     } else if matches!(value, SettingValue::Search(None))
@@ -455,7 +459,7 @@ pub(super) fn search_setting(
     {
         ui.label(
             egui::RichText::new("没有找到匹配结果")
-                .size(10.5)
+                .size(Typography::CAPTION)
                 .color(SECONDARY_TEXT),
         );
     } else if state.pending_since.is_none()
@@ -464,7 +468,7 @@ pub(super) fn search_setting(
     {
         ui.label(
             egui::RichText::new(format!("至少输入 {} 个字符", schema.min_query_chars))
-                .size(10.5)
+                .size(Typography::CAPTION)
                 .color(SECONDARY_TEXT),
         );
     }
@@ -477,7 +481,7 @@ pub(super) fn search_setting(
         let selected =
             matches!(value, SettingValue::Search(Some(current)) if current.id == option.id);
         if ui
-            .selectable_label(selected, egui::RichText::new(detail).size(10.5))
+            .selectable_label(selected, egui::RichText::new(detail).size(Typography::CAPTION))
             .clicked()
         {
             *value = SettingValue::Search(Some(option));
@@ -507,7 +511,7 @@ pub(super) fn empty(ui: &mut egui::Ui, text: &str) {
         rect.center(),
         Align2::CENTER_CENTER,
         text,
-        FontId::proportional(12.0),
+        FontId::proportional(Typography::BODY),
         SECONDARY_TEXT,
     );
 }
