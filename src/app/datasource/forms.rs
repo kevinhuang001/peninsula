@@ -21,13 +21,10 @@ impl DataSourceView {
             ui.label("此数据源没有用户参数。");
             return;
         }
-        let columns_count = if ui.available_width() >= 650.0 { 2 } else { 1 };
-
+        // Parameters follow the same one-row-per-item, full-width layout.
+        let columns_count = 1;
         let spacing = 10.0;
-        let card_width = ((ui.available_width()
-            - spacing * (columns_count - 1) as f32)
-            / columns_count as f32)
-            .max(220.0);
+        let card_width = ui.available_width().max(1.0);
         egui::Grid::new(("datasource-input-cards", &source.id))
             .num_columns(columns_count)
             .spacing([spacing, spacing])
@@ -44,7 +41,7 @@ impl DataSourceView {
                     let mut invalid_number = false;
 
                     form_surface(ui).show(ui, |ui| {
-                        ui.set_width((card_width - 24.0).max(180.0));
+                        ui.set_width((card_width - 24.0).max(1.0));
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(&schema.label).strong());
                             if schema.required {
