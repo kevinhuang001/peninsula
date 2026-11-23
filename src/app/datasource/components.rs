@@ -210,27 +210,3 @@ pub(super) fn metric_tile(
         }
     });
 }
-
-pub(super) fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) {
-    form_surface(ui).show(ui, |ui| {
-        let (rect, _) = ui.allocate_exact_size(
-            Vec2::new(ui.available_width().min(CARD_CONTENT_WIDTH), 28.0),
-            egui::Sense::hover(),
-        );
-        ui.painter().text(
-            rect.left_center(),
-            egui::Align2::LEFT_CENTER,
-            label,
-            Typography::font_id(ui.ctx(), 12.0),
-            ui.visuals().weak_text_color(),
-        );
-        ui.painter().text(
-            rect.right_center(),
-            egui::Align2::RIGHT_CENTER,
-            value,
-            egui::FontId::proportional(value_size),
-            ui.visuals().text_color(),
-        );
-    });
-}
-
