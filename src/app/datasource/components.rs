@@ -118,7 +118,7 @@ pub(super) fn switch(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
 
 pub(super) fn switch_row(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
     let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width().min(CARD_CONTENT_WIDTH), 28.0),
+        Vec2::new(ui.available_width().max(1.0), 28.0),
         egui::Sense::click(),
     );
     if response.clicked() {
@@ -162,33 +162,49 @@ pub(super) fn switch_row(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bo
     response.clicked()
 }
 
-/// Shared-width Core layout for source runtime controls.
+/// Keep the setting label and its control in reserved, non-overlapping
+/// regions. The surrounding frame fills the source detail pane instead of
+/// shrinking to a 490-point column.
 pub(super) fn runtime_row(
     ui: &mut egui::Ui,
     label: &str,
     control: impl FnOnce(&mut egui::Ui),
-) {
+) -> egui::Rect {
     form_surface(ui).show(ui, |ui| {
-        let width = (ui.available_width() - 24.0).max(1.0).min(CARD_CONTENT_WIDTH);
+        let width = ui.available_width().max(1.0);
         ui.set_width(width);
-        if width < 260.0 {
+        let control_width = 160.0;
+        let gap = ui.spacing().item_spacing.x;
+        if width < 330.0 {
             ui.vertical(|ui| {
                 ui.label(egui::RichText::new(label).strong());
-                ui.with_layout(Layout::right_to_left(Align::Center), control);
+                ui.allocate_ui_with_layout(
+                    Vec2::new(width, 28.0),
+                    Layout::right_to_left(Align::Center),
+                    control,
+                );
             });
         } else {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(label).strong());
-                ui.with_layout(Layout::right_to_left(Align::Center), control);
+                let title_width = (width - control_width - gap).max(1.0);
+                ui.add_sized(
+                    [title_width, 28.0],
+                    egui::Label::new(egui::RichText::new(label).strong()).truncate(),
+                ).on_hover_text(label);
+                ui.allocate_ui_with_layout(
+                    Vec2::new(control_width, 28.0),
+                    Layout::right_to_left(Align::Center),
+                    control,
+                );
             });
         }
-    });
+    }).response.rect
 }
 
 pub(super) fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) {
     form_surface(ui).show(ui, |ui| {
         let (rect, _) = ui.allocate_exact_size(
-            Vec2::new(ui.available_width().min(CARD_CONTENT_WIDTH), 28.0),
+            Vec2::new(ui.available_width().max(1.0), 28.0),
             egui::Sense::hover(),
         );
         ui.painter().text(
