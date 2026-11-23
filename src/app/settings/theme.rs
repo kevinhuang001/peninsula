@@ -74,7 +74,7 @@ pub(super) fn focus_outline(ui: &egui::Ui, response: &egui::Response) {
         ui.painter().rect_stroke(
             response.rect,
             7.0,
-            egui::Stroke::new(1.5, Color32::WHITE),
+            egui::Stroke::new(1.5_f32, Color32::WHITE),
             egui::StrokeKind::Inside,
         );
     }

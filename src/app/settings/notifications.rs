@@ -69,7 +69,7 @@ pub(super) fn options(
             ui.add_space(4.0);
             egui::Frame::new()
                 .fill(super::theme::ROW)
-                .stroke(Stroke::new(1.0, BORDER))
+                .stroke(Stroke::new(1.0_f32, BORDER))
                 .corner_radius(9.0)
                 .inner_margin(egui::Margin::symmetric(8, 6))
                 .show(ui, |ui| {

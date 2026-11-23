@@ -42,7 +42,7 @@ pub(super) fn show(
     } = content;
     let opacity = 1.0 - progress.clamp(0.0, 1.0);
     if let Some(prompt) = available_views.iter().find_map(|item| item.prompt.as_ref()) {
-        return show_prompt(ui, rect, opacity, prompt, icons, prefs);
+        return show_prompt(ui, rect, opacity, prompt, icons);
     }
     ui.ctx().data_mut(|data| {
         data.remove::<PromptEntrance>(egui::Id::new(PROMPT_ENTRANCE_ID));
@@ -143,12 +143,10 @@ fn show_prompt(
     opacity: f32,
     prompt: &Prompt,
     icons: &Icons,
-    prefs: &AppPreferences,
 ) -> Option<ActionInvocation> {
     if opacity <= 0.0 {
         return None;
     }
-    let reduced = prefs.reduced_motion || prefs.motion_off;
     let now = ui.input(|i| i.time);
     let started = ui.ctx().data_mut(|data| {
         let key = egui::Id::new(PROMPT_ENTRANCE_ID);
@@ -167,14 +165,10 @@ fn show_prompt(
         );
         now
     });
-    let entrance = if reduced {
-        1.0
-    } else {
-        ((now - started) as f32 / 0.38).clamp(0.0, 1.0)
-    };
+    let entrance = ((now - started) as f32 / 0.38).clamp(0.0, 1.0);
     let entrance = 1.0 - (1.0 - entrance).powi(3);
     let elapsed = (now - started) as f32;
-    if !reduced && elapsed < 1.2 {
+    if elapsed < 1.2 {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(33));
     }
