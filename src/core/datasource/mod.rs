@@ -197,6 +197,7 @@ struct ExtractedMetric {
     formatted: String,
 }
 
+#[derive(Debug)]
 struct FetchError {
     message: String,
     status: Option<u16>,
