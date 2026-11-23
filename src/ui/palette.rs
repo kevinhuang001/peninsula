@@ -158,6 +158,19 @@ fn gamut_mapped_oklab(lightness: f32, a: f32, b: f32) -> Color32 {
 
 // Neutral surface colors never depend on the accent seed.
 pub(crate) const SURFACE_DARK: Color32 = Color32::from_rgb(16, 21, 30);
+
+/// Host-owned capsule text choices. Bright tints remain legible on both the
+/// black capsule shell and its dark chips. None uses the default white text.
+pub(crate) const CAPSULE_TEXT_PRESETS: [(&str, Option<[u8; 3]>); 8] = [
+    ("默认", None),
+    ("纯白", Some([255, 255, 255])),
+    ("暖白", Some([255, 238, 211])),
+    ("浅蓝", Some([158, 214, 255])),
+    ("薄荷绿", Some([154, 242, 204])),
+    ("浅金", Some([255, 226, 156])),
+    ("淡紫", Some([218, 195, 255])),
+    ("珊瑚粉", Some([255, 187, 199])),
+];
 pub(crate) const SURFACE_VARIANT: Color32 = Color32::from_rgb(36, 39, 46);
 pub(crate) const CONTROL_INACTIVE: Color32 = Color32::from_rgb(44, 49, 59);
 pub(crate) const CONTROL_HOVERED: Color32 = Color32::from_rgb(55, 62, 74);
@@ -246,6 +259,21 @@ mod tests {
         let primary = TextPalette::DEFAULT.primary;
         assert_eq!(ensure_text_contrast(primary, SURFACE_DARK, primary), primary);
         assert!(contrast(ensure_text_contrast(SURFACE_DARK, SURFACE_DARK, primary), SURFACE_DARK) >= 7.0);
+    }
+
+    #[test]
+    fn capsule_text_presets_have_strong_contrast_on_dark_surfaces() {
+        assert_eq!(CAPSULE_TEXT_PRESETS[0].1, None);
+        for (name, value) in CAPSULE_TEXT_PRESETS {
+            let [r, g, b] = value.unwrap_or([255, 255, 255]);
+            let color = Color32::from_rgb(r, g, b);
+            for background in [SURFACE_DARK, SURFACE_VARIANT] {
+                assert!(
+                    contrast(color, background) >= 7.0,
+                    "{name} ({r}, {g}, {b}) is not readable on {background:?}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -74,6 +74,16 @@ fn dark_only_preferences_round_trip_without_theme_field() {
 }
 
 #[test]
+fn capsule_text_color_presets_round_trip_through_preferences() {
+    for (_, color) in crate::ui::palette::CAPSULE_TEXT_PRESETS {
+        let mut prefs = AppPreferences::default();
+        prefs.capsule_text_color = color;
+        let loaded = AppPreferences::parse(&prefs.encode());
+        assert_eq!(loaded.capsule_text_color, color);
+    }
+}
+
+#[test]
 fn unknown_text_scale_falls_back_to_standard() {
     use crate::ui::typography::TextScale;
     assert_eq!(AppPreferences::parse("text_scale=unknown").text_scale, TextScale::Standard);

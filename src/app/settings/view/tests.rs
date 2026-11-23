@@ -653,6 +653,24 @@ fn capsule_font_size_is_a_dropdown_and_not_a_numeric_drag_field() {
 }
 
 #[test]
+fn capsule_text_color_is_a_named_dropdown_with_readable_presets() {
+    let ctx = egui::Context::default();
+    let mut prefs = AppPreferences::default();
+    let mut view = SettingsView {
+        section: Section::Capsule,
+        capsule_section: CapsuleSection::CapsuleStyle,
+        ..Default::default()
+    };
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    assert!(text_rect(&output, "文字颜色").width() > 0.0);
+    assert!(text_rect(&output, "默认").width() > 0.0);
+
+    prefs.capsule_text_color = Some([158, 214, 255]);
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    assert!(text_rect(&output, "浅蓝").width() > 0.0);
+}
+
+#[test]
 fn all_settings_rows_use_a_consistent_core_card_frame() {
     let ctx = egui::Context::default();
     let mut input_rect = Rect::NOTHING;

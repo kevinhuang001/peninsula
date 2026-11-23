@@ -1149,17 +1149,30 @@ fn capsule_options(
                     });
                 changed
             });
-            changed |= forms::row(ui, "文字颜色", |ui| {
-                let mut follow_theme = prefs.capsule_text_color.is_none();
-                let mut changed = forms::toggle(ui, &mut follow_theme, "使用默认文字颜色");
-                if changed {
-                    prefs.capsule_text_color = (!follow_theme).then_some([245, 248, 255]);
-                }
-                if let Some(color) = &mut prefs.capsule_text_color {
-                    changed |= ui.color_edit_button_srgb(color)
-                        .on_hover_text("显示时会自动调整颜色，确保文字与背景有足够对比度")
-                        .changed();
-                }
+            changed |= forms::input_row(ui, "文字颜色", |ui| {
+                let presets = crate::ui::palette::CAPSULE_TEXT_PRESETS;
+                let (selected, selected_rgb) = presets.iter()
+                    .find(|(_, color)| *color == prefs.capsule_text_color)
+                    .map_or(("自定义", prefs.capsule_text_color), |(label, rgb)| (*label, *rgb));
+                let color = selected_rgb.unwrap_or([255, 255, 255]);
+                let mut changed = false;
+                egui::ComboBox::from_id_salt("capsule-text-color")
+                    .width(ui.available_width())
+                    .selected_text(
+                        egui::RichText::new(selected).color(Color32::from_rgb(
+                            color[0], color[1], color[2],
+                        )),
+                    )
+                    .show_ui(ui, |ui| {
+                        for (label, rgb) in presets {
+                            let [r, g, b] = rgb.unwrap_or([255, 255, 255]);
+                            changed |= ui.selectable_value(
+                                &mut prefs.capsule_text_color,
+                                rgb,
+                                egui::RichText::new(label).color(Color32::from_rgb(r, g, b)),
+                            ).changed();
+                        }
+                    });
                 changed
             });
         }
