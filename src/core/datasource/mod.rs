@@ -446,48 +446,55 @@ impl DataSourceManager {
         use crate::extension::{
             ContributionDescriptor as Descriptor, ContributionKind, SettingSchema, SettingValue,
         };
-        self.sources
-            .values()
-            .flat_map(|source| {
-                let mut entries = Vec::with_capacity(2);
-                let id = &source.definition.id;
+        let mut entries = Vec::new();
+        for source in self.sources.values() {
+            let id = &source.definition.id;
+            let display_name = source.definition.display_name(&source.config.inputs);
+            if source.definition.is_multi() {
+                for (metric_id, metric) in &source.definition.values {
+                    if let Ok(capsule) = metric_capsule_id(id, metric_id) {
+                        entries.push(Descriptor::new(
+                            capsule, ContributionKind::Capsule,
+                            format!("{display_name} {}", metric.name), "chart", false, 150,
+                        ));
+                    }
+                    if metric.alert.is_some() {
+                        if let Ok(alert) = metric_notification_id(id, metric_id) {
+                            entries.push(Descriptor::new(
+                                alert, ContributionKind::Notification,
+                                format!("{display_name} {} 提醒", metric.name),
+                                "bell", false, 150,
+                            ).with_settings(1, vec![SettingSchema::new(
+                                ALERT_COOLDOWN,
+                                SettingValue::Duration(source.config.min_alert_interval_ms),
+                                "最短提醒间隔",
+                            ).range(MIN_ALERT_INTERVAL_MS as f64, MAX_ALERT_INTERVAL_MS as f64)
+                             .duration_minutes()]));
+                        }
+                    }
+                }
+            } else {
                 if let Ok(capsule) = capsule_id(id) {
                     entries.push(Descriptor::new(
-                        capsule,
-                        ContributionKind::Capsule,
-                        source.definition.name.clone(),
-                        "chart",
-                        false,
-                        150,
+                        capsule, ContributionKind::Capsule, display_name.clone(), "chart", false, 150,
                     ));
                 }
                 if source.definition.alert.is_some() {
                     if let Ok(alert) = notification_id(id) {
-                        entries.push(
-                            Descriptor::new(
-                                alert,
-                                ContributionKind::Notification,
-                                format!("{} 提醒", source.definition.name),
-                                "bell",
-                                source.config.alerts,
-                                150,
-                            )
-                            .with_settings(
-                                1,
-                                vec![SettingSchema::new(
-                                    ALERT_COOLDOWN,
-                                    SettingValue::Duration(source.config.min_alert_interval_ms),
-                                    "最短提醒间隔",
-                                )
-                                .range(MIN_ALERT_INTERVAL_MS as f64, MAX_ALERT_INTERVAL_MS as f64)
-                                .duration_minutes()],
-                            ),
-                        );
+                        entries.push(Descriptor::new(
+                            alert, ContributionKind::Notification,
+                            format!("{display_name} 提醒"), "bell", source.config.alerts, 150,
+                        ).with_settings(1, vec![SettingSchema::new(
+                            ALERT_COOLDOWN,
+                            SettingValue::Duration(source.config.min_alert_interval_ms),
+                            "最短提醒间隔",
+                        ).range(MIN_ALERT_INTERVAL_MS as f64, MAX_ALERT_INTERVAL_MS as f64)
+                         .duration_minutes()]));
                     }
                 }
-                entries
-            })
-            .collect()
+            }
+        }
+        entries
     }
 
     pub fn apply_contributions(&mut self, host: &crate::core::extension_manager::ExtensionManager) {
@@ -495,18 +502,41 @@ impl DataSourceManager {
         let mut enabled_changed = false;
         for (id, source) in &mut self.sources {
             let was_running = source.config.enabled;
-            source.capsule = capsule_id(id).is_ok_and(|id| host.contribution_running(&id));
-            source.active_alerts = notification_id(id).is_ok_and(|id| {
-                if let Some(crate::extension::SettingValue::Duration(ms)) = host
-                    .configured_contribution_settings(&id)
-                    .and_then(|values| values.get(ALERT_COOLDOWN))
-                {
-                    source.alert_interval_ms = *ms;
+            if source.definition.is_multi() {
+                let mut switches = BTreeMap::new();
+                for (metric_id, metric) in &source.definition.values {
+                    let capsule = metric_capsule_id(id, metric_id)
+                        .is_ok_and(|id| host.contribution_running(&id));
+                    let mut alert_interval_ms = source.config.min_alert_interval_ms;
+                    let alerts = metric.alert.is_some()
+                        && metric_notification_id(id, metric_id).is_ok_and(|id| {
+                            if let Some(crate::extension::SettingValue::Duration(ms)) = host
+                                .configured_contribution_settings(&id)
+                                .and_then(|values| values.get(ALERT_COOLDOWN))
+                            {
+                                alert_interval_ms = *ms;
+                            }
+                            host.accepts_notification(&id)
+                        });
+                    switches.insert(metric_id.clone(), MetricSwitch {
+                        capsule, alerts, alert_interval_ms,
+                    });
                 }
-                host.accepts_notification(&id)
-            });
-            // The Core contribution registry owns the enable state.
-            // Do not keep a separate source switch that could disagree.
+                source.capsule = switches.values().any(|metric| metric.capsule);
+                source.active_alerts = switches.values().any(|metric| metric.alerts);
+                source.metric_switches = switches;
+            } else {
+                source.capsule = capsule_id(id).is_ok_and(|id| host.contribution_running(&id));
+                source.active_alerts = notification_id(id).is_ok_and(|id| {
+                    if let Some(crate::extension::SettingValue::Duration(ms)) = host
+                        .configured_contribution_settings(&id)
+                        .and_then(|values| values.get(ALERT_COOLDOWN))
+                    {
+                        source.alert_interval_ms = *ms;
+                    }
+                    host.accepts_notification(&id)
+                });
+            }
             let running = owner_enabled && (source.capsule || source.active_alerts);
             if source.config.enabled != running {
                 source.config.enabled = running;
@@ -532,10 +562,18 @@ impl DataSourceManager {
     }
 
     pub fn accepts_notification(&self, id: &ExtensionId) -> bool {
-        notification_source_local(id).is_some_and(|local| {
-            self.sources.get(local).is_some_and(|source| {
-                source.config.enabled && source.active_alerts && source.definition.alert.is_some()
-            })
+        let Some(local) = notification_source_local(id) else { return false; };
+        self.sources.get(local).is_some_and(|source| {
+            if !source.config.enabled { return false; }
+            if source.definition.is_multi() {
+                notification_metric_local(id).is_some_and(|(_, metric)| {
+                    source.metric_switches.get(metric).is_some_and(|settings| settings.alerts)
+                        && source.definition.metric_alert(metric).is_some()
+                })
+            } else {
+                source.active_alerts && source.definition.alert.is_some()
+                    && notification_id(local).is_ok_and(|expected| expected == *id)
+            }
         })
     }
 
@@ -547,58 +585,33 @@ impl DataSourceManager {
     }
 
     pub fn capsule_views(&self) -> Vec<CapsuleView> {
-        self.sources
-            .iter()
-            .filter(|(_, source)| source.config.enabled && source.capsule)
-            .filter_map(|(id, source)| {
-                let id = capsule_id(id).ok()?;
-                let icon_key = format!(
-                    "datasource-icon/{}/{}",
-                    source.definition.id,
-                    icon_hash(source.definition.icon.as_ref())
-                );
-                let leading = if source.definition.icon.is_some() && source.icon_warning.is_none() {
-                    ViewNode::new(crate::ui::declarative::Node::Image { asset: icon_key })
-                } else {
-                    ViewNode::icon("chart", 18.0)
-                };
-                let value = source.state.formatted.clone().unwrap_or_else(|| "—".into());
-                let text = ViewNode::text(
-                    value,
-                    TextStyle {
-                        font_size: FontSize::Relative(1.0833),
-                        font_weight: FontWeight::Bold,
-                        wrap: false,
-                        ..Default::default()
-                    },
-                )
-                .color(ColorSpec::PrimaryText);
-                let content = ViewNode::capsule(
-                    leading,
-                    text,
-                    CapsuleLayout {
-                        leading_size: [18.0, 18.0],
-                        gap: 5.0,
-                        content_size: crate::ui::declarative::SizeSpec {
-                            width: crate::ui::declarative::Size::Auto,
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
-                );
-                Some(CapsuleView {
-                    id: id.clone(),
-                    source_extension_id: id.clone(),
-                    content,
-                    visibility: Default::default(),
-                    min_width: 48.0,
-                    preferred_width: 78.0,
-                    fit_width: true,
-                    priority: 0,
-                    tooltip: Some(source.definition.name.clone()),
-                })
-            })
-            .collect()
+        let mut views = Vec::new();
+        for (id, source) in &self.sources {
+            if !source.config.enabled { continue; }
+            if source.definition.is_multi() {
+                for (metric_id, metric) in &source.definition.values {
+                    if !source.metric_switches.get(metric_id).is_some_and(|switch| switch.capsule) {
+                        continue;
+                    }
+                    if let Ok(capsule) = metric_capsule_id(id, metric_id) {
+                        let formatted = source.state.metrics.get(metric_id)
+                            .and_then(|state| state.formatted.as_deref()).unwrap_or("—");
+                        views.push(capsule_view_for(
+                            source, capsule, formatted,
+                            format!("{} {}", source.definition.display_name(&source.config.inputs), metric.name),
+                        ));
+                    }
+                }
+            } else if source.capsule {
+                if let Ok(capsule) = capsule_id(id) {
+                    views.push(capsule_view_for(
+                        source, capsule, source.state.formatted.as_deref().unwrap_or("—"),
+                        source.definition.display_name(&source.config.inputs),
+                    ));
+                }
+            }
+        }
+        views
     }
 
     pub fn register_icons(&mut self, context: &egui::Context) {
@@ -1322,6 +1335,44 @@ pub(crate) fn metric_capsule_id(id: &str, metric: &str) -> Result<ExtensionId, S
 pub(crate) fn capsule_id(id: &str) -> Result<ExtensionId, String> {
     ExtensionId::new(format!("{DATA_SOURCE_CAPSULE_PREFIX}{id}/value"))
         .map_err(|_| "数据源 id 无效".to_owned())
+}
+
+fn capsule_view_for(source: &ManagedSource, id: ExtensionId, formatted: &str, tooltip: String) -> CapsuleView {
+    let icon_key = format!(
+        "datasource-icon/{}/{}", source.definition.id,
+        icon_hash(source.definition.icon.as_ref())
+    );
+    let leading = if source.definition.icon.is_some() && source.icon_warning.is_none() {
+        ViewNode::new(crate::ui::declarative::Node::Image { asset: icon_key })
+    } else {
+        ViewNode::icon("chart", 18.0)
+    };
+    let text = ViewNode::text(formatted.to_owned(), TextStyle {
+        font_size: FontSize::Relative(1.0833),
+        font_weight: FontWeight::Bold,
+        wrap: false,
+        ..Default::default()
+    }).color(ColorSpec::PrimaryText);
+    let content = ViewNode::capsule(leading, text, CapsuleLayout {
+        leading_size: [18.0, 18.0],
+        gap: 5.0,
+        content_size: crate::ui::declarative::SizeSpec {
+            width: crate::ui::declarative::Size::Auto,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    CapsuleView {
+        id: id.clone(),
+        source_extension_id: id,
+        content,
+        visibility: Default::default(),
+        min_width: 48.0,
+        preferred_width: 78.0,
+        fit_width: true,
+        priority: 0,
+        tooltip: Some(tooltip),
+    }
 }
 
 fn icon_hash(icon: Option<&IconSpec>) -> u64 {
