@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use url::Url;
 
 pub const SCHEMA_ID: &str = "peninsula.datasource/v1";
@@ -22,7 +22,10 @@ pub struct Definition {
     pub icon: Option<IconSpec>,
     #[serde(default)]
     pub inputs: BTreeMap<String, InputDefinition>,
-    pub request: RequestDefinition,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<RequestDefinition>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub requests: BTreeMap<String, RequestDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<ValueDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -121,6 +124,8 @@ pub struct ValueDefinition {
 #[serde(deny_unknown_fields)]
 pub struct MetricDefinition {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<String>,
     pub value: ValueDefinition,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alert: Option<AlertDefinition>,
@@ -180,13 +185,26 @@ impl Definition {
         if self.schema != SCHEMA_ID && self.schema != SCHEMA_ID_V2 {
             return Err(format!("不支持的数据源 Schema：{}", self.schema));
         }
-        if self.schema == SCHEMA_ID && (self.value.is_none() || !self.values.is_empty()) {
+        if self.schema == SCHEMA_ID && (self.value.is_none() || !self.values.is_empty() || self.request.is_none() || !self.requests.is_empty()) {
             return Err("V1 必须提供一个 value，且不能声明 values".into());
         }
         if self.schema == SCHEMA_ID_V2 &&
             (self.value.is_some() || self.alert.is_some() || self.values.is_empty() || self.values.len() > 32)
         {
             return Err("V2 必须提供 1 至 32 个 values，不能声明根级 value/alert".into());
+        }
+        if (self.request.is_some() && !self.requests.is_empty())
+            || (self.request.is_none() && self.requests.is_empty())
+            || self.requests.len() > 8
+        {
+            return Err("必须声明单个 request 或 1 至 8 个 requests，不能混用".into());
+        }
+        for id in self.requests.keys() {
+            if id.is_empty() || id.len() > 48
+                || !id.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+            {
+                return Err(format!("请求 {id} 的 ID 无效"));
+            }
         }
         if self.id.is_empty()
             || self.id.len() > 96
@@ -253,51 +271,12 @@ impl Definition {
                 // Required values are supplied by the generated form.
             }
         }
-        if self.request.url.len() > 4096
-            || self.request.headers.len() > 64
-            || self.request.query.len() > 128
-            || self.request.timeout_ms == 0
-            || std::time::Duration::from_millis(self.request.timeout_ms) > MAX_TIMEOUT
-            || (self.request.body.is_some() && self.request.body_text.is_some())
-        {
-            return Err("HTTP 请求超出 V1 限制".into());
+        if let Some(request) = &self.request {
+            validate_request(request, self)?;
         }
-        let url_template = replace_placeholders_for_check(&self.request.url)?;
-        let url = Url::parse(&url_template).map_err(|_| "请求 URL 无效".to_owned())?;
-        if !matches!(url.scheme(), "http" | "https")
-            || url.host_str().is_none()
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.fragment().is_some()
-        {
-            return Err("请求 URL 必须是没有用户信息或片段的 HTTP(S) URL".into());
-        }
-        let authority_start = self.request.url.find("://").map(|i| i + 3).unwrap_or(0);
-        let authority_end = self.request.url[authority_start..]
-            .find(['/', '?', '#'])
-            .map(|i| authority_start + i)
-            .unwrap_or(self.request.url.len());
-        if self.request.url[authority_start..authority_end].contains("${") {
-            return Err("请求目标 Origin 不能使用占位符".into());
-        }
-        for (key, value) in &self.request.headers {
-            if key.is_empty() || key.len() > 256 || value.len() > 16_384 {
-                return Err("HTTP Header 超出限制".into());
-            }
-            validate_placeholders(value, self, false)
-                .map_err(|error| format!("请求头 {key}：{error}"))?;
-        }
-        for (key, value) in &self.request.query {
-            validate_placeholders(value, self, false)
-                .map_err(|error| format!("查询参数 {key}：{error}"))?;
-        }
-        validate_placeholders(&self.request.url, self, false)
-            .map_err(|error| format!("请求 URL：{error}"))?;
-        if let Some(body) = &self.request.body {
-            validate_json_placeholders(body, self)?;
-        }
-        if let Some(body) = &self.request.body_text {
-            validate_placeholders(body, self, false).map_err(|error| format!("请求体：{error}"))?;
+        for (key, request) in &self.requests {
+            validate_request(request, self)
+                .map_err(|error| format!("请求 {key}：{error}"))?;
         }
         if let Some(spec) = &self.value {
             validate_value_spec(spec)?;
@@ -312,6 +291,13 @@ impl Definition {
             {
                 return Err(format!("指标 {key} 的 id 或名称无效"));
             }
+            if self.requests.is_empty() {
+                if metric.request.is_some() {
+                    return Err(format!("指标 {key} 使用单请求模式时不能指定 request"));
+                }
+            } else if metric.request.as_ref().is_none_or(|id| !self.requests.contains_key(id)) {
+                return Err(format!("指标 {key} 必须引用已声明的 request ID"));
+            }
             validate_value_spec(&metric.value)?;
             if let Some(alert) = &metric.alert {
                 validate_alert_spec(alert, self)?;
@@ -320,10 +306,20 @@ impl Definition {
         Ok(())
     }
 
+    pub fn origins(&self) -> Result<BTreeSet<String>, String> {
+        self.request.iter()
+            .chain(self.requests.values())
+            .map(|request| {
+                let url = Url::parse(&replace_placeholders_for_check(&request.url)?)
+                    .map_err(|_| "请求 URL 无效".to_owned())?;
+                Ok(url.origin().ascii_serialization())
+            })
+            .collect()
+    }
+
+    // All request origins are visible at import and authorized as one fixed set.
     pub fn origin(&self) -> Result<String, String> {
-        let url = Url::parse(&replace_placeholders_for_check(&self.request.url)?)
-            .map_err(|_| "请求 URL 无效".to_owned())?;
-        Ok(url.origin().ascii_serialization())
+        Ok(self.origins()?.into_iter().collect::<Vec<_>>().join(", "))
     }
 }
 
@@ -365,6 +361,53 @@ impl Definition {
         }
         if name.trim().is_empty() { self.name.clone() } else { name }
     }
+}
+
+fn validate_request(request: &RequestDefinition, definition: &Definition) -> Result<(), String> {
+    if request.url.len() > 4096 || request.headers.len() > 64
+        || request.query.len() > 128 || request.timeout_ms == 0
+        || std::time::Duration::from_millis(request.timeout_ms) > MAX_TIMEOUT
+        || (request.body.is_some() && request.body_text.is_some())
+    {
+        return Err("HTTP 请求超出限制".into());
+    }
+    let url_template = replace_placeholders_for_check(&request.url)?;
+    let url = Url::parse(&url_template).map_err(|_| "请求 URL 无效".to_owned())?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none()
+        || !url.username().is_empty() || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("请求 URL 必须是没有用户信息或片段的 HTTP(S) URL".into());
+    }
+    let authority_start = request.url.find("://").map(|i| i + 3).unwrap_or(0);
+    let authority_end = request.url[authority_start..]
+        .find(['/', '?', '#'])
+        .map(|i| authority_start + i)
+        .unwrap_or(request.url.len());
+    if request.url[authority_start..authority_end].contains("${") {
+        return Err("请求目标 Origin 不能使用占位符".into());
+    }
+    for (key, value) in &request.headers {
+        if key.is_empty() || key.len() > 256 || value.len() > 16_384 {
+            return Err("HTTP Header 超出限制".into());
+        }
+        validate_placeholders(value, definition, false)
+            .map_err(|error| format!("请求头 {key}：{error}"))?;
+    }
+    for (key, value) in &request.query {
+        validate_placeholders(value, definition, false)
+            .map_err(|error| format!("查询参数 {key}：{error}"))?;
+    }
+    validate_placeholders(&request.url, definition, false)
+        .map_err(|error| format!("请求 URL：{error}"))?;
+    if let Some(body) = &request.body {
+        validate_json_placeholders(body, definition)?;
+    }
+    if let Some(body) = &request.body_text {
+        validate_placeholders(body, definition, false)
+            .map_err(|error| format!("请求体：{error}"))?;
+    }
+    Ok(())
 }
 
 fn validate_value_spec(spec: &ValueDefinition) -> Result<(), String> {
