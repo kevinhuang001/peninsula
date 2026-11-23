@@ -623,7 +623,7 @@ pub fn parse_duration(value: &str) -> Result<std::time::Duration, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_duration, Definition, InputType};
+    use super::{parse_duration, validate_capsule_text, Definition, InputType};
     use serde_json::Value;
     use std::time::Duration;
 
