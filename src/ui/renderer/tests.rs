@@ -69,6 +69,49 @@ fn text_input_routes_edits_to_its_extension_and_retains_keyboard_focus() {
 }
 
 #[test]
+fn two_line_capsules_use_one_shared_font_and_content_fitted_width_rule() {
+    let make = |top: &str, bottom: &str| {
+        ViewNode::capsule(
+            ViewNode::icon("chart", 16.0),
+            ViewNode::column(
+                vec![
+                    ViewNode::text(top, TextStyle::default()),
+                    ViewNode::text(bottom, TextStyle::default()),
+                ],
+                Flow { gap: Some(0.0), ..Default::default() },
+            ),
+            CapsuleLayout {
+                content_size: SizeSpec { width: Size::Auto, ..Default::default() },
+                leading_size: [18.0, 18.0],
+                ..Default::default()
+            },
+        )
+    };
+    let one_line = ViewNode::capsule(
+        ViewNode::icon("chart", 16.0),
+        ViewNode::text("Issue: 3 个", TextStyle::default()),
+        CapsuleLayout::default(),
+    );
+    assert!(!is_multiline_capsule(&one_line));
+    let network = make("下行 18 KB/s", "上行 2 KB/s");
+    let repository = make("peninsula", "Issue: 3 个");
+    assert!(is_multiline_capsule(&network));
+    assert!(is_multiline_capsule(&repository));
+    let initial = CapsuleTextAppearance { size: 15.0, color: None };
+    assert_eq!(fitted_capsule_appearance(&one_line, initial).size, 15.0);
+    assert!(fitted_capsule_appearance(&network, initial).size < initial.size);
+    assert_eq!(
+        fitted_capsule_appearance(&network, initial).size,
+        fitted_capsule_appearance(&repository, initial).size,
+    );
+    with_ui(|ui, icons| {
+        let shorter = capsule_content_width(ui.ctx(), &make("repo", "Issue: 3 个"), 1200.0, icons, 15.0);
+        let longer = capsule_content_width(ui.ctx(), &make("longer-repository-name", "Issue: 3 个"), 1200.0, icons, 15.0);
+        assert!(longer > shorter + 12.0, "two-line widths must follow their actual content");
+    });
+}
+
+#[test]
 fn progress_ring_strokes_fit_their_clip_bounds_at_each_display_scale() {
     for scale in [1.0, 1.5, 2.0] {
         let ctx = egui::Context::default();
