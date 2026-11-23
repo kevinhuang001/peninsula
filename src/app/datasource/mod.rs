@@ -12,7 +12,6 @@ mod support;
 mod view;
 use components::*;
 use support::*;
-pub(super) use view::DataSourceView;
 
 const LEFT_WIDTH: f32 = 212.0;
 const COLUMN_GAP: f32 = 12.0;
