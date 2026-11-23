@@ -251,9 +251,41 @@ fn settings_width_uses_available_viewport_not_double_monitor_limit() {
             let actual = view.width(ctx, &prefs);
             assert!(actual <= width * 0.96 + 0.1);
             assert!(actual > 0.0);
+            // A naturally sized panel should not expand to fill a 1280pt
+            // monitor merely because the viewport is large.
             if width >= 800.0 {
-                assert!(actual > width * 0.5);
+                assert!(actual >= 380.0);
             }
+        });
+    }
+}
+
+#[test]
+fn settings_columns_and_font_height_are_stable_at_multiple_dpi_scales() {
+    for pixels_per_point in [1.0, 1.25, 1.5, 2.0, 3.0] {
+        let ctx = egui::Context::default();
+        ctx.set_pixels_per_point(pixels_per_point);
+        crate::ui::typography::Typography::install(
+            &ctx, crate::ui::typography::TextScale::ExtraLarge,
+        );
+        let prefs = AppPreferences::default();
+        ctx.run(RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO, egui::vec2(600.0, 750.0),
+            )),
+            ..Default::default()
+        }, |ctx| {
+            let view = SettingsView {
+                section: Section::Notifications,
+                ..Default::default()
+            };
+            let width = view.width(ctx, &prefs);
+            let layout = Panels::new(
+                Rect::from_min_size(Pos2::ZERO, egui::vec2(width, 750.0)), true,
+            );
+            assert!(layout.form.is_positive(), "DPI scale: {pixels_per_point}");
+            assert!(layout.plugins.unwrap().right() < layout.form.left());
+            assert!(navigation_row_height(ctx) >= 40.0);
         });
     }
 }

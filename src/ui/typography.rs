@@ -175,6 +175,17 @@ mod tests {
     }
 
     #[test]
+    fn dpi_changes_pixel_density_not_the_user_selected_logical_font_size() {
+        for dpi in [1.0, 1.25, 1.5, 2.0, 3.0] {
+            let ctx = egui::Context::default();
+            ctx.set_pixels_per_point(dpi);
+            Typography::install(&ctx, TextScale::Large);
+            let expected = Typography::BODY * TextScale::Large.factor();
+            assert!((Typography::size(&ctx, FontSize::Body) - expected).abs() < 0.01);
+        }
+    }
+
+    #[test]
     fn user_preference_scales_native_and_declarative_text_together() {
         let ctx = egui::Context::default();
         Typography::install(&ctx, TextScale::Large);
