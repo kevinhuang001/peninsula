@@ -263,7 +263,7 @@ impl DataSourceView {
         }
     }
 
-    fn status_panel(&mut self, ui: &mut egui::Ui, source: &SourceSnapshot) {
+    pub(super) fn status_panel(&mut self, ui: &mut egui::Ui, source: &SourceSnapshot) {
         ui.label(RichText::new("运行诊断").strong());
         let now_ms = current_timestamp_ms();
         egui::Grid::new(("datasource-doctor", &source.id))
