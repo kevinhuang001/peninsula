@@ -8,6 +8,7 @@ use std::{collections::HashMap, fs, sync::mpsc, time::Duration};
 mod components;
 mod dialogs;
 mod forms;
+mod metric_controls;
 mod support;
 mod view;
 use components::*;
@@ -15,7 +16,6 @@ use support::*;
 
 const LEFT_WIDTH: f32 = 212.0;
 const COLUMN_GAP: f32 = 12.0;
-const CARD_CONTENT_WIDTH: f32 = 470.0;
 const VIEW_WIDTH: f32 = 980.0;
 const VIEW_HEIGHT: f32 = 680.0;
 const COMPACT_WIDTH: f32 = 620.0;
@@ -97,6 +97,43 @@ mod responsive_tests {
             let size = preferred_size([w, h]);
             assert!(size.x > 0.0 && size.x <= w);
             assert!(size.y > 0.0 && size.y <= h);
+        }
+    }
+
+    #[test]
+    fn metric_rows_fill_width_without_tall_grid_cards() {
+        for width in [360.0, 520.0, 790.0, 1200.0] {
+            let ctx = egui::Context::default();
+            let mut geometry = None;
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        Vec2::new(width, 500.0),
+                    )),
+                    ..Default::default()
+                },
+                |context| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(context, |ui| {
+                            let available = ui.available_width();
+                            let row = metric_row(ui, "开放 Issue", "123 个", None);
+                            geometry = Some((available, row));
+                        });
+                },
+            );
+            let (available, row) = geometry.expect("metric must be rendered");
+            assert!(
+                (row.width() - available).abs() < 4.0,
+                "width={width}: metric row {:.1} vs available {:.1}",
+                row.width(), available
+            );
+            assert!(
+                row.height() < 90.0,
+                "width={width}: metric row must stay compact (height={:.1})",
+                row.height()
+            );
         }
     }
 
