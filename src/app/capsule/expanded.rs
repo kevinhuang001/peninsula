@@ -53,13 +53,9 @@ pub(super) fn paint_header(
             ),
             text,
         );
-        let page_icon = if settings_open {
-            Some(Icon::Settings)
-        } else if datasource_open {
-            Some(Icon::Database)
-        } else {
-            None
-        };
+        // The data source manager opens in a separate native window.
+        // It must never replace the active widget's header icon.
+        let page_icon = header_page_icon(settings_open);
         let icon_size = if widget_icon.is_some() || page_icon.is_some() { 16.0 } else { 0.0 };
         let gap = if icon_size > 0.0 { 6.0 } else { 0.0 };
         let total_width = galley.size().x + icon_size + gap;
@@ -162,6 +158,12 @@ pub(super) fn paint_header(
     })
     .clicked();
     (pin_toggled, quiet_toggled, settings, dashboard_requested, datasource_requested)
+}
+
+/// Only the in-capsule Settings page owns the header decoration.
+/// A separate Data Sources viewport does not override the active widget.
+fn header_page_icon(settings_open: bool) -> Option<Icon> {
+    settings_open.then_some(Icon::Settings)
 }
 
 fn header_control(
@@ -549,6 +551,21 @@ mod navigation_tests {
 #[cfg(test)]
 mod toolbar_tests {
     use super::*;
+
+    #[test]
+    fn opening_data_sources_does_not_replace_the_widget_icon() {
+        // When the data-source window is open, the expanded capsule still
+        // displays the current widget (e.g. Notification Center).
+        assert!(header_page_icon(false).is_none());
+        assert!(matches!(header_page_icon(true), Some(Icon::Settings)));
+        let title = "[widget:notifications] 通知中心";
+        let (widget_icon, label) = title
+            .strip_prefix("[widget:")
+            .and_then(|text| text.split_once("] "))
+            .expect("the current widget title must retain its icon");
+        assert_eq!(widget_icon, "notifications");
+        assert_eq!(label, "通知中心");
+    }
 
     #[test]
     fn datasource_button_is_adjacent_to_settings() {
