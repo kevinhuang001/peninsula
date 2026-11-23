@@ -19,11 +19,6 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                         let mut tab = crate::app::widgets::default_widget_id();
                         let mut preferences = AppPreferences::default();
                         let mut settings_view = SettingsView::default();
-                        let datasource_root = tempfile::tempdir().unwrap();
-                        let mut datasource_manager = crate::core::datasource::DataSourceManager::open(
-                            datasource_root.path(),
-                        );
-                        let mut datasource_view = crate::app::datasource::DataSourceView::default();
                         let icons = crate::app::icons::Icons::load(context);
                         let (widget_ids, widget_view) = widget_fixture();
                         rect = show(
@@ -43,9 +38,6 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 datasource_open: false,
-                                datasource_size: egui::vec2(790.0, 570.0),
-                                datasource_view: &mut datasource_view,
-                                datasources: &mut datasource_manager,
                                 settings_view: &mut settings_view,
                                 active_widget: &mut tab,
                                 pinned: false,
@@ -78,11 +70,6 @@ fn settings_close_button_returns_to_the_active_widget() {
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut preferences = AppPreferences::default();
     let mut settings_view = SettingsView::default();
-    let datasource_root = tempfile::tempdir().unwrap();
-    let mut datasource_manager = crate::core::datasource::DataSourceManager::open(
-        datasource_root.path(),
-    );
-    let mut datasource_view = crate::app::datasource::DataSourceView::default();
     let icons = crate::app::icons::Icons::load(&context);
     let (widget_ids, widget_view) = widget_fixture();
     let point = Pos2::new(SettingsView::WIDTH - 19.0 + 8.0, 26.0);
@@ -118,9 +105,6 @@ fn settings_close_button_returns_to_the_active_widget() {
                                 preferences: &mut preferences,
                                 settings_open: true,
                                 datasource_open: false,
-                                datasource_size: egui::vec2(790.0, 570.0),
-                                datasource_view: &mut datasource_view,
-                                datasources: &mut datasource_manager,
                                 settings_view: &mut settings_view,
                                 active_widget: &mut tab,
                                 pinned: false,
@@ -193,11 +177,6 @@ fn table_text_keeps_its_destination_wrap_width_during_expansion() {
     let icons = crate::app::icons::Icons::load(&ctx);
     let mut preferences = AppPreferences::default();
     let mut settings = SettingsView::default();
-    let datasource_root = tempfile::tempdir().unwrap();
-    let mut datasource_manager = crate::core::datasource::DataSourceManager::open(
-        datasource_root.path(),
-    );
-    let mut datasource_view = crate::app::datasource::DataSourceView::default();
     let mut active = crate::extension::ExtensionId::builtin("test/table");
     let ids = vec![active.clone()];
     let label =
@@ -241,9 +220,6 @@ fn table_text_keeps_its_destination_wrap_width_during_expansion() {
                             icons: &icons,
                             settings_open: false,
                             datasource_open: false,
-                            datasource_size: egui::vec2(790.0, 570.0),
-                            datasource_view: &mut datasource_view,
-                            datasources: &mut datasource_manager,
                             settings_view: &mut settings,
                             preferences: &mut preferences,
                         },
