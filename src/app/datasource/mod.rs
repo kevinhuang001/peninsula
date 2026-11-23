@@ -15,9 +15,10 @@ use support::*;
 
 const LEFT_WIDTH: f32 = 212.0;
 const COLUMN_GAP: f32 = 12.0;
-const VIEW_WIDTH: f32 = 980.0;
+const VIEW_WIDTH: f32 = 820.0;
 const VIEW_HEIGHT: f32 = 680.0;
 const COMPACT_WIDTH: f32 = 620.0;
+const DETAIL_WIDTH: f32 = 600.0;
 
 /// Resolution-based layout, never based on physical pixels or OS DPI directly.
 fn compact_layout(width: f32) -> bool {
@@ -134,7 +135,7 @@ mod responsive_tests {
                 "at {width} pt info width {} does not fill {available}",
                 info.width(),
             );
-            let expected_controls = available.min(700.0);
+            let expected_controls = available.min(560.0);
             assert!(
                 (notification.width() - expected_controls).abs() <= 5.0,
                 "at {width} pt setting row width {} should remain near {expected_controls}",
