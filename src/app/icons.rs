@@ -726,13 +726,13 @@ mod tests {
         assert!(license.contains("ISC License"));
     }
     #[test]
-    fn toolbar_svgs_render_as_clear_antialiased_vector_assets() {
+    fn bundled_lucide_toolbar_svgs_render_as_clear_antialiased_vector_assets() {
         for svg in [
-            include_bytes!("../../assets/icons/toolbar/database.svg").as_slice(),
-            include_bytes!("../../assets/icons/toolbar/dashboard.svg").as_slice(),
-            include_bytes!("../../assets/icons/toolbar/pin.svg").as_slice(),
-            include_bytes!("../../assets/icons/toolbar/moon.svg").as_slice(),
-            include_bytes!("../../assets/icons/toolbar/settings.svg").as_slice(),
+            include_bytes!("../../assets/icons/lucide/database.svg").as_slice(),
+            include_bytes!("../../assets/icons/lucide/gauge.svg").as_slice(),
+            include_bytes!("../../assets/icons/lucide/pin.svg").as_slice(),
+            include_bytes!("../../assets/icons/lucide/moon.svg").as_slice(),
+            include_bytes!("../../assets/icons/lucide/settings-2.svg").as_slice(),
         ] {
             let image = super::svg_image(svg, 96).expect("valid toolbar svg");
             let visible = image.pixels.iter().filter(|pixel| pixel.a() > 64).count();
