@@ -145,7 +145,10 @@ impl DataSourceView {
         sources: &[SourceSnapshot],
         manager: &DataSourceManager,
     ) {
-        ui.label(RichText::new(format!("我的数据源 · {}", sources.len())).strong());
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("数据源").size(14.0).strong());
+            ui.label(RichText::new(sources.len().to_string()).size(12.0).weak());
+        });
         ui.add_space(8.0);
         egui::ScrollArea::vertical()
             .id_salt("datasource-list")
@@ -197,7 +200,16 @@ impl DataSourceView {
                     painter.text(
                         rect.left_center() + Vec2::new(38.0, 11.0),
                         egui::Align2::LEFT_CENTER,
-                        source.formatted.as_deref().unwrap_or(if source.enabled { "等待数据" } else { "已停用" }),
+                        if source.in_flight {
+                            "正在刷新".to_owned()
+                        } else if !source.metrics.is_empty() {
+                            format!("{} 个指标  {}", source.metrics.len(),
+                                if source.enabled { "自动监控" } else { "仅手动" })
+                        } else {
+                            source.formatted.clone().unwrap_or_else(|| {
+                                if source.enabled { "等待数据".into() } else { "仅手动刷新".into() }
+                            })
+                        },
                         Typography::font_id(ui.ctx(), Typography::SMALL),
                         ui.visuals().weak_text_color(),
                     );
