@@ -640,6 +640,60 @@ mod tests {
     }
 
     #[test]
+    fn v2_metrics_and_change_alert_validate() {
+        let example = serde_json::json!({
+            "schema": "peninsula.datasource/v2",
+            "id": "github-repository",
+            "name": "GitHub 仓库",
+            "name_template": "${input.repo}",
+            "inputs": {
+                "repo": {"type": "string", "label": "仓库", "required": true},
+                "threshold": {"type": "number", "label": "提醒数量", "default": 0}
+            },
+            "request": {"method": "GET", "url": "https://example.org/test"},
+            "values": {
+                "issues": {
+                    "name": "Issue",
+                    "value": {"path": "$.issues"},
+                    "alert": {
+                        "mode": "change", "operator": "gt",
+                        "threshold": "${input.threshold}",
+                        "title": "${input.repo} 新 Issue",
+                        "message": "新增 ${delta} 个，前次 ${previous}，现在 ${value}"
+                    }
+                },
+                "stars": {"name": "Star", "value": {"path": "$.stars"}}
+            }
+        });
+        let definition = Definition::parse(&example.to_string()).unwrap();
+        assert!(definition.is_multi());
+        assert!(definition.value.is_none());
+        assert_eq!(definition.values.len(), 2);
+        assert_eq!(definition.display_name(&std::collections::BTreeMap::from([
+            ("repo".to_owned(), serde_json::json!("peninsula")),
+        ])), "peninsula");
+        assert_eq!(definition.metric_alert("issues").unwrap().mode, super::AlertMode::Change);
+        assert!(definition.metric_alert("stars").is_none());
+    }
+
+    #[test]
+    fn v2_rejects_unknown_value_metric_and_unsafe_name_template() {
+        let mut doc = serde_json::json!({
+            "schema": "peninsula.datasource/v2",
+            "id": "bad",
+            "name": "Bad",
+            "inputs": {},
+            "request": {"method": "GET", "url": "https://example.org/test"},
+            "values": {"v": {"name": "V", "value": {"path": "$.v"}}}
+        });
+        doc["name_template"] = serde_json::json!("${input.undeclared}");
+        assert!(Definition::parse(&doc.to_string()).is_err());
+        doc["name_template"] = serde_json::json!("Safe");
+        doc["values"]["v"]["value"]["path"] = serde_json::json!("not-jsonpath");
+        assert!(Definition::parse(&doc.to_string()).is_err());
+    }
+
+    #[test]
     fn secret_inputs_and_secret_placeholders_are_rejected() {
         let mut document = sample();
         document["inputs"]["api_key"] = serde_json::json!({
