@@ -151,10 +151,7 @@ impl DataSourceView {
                     // left and only the actual controls on the right.
                     ui.set_width(form_width(ui).min(676.0));
                     ui.label(egui::RichText::new(&metric.name).strong());
-                    ui.label(egui::RichText::new(
-                        format!("胶囊：{}", metric.capsule_text),
-                    ).text_style(egui::TextStyle::Small).weak());
-                    ui.add_space(4.0);
+                    ui.add_space(2.0);
                     if let Ok(id) = datasource::metric_capsule_id(&source.id, &metric.id) {
                         let mut enabled = preferences.is_enabled(&id);
                         runtime_row(ui, "胶囊显示", |ui| {
