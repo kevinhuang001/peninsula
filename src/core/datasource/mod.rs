@@ -2837,7 +2837,10 @@ mod tests {
             .as_ref()
             .is_some_and(|token| token.is_cancelled()));
         manager.set_enabled(id, false).unwrap();
-        assert!(manager.refresh_now(id).is_err());
+        manager.refresh_now(id).unwrap();
+        let source = manager.sources.get(id).unwrap();
+        assert!(!source.config.enabled);
+        assert!(source.manual_refresh, "one-off refresh is allowed while automatic monitoring is off");
     }
 
     #[test]
