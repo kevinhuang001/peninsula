@@ -19,11 +19,6 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                         let mut tab = crate::app::widgets::default_widget_id();
                         let mut preferences = AppPreferences::default();
                         let mut settings_view = SettingsView::default();
-                        let datasource_root = tempfile::tempdir().unwrap();
-                        let mut datasource_manager = crate::core::datasource::DataSourceManager::open(
-                            datasource_root.path(),
-                        );
-                        let mut datasource_view = crate::app::datasource::DataSourceView::default();
                         let icons = crate::app::icons::Icons::load(context);
                         let (widget_ids, widget_view) = widget_fixture();
                         rect = show(
@@ -43,9 +38,6 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                                 preferences: &mut preferences,
                                 settings_open: false,
                                 datasource_open: false,
-                                datasource_size: egui::vec2(790.0, 570.0),
-                                datasource_view: &mut datasource_view,
-                                datasources: &mut datasource_manager,
                                 settings_view: &mut settings_view,
                                 active_widget: &mut tab,
                                 pinned: false,
@@ -65,6 +57,65 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
 }
 
 #[test]
+fn separate_data_source_window_does_not_expand_or_replace_capsule() {
+    fn bounds(source_window_open: bool) -> Rect {
+        let context = egui::Context::default();
+        let mut rect = Rect::NOTHING;
+        let mut title_rendered = false;
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(460.0, 260.0))),
+                ..Default::default()
+            },
+            |context| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(context, |ui| {
+                        ui.vertical_centered(|ui| {
+                            let mut tab = crate::app::widgets::default_widget_id();
+                            let mut prefs = AppPreferences::default();
+                            let mut settings = SettingsView::default();
+                            let icons = crate::app::icons::Icons::load(context);
+                            let (ids, widget) = widget_fixture();
+                            rect = show(
+                                ui,
+                                context,
+                                320.0,
+                                1.0,
+                                112.0,
+                                CapsuleWidgets {
+                                    capsule_views: &[],
+                                    widget_ids: &ids,
+                                    widget_titles: &[],
+                                    widget_title: "测试",
+                                    widget_view: &widget,
+                                    widget_body_limit: egui::vec2(300.0, 76.0),
+                                    alert_view: None,
+                                    preferences: &mut prefs,
+                                    settings_open: false,
+                                    datasource_open: source_window_open,
+                                    settings_view: &mut settings,
+                                    active_widget: &mut tab,
+                                    pinned: false,
+                                    icons: &icons,
+                                    notification: None,
+                                    do_not_disturb: false,
+                                },
+                            ).0;
+                        });
+                    });
+            },
+        );
+        title_rendered |= output.shapes.iter().any(|shape| {
+            matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("测试"))
+        });
+        assert!(title_rendered, "widget title remains visible when data-source window is open");
+        rect
+    }
+    assert_eq!(bounds(false).size(), bounds(true).size());
+}
+
+#[test]
 fn capsule_capsule_is_shorter_without_changing_the_expanded_widget_height() {
     assert_eq!(capsule_height(0.0, 76.0), 44.0);
     assert_eq!(capsule_height(1.0, 76.0), 124.0);
@@ -78,11 +129,6 @@ fn settings_close_button_returns_to_the_active_widget() {
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
     let mut preferences = AppPreferences::default();
     let mut settings_view = SettingsView::default();
-    let datasource_root = tempfile::tempdir().unwrap();
-    let mut datasource_manager = crate::core::datasource::DataSourceManager::open(
-        datasource_root.path(),
-    );
-    let mut datasource_view = crate::app::datasource::DataSourceView::default();
     let icons = crate::app::icons::Icons::load(&context);
     let (widget_ids, widget_view) = widget_fixture();
     let point = Pos2::new(SettingsView::WIDTH - 19.0 + 8.0, 26.0);
@@ -118,9 +164,6 @@ fn settings_close_button_returns_to_the_active_widget() {
                                 preferences: &mut preferences,
                                 settings_open: true,
                                 datasource_open: false,
-                                datasource_size: egui::vec2(790.0, 570.0),
-                                datasource_view: &mut datasource_view,
-                                datasources: &mut datasource_manager,
                                 settings_view: &mut settings_view,
                                 active_widget: &mut tab,
                                 pinned: false,
@@ -193,11 +236,6 @@ fn table_text_keeps_its_destination_wrap_width_during_expansion() {
     let icons = crate::app::icons::Icons::load(&ctx);
     let mut preferences = AppPreferences::default();
     let mut settings = SettingsView::default();
-    let datasource_root = tempfile::tempdir().unwrap();
-    let mut datasource_manager = crate::core::datasource::DataSourceManager::open(
-        datasource_root.path(),
-    );
-    let mut datasource_view = crate::app::datasource::DataSourceView::default();
     let mut active = crate::extension::ExtensionId::builtin("test/table");
     let ids = vec![active.clone()];
     let label =
@@ -241,9 +279,6 @@ fn table_text_keeps_its_destination_wrap_width_during_expansion() {
                             icons: &icons,
                             settings_open: false,
                             datasource_open: false,
-                            datasource_size: egui::vec2(790.0, 570.0),
-                            datasource_view: &mut datasource_view,
-                            datasources: &mut datasource_manager,
                             settings_view: &mut settings,
                             preferences: &mut preferences,
                         },

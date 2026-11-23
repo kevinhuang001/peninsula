@@ -1637,6 +1637,13 @@ fn write_batch_atomic(files: Vec<(PathBuf, Vec<u8>)>) -> Result<(), String> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             Err(error) => return Err(error.to_string()),
         };
+        // Importing a source used to rewrite every installed definition,
+        // even when no definition changed. Each redundant file forced an
+        // fsync on the UI thread. Reuse identical files to avoid stalls and
+        // unnecessary disk wear, while preserving atomic updates for changes.
+        if previous.as_deref() == Some(bytes.as_slice()) {
+            continue;
+        }
         let mut temp =
             tempfile::NamedTempFile::new_in(parent).map_err(|error| error.to_string())?;
         use std::io::Write;

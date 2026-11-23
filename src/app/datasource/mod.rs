@@ -1,9 +1,9 @@
-//! Data source management rendered directly inside the expanded capsule.
+//! Data source manager displayed in its own native viewport.
 use crate::core::datasource::{self, DataSourceManager, Definition, InputType, SourceSnapshot};
 use crate::ui::typography::Typography;
 use eframe::egui::{self, Align, Color32, Layout, RichText, Stroke, Vec2};
 use serde_json::Value;
-use std::{collections::HashMap, fs, time::Duration};
+use std::{collections::HashMap, fs, sync::mpsc, time::Duration};
 
 mod components;
 mod dialogs;
@@ -16,8 +16,8 @@ use support::*;
 const LEFT_WIDTH: f32 = 212.0;
 const COLUMN_GAP: f32 = 12.0;
 const CARD_CONTENT_WIDTH: f32 = 470.0;
-const VIEW_WIDTH: f32 = 790.0;
-const VIEW_HEIGHT: f32 = 570.0;
+const VIEW_WIDTH: f32 = 980.0;
+const VIEW_HEIGHT: f32 = 680.0;
 const COMPACT_WIDTH: f32 = 620.0;
 
 /// Resolution-based layout, never based on physical pixels or OS DPI directly.
@@ -36,6 +36,55 @@ pub(super) fn preferred_size(limit: [f32; 2]) -> Vec2 {
         VIEW_WIDTH.min(limit[0].max(1.0)),
         VIEW_HEIGHT.min(limit[1].max(1.0)),
     )
+}
+
+pub(super) fn viewport_id() -> egui::ViewportId {
+    egui::ViewportId::from_hash_of("peninsula-data-sources")
+}
+
+/// Data sources live in a resizable OS window, not in the dynamic capsule.
+/// The embedded fallback is used only when the eframe integration does not
+/// support additional native viewports.
+pub(super) fn show_window(
+    context: &egui::Context,
+    view: &mut DataSourceView,
+    manager: &mut DataSourceManager,
+    preferences: &mut super::settings::AppPreferences,
+    monitor: Vec2,
+) -> (bool, bool) {
+    let size = preferred_size([monitor.x * 0.90, monitor.y * 0.90]);
+    let builder = egui::ViewportBuilder::default()
+        .with_title("Peninsula 数据源")
+        .with_inner_size(size)
+        .with_min_inner_size([360.0, 320.0]);
+    let mut close = false;
+    let mut changed = false;
+    context.show_viewport_immediate(viewport_id(), builder, |context, class| {
+        if context.input(|input| {
+            (class != egui::ViewportClass::Embedded && input.viewport().close_requested())
+                || input.key_pressed(egui::Key::Escape)
+        }) {
+            close = true;
+            return;
+        }
+        if class == egui::ViewportClass::Embedded {
+            let mut open = true;
+            egui::Window::new("Peninsula 数据源")
+                .open(&mut open)
+                .default_size(size)
+                .resizable(true)
+                .show(context, |ui| {
+                    changed |= view.show(ui, manager, preferences);
+                });
+            close = !open;
+        } else {
+            egui::CentralPanel::default().show(context, |ui| {
+                ui.add_space(8.0);
+                changed |= view.show(ui, manager, preferences);
+            });
+        }
+    });
+    (close, changed)
 }
 
 #[cfg(test)]
@@ -76,4 +125,5 @@ pub(super) struct DataSourceView {
     delete_candidate: Option<String>,
     text_drafts: HashMap<String, String>,
     runtime_drafts: HashMap<String, String>,
+    picker: Option<mpsc::Receiver<Result<Option<Definition>, String>>>,
 }

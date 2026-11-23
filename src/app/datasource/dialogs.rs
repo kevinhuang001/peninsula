@@ -1,58 +1,61 @@
 use super::*;
 
 impl DataSourceView {
-    pub(super) fn pick_definition(&mut self, context: &egui::Context, manager: &DataSourceManager) {
-        let Some(path) = rfd::FileDialog::new()
-            // Native dialogs generally match the final filename extension only. The import
-            // handler below still checks the complete `.pds.json` suffix.
+    /// Opening the native chooser in a synchronous UI callback blocks the
+    /// eframe render loop (and may deadlock the winit event loop on macOS).
+    /// Create the async dialog on the UI thread, then await it and parse the
+    /// selected file on a worker. The resulting definition is applied on the
+    /// UI thread during a later frame.
+    pub(super) fn pick_definition(&mut self, context: &egui::Context) {
+        if self.picker.is_some() {
+            return;
+        }
+        let future = rfd::AsyncFileDialog::new()
             .add_filter("Peninsula 数据源", &["json"])
             .set_title("导入 Peninsula 数据源")
-            .pick_file()
-        else {
-            return;
-        };
-        let file_name = path.file_name().map_or_else(
-            || path.display().to_string(),
-            |name| name.to_string_lossy().into_owned(),
-        );
-        if !file_name.ends_with(".pds.json") {
-            self.set_error("请选择 .pds.json 文件。");
-            return;
-        }
-        let metadata = match fs::metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(_) => {
-                self.set_error(format!("数据源文件 {file_name} 不存在或不可读。"));
-                return;
+            .pick_file();
+        let (sender, receiver) = mpsc::channel();
+        self.picker = Some(receiver);
+        let repaint = context.clone();
+        std::thread::spawn(move || {
+            let result = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| format!("文件选择器启动失败：{error}"))
+                .and_then(|runtime| {
+                    let selected = runtime.block_on(future);
+                    selected.map(|file| read_definition_file(file.path())).transpose()
+                });
+            let _ = sender.send(result);
+            repaint.request_repaint();
+        });
+    }
+
+    pub(super) fn poll_definition(&mut self, context: &egui::Context, manager: &DataSourceManager) {
+        let result = self.picker.as_ref().and_then(|receiver| {
+            match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) =>
+                    Some(Err("文件选择器意外退出，请重试。".to_owned())),
             }
-        };
-        if metadata.len() > 2_000_000 {
-            self.set_error(format!("数据源文件 {file_name} 超过 2 MB。"));
-            return;
-        }
-        let source = match fs::read_to_string(&path) {
-            Ok(source) => source,
-            Err(error) => {
-                self.set_error(format!("无法读取文件 {file_name}：{error}"));
-                return;
-            }
-        };
-        match Definition::parse(&source) {
-            Ok(definition) => {
+        });
+        let Some(result) = result else { return };
+        self.picker = None;
+        match result {
+            Ok(Some(definition)) => {
                 self.allow_private_network = false;
                 self.status.clear();
                 self.status_source = None;
                 self.candidate_icon = manager.preview_icon(context, &definition);
                 self.candidate = Some(definition);
             }
-            Err(error) => {
-                self.set_error(format!("数据源 Schema 校验失败（{file_name}）：{error}"));
-            }
+            Ok(None) => {} // Cancelled.
+            Err(error) => self.set_error(error),
         }
     }
 
-
-    /// Import is reviewed in the capsule detail pane; no secondary viewport.
+    /// Import permissions are reviewed in the independent data-source window.
     pub(super) fn import_review(&mut self, ui: &mut egui::Ui, manager: &mut DataSourceManager) {
         let Some(candidate) = self.candidate.clone() else { return; };
         let origin = candidate.origin().unwrap_or_else(|_| "无效请求目标".into());
@@ -163,5 +166,40 @@ impl DataSourceView {
     pub(super) fn set_source_error(&mut self, source: &str, error: impl Into<String>) {
         self.status = error.into();
         self.status_source = (!self.status.is_empty()).then(|| source.to_owned());
+    }
+}
+
+fn read_definition_file(path: &std::path::Path) -> Result<Definition, String> {
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    if !name.ends_with(".pds.json") {
+        return Err("请选择 .pds.json 文件。".into());
+    }
+    let metadata = fs::metadata(path)
+        .map_err(|error| format!("无法读取文件 {name}：{error}"))?;
+    if metadata.len() > 2_000_000 {
+        return Err(format!("数据源文件 {name} 超过 2 MB。"));
+    }
+    let source = fs::read_to_string(path)
+        .map_err(|error| format!("无法读取文件 {name}：{error}"))?;
+    Definition::parse(&source)
+        .map_err(|error| format!("数据源 Schema 校验失败（{name}）：{error}"))
+}
+
+#[cfg(test)]
+mod import_tests {
+    use super::*;
+
+    #[test]
+    fn picker_rejects_bad_extensions_and_malformed_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let wrong = dir.path().join("anything.txt");
+        fs::write(&wrong, "{}").unwrap();
+        assert!(read_definition_file(&wrong).unwrap_err().contains(".pds.json"));
+        let invalid = dir.path().join("broken.pds.json");
+        fs::write(&invalid, "{").unwrap();
+        assert!(read_definition_file(&invalid).unwrap_err().contains("Schema"));
     }
 }
