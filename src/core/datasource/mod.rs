@@ -139,6 +139,8 @@ struct ManagedSource {
     generation: u64,
     retry_count: u8,
     force_refresh: bool,
+    /// A one-shot preview may read metrics while all contribution switches are off.
+    manual_refresh: bool,
     cancellation: Option<crate::sdk::tasks::CancellationToken>,
     icon_warning: Option<String>,
 }
@@ -149,6 +151,7 @@ pub struct SourceSnapshot {
     pub name: String,
     pub name_template: Option<String>,
     pub name_override: Option<String>,
+    pub capsule_text: String,
     pub description: String,
     pub origin: String,
     pub enabled: bool,
@@ -176,6 +179,7 @@ pub struct SourceSnapshot {
 pub struct MetricSnapshot {
     pub id: String,
     pub name: String,
+    pub capsule_text: String,
     pub value_path: String,
     pub value: Option<f64>,
     pub last_error: Option<String>,
@@ -374,6 +378,7 @@ impl DataSourceManager {
                         generation: 0,
                         retry_count: 0,
                         force_refresh: false,
+                        manual_refresh: false,
                         cancellation: None,
                         icon_warning,
                     },
@@ -407,6 +412,10 @@ impl DataSourceManager {
                     name: source_display_name(source),
                     name_template: source.definition.name_template.clone(),
                     name_override: source.config.name_override.clone(),
+                    capsule_text: render_capsule_text(
+                        source.definition.capsule_text.as_deref(),
+                        source.state.formatted.as_deref().unwrap_or("—"),
+                    ),
                     description: source.definition.description.clone(),
                     origin: source.config.origin.clone(),
                     enabled: source.config.enabled,
@@ -428,6 +437,10 @@ impl DataSourceManager {
                         MetricSnapshot {
                             id: metric_id.clone(),
                             name: metric.name.clone(),
+                            capsule_text: render_capsule_text(
+                                metric.capsule_text.as_deref(),
+                                state.and_then(|state| state.formatted.as_deref()).unwrap_or("—"),
+                            ),
                             value_path: metric.value.path.clone(),
                             value: state.and_then(|state| state.value),
                             last_error: state.and_then(|state| state.last_error.clone()),
@@ -566,9 +579,12 @@ impl DataSourceManager {
             }
             if !running {
                 source.force_refresh = false;
-                if let Some(token) = &source.cancellation {
-                    if !token.is_cancelled() {
-                        token.cancel();
+                // Preference sync must not cancel an explicit one-off preview.
+                if !source.manual_refresh {
+                    if let Some(token) = &source.cancellation {
+                        if !token.is_cancelled() {
+                            token.cancel();
+                        }
                     }
                 }
             } else if !was_running {
@@ -617,16 +633,21 @@ impl DataSourceManager {
                     if let Ok(capsule) = metric_capsule_id(id, metric_id) {
                         let formatted = source.state.metrics.get(metric_id)
                             .and_then(|state| state.formatted.as_deref()).unwrap_or("—");
+                        let text = render_capsule_text(metric.capsule_text.as_deref(), formatted);
                         views.push(capsule_view_for(
-                            source, capsule, formatted,
+                            source, capsule, &text,
                             format!("{} {}", source_display_name(source), metric.name),
                         ));
                     }
                 }
             } else if source.capsule {
                 if let Ok(capsule) = capsule_id(id) {
+                    let text = render_capsule_text(
+                        source.definition.capsule_text.as_deref(),
+                        source.state.formatted.as_deref().unwrap_or("—"),
+                    );
                     views.push(capsule_view_for(
-                        source, capsule, source.state.formatted.as_deref().unwrap_or("—"),
+                        source, capsule, &text,
                         source_display_name(source),
                     ));
                 }
@@ -772,6 +793,7 @@ impl DataSourceManager {
                 generation,
                 retry_count: 0,
                 force_refresh: false,
+                        manual_refresh: false,
                 cancellation: None,
                 icon_warning,
             },
@@ -846,9 +868,6 @@ impl DataSourceManager {
 
     pub fn refresh_now(&mut self, id: &str) -> Result<(), String> {
         let source = self.source_mut(id)?;
-        if !source.config.enabled {
-            return Err("请先启用此数据源".into());
-        }
         if source.in_flight {
             if let Some(token) = &source.cancellation {
                 token.cancel();
@@ -856,6 +875,7 @@ impl DataSourceManager {
             source.generation = source.generation.wrapping_add(1);
         }
         source.force_refresh = true;
+        source.manual_refresh = true;
         source.state.retry_at_ms = None;
         source.retry_count = 0;
         // Drop the old failure text so the button visibly starts a new attempt instead of
@@ -1478,6 +1498,10 @@ pub(crate) fn metric_capsule_id(id: &str, metric: &str) -> Result<ExtensionId, S
 pub(crate) fn capsule_id(id: &str) -> Result<ExtensionId, String> {
     ExtensionId::new(format!("{DATA_SOURCE_CAPSULE_PREFIX}{id}/value"))
         .map_err(|_| "数据源 id 无效".to_owned())
+}
+
+fn render_capsule_text(template: Option<&str>, formatted: &str) -> String {
+    template.map_or_else(|| formatted.to_owned(), |text| text.replace("${value}", formatted))
 }
 
 fn capsule_view_for(source: &ManagedSource, id: ExtensionId, formatted: &str, tooltip: String) -> CapsuleView {
@@ -2529,6 +2553,7 @@ mod tests {
             generation: 0,
             retry_count: 0,
             force_refresh: false,
+                        manual_refresh: false,
             cancellation: None,
             icon_warning: None,
         }
