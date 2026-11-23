@@ -203,10 +203,10 @@ impl DataSourceView {
                         form_surface(ui).show(ui, |ui| {
                             ui.set_width((card_width - 24.0).max(1.0));
                             ui.set_min_height(117.0);
-                            ui.label(RichText::new(&metric.name).size(13.0).strong());
+                            ui.label(RichText::new(&metric.name).size(Typography::font_id(ui.ctx(), Typography::SETTINGS_HEADING).size).strong());
                             ui.add(egui::Label::new(
                                 RichText::new(format!("胶囊预览  {}", metric.capsule_text))
-                                    .size(11.0).weak(),
+                                    .size(Typography::font_id(ui.ctx(), Typography::FORM_HINT).size).weak(),
                             ).truncate()).on_hover_text(&metric.capsule_text);
                             ui.add_space(6.0);
                             if let Ok(id) = datasource::metric_capsule_id(&source.id, &metric.id) {
@@ -248,7 +248,7 @@ impl DataSourceView {
                                             });
                                         if let Some(crate::extension::SettingValue::Duration(ms)) = values.get_mut("cooldown") {
                                             ui.horizontal(|ui| {
-                                                ui.label(RichText::new("最短间隔").size(11.0).weak());
+                                                ui.label(RichText::new("最短间隔").size(Typography::font_id(ui.ctx(), Typography::FORM_HINT).size).weak());
                                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                                     let mut minutes = (*ms).div_ceil(60_000).clamp(1, 43_200);
                                                     if ui.add(egui::DragValue::new(&mut minutes)
