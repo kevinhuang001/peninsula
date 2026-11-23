@@ -7,11 +7,7 @@ impl DataSourceView {
         source: &SourceSnapshot,
         manager: &mut DataSourceManager,
     ) {
-        let secret_hint = if source
-            .input_schema
-            .values()
-            .any(|schema| schema.kind == InputType::String)
-        {
+        let secret_hint = if source.input_schema.values().any(|schema| schema.kind == InputType::String) {
             "字符串参数可使用 $secret$ 引用「秘密」中的 Secret"
         } else {
             ""
@@ -21,145 +17,108 @@ impl DataSourceView {
             ui.label("此数据源没有用户参数。");
             return;
         }
-        let columns_count = 1;
-        let spacing = 10.0;
-        let card_width = ui.available_width().max(1.0);
-        egui::Grid::new(("datasource-input-cards", &source.id))
-            .num_columns(columns_count)
-            .spacing([spacing, spacing])
-            .show(ui, |ui| {
-                for (index, (key, schema)) in source.input_schema.iter().enumerate() {
-                    let current = source
-                        .inputs
-                        .get(key)
-                        .cloned()
-                        .or_else(|| schema.default.clone())
-                        .unwrap_or(Value::Null);
-                    let draft_id = format!("{}::{key}", source.id);
-                    let mut input_update = None;
-                    let mut invalid_number = false;
-
-                    form_surface(ui).show(ui, |ui| {
-                        ui.set_width((card_width - 24.0).max(1.0));
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(&schema.label).strong());
-                            if schema.required {
-                                ui.label(egui::RichText::new("必填").small().weak());
+        for (key, schema) in &source.input_schema {
+            let current = source.inputs.get(key).cloned()
+                .or_else(|| schema.default.clone()).unwrap_or(Value::Null);
+            let draft_id = format!("{}::{key}", source.id);
+            let mut input_update = None;
+            let mut invalid_number = false;
+            form_surface(ui).show(ui, |ui| {
+                let inner_width = form_width(ui).min(676.0);
+                ui.set_width(inner_width);
+                let mut control = |ui: &mut egui::Ui| {
+                    match schema.kind {
+                        InputType::Boolean => {
+                            let mut value = current.as_bool().unwrap_or(false);
+                            if switch(ui, &mut value, "开启") {
+                                input_update = Some(Value::Bool(value));
                             }
-                        });
-                        if !schema.description.is_empty() {
-                            ui.add_space(2.0);
-                            ui.label(egui::RichText::new(&schema.description).small().weak());
                         }
-                        ui.add_space(2.0);
-
-                        match schema.kind {
-                            InputType::Boolean => {
-                                let mut value = current.as_bool().unwrap_or(false);
-                                if switch(ui, &mut value, "开启") {
-                                    input_update = Some(Value::Bool(value));
-                                }
-                            }
-                            InputType::Enum => {
-                                let mut value = current.as_str().unwrap_or("").to_owned();
-                                ui.add_space((ui.available_width() - 220.0).max(0.0));
-                                egui::ComboBox::from_id_salt((&source.id, key))
-                                    .width(220.0)
-                                    .selected_text(if value.is_empty() {
-                                        "选择…"
-                                    } else {
-                                        &value
-                                    })
-                                    .show_ui(ui, |ui| {
-                                        for option in &schema.options {
-                                            ui.selectable_value(&mut value, option.clone(), option);
-                                        }
-                                    });
-                                if value != current.as_str().unwrap_or("") {
-                                    input_update = Some(Value::String(value));
-                                }
-                            }
-                            InputType::String
-                            | InputType::Number
-                            | InputType::Integer
-                            | InputType::Duration => {
-                                let initial = match schema.kind {
-                                    InputType::String | InputType::Duration => {
-                                        current.as_str().map(str::to_owned).unwrap_or_default()
+                        InputType::Enum => {
+                            let mut value = current.as_str().unwrap_or("").to_owned();
+                            egui::ComboBox::from_id_salt((&source.id, key))
+                                .width(210.0)
+                                .selected_text(if value.is_empty() { "选择…" } else { &value })
+                                .show_ui(ui, |ui| {
+                                    for option in &schema.options {
+                                        ui.selectable_value(&mut value, option.clone(), option);
                                     }
-                                    _ => current
-                                        .as_number()
-                                        .map(ToString::to_string)
-                                        .unwrap_or_default(),
+                                });
+                            if value != current.as_str().unwrap_or("") {
+                                input_update = Some(Value::String(value));
+                            }
+                        }
+                        InputType::String | InputType::Number | InputType::Integer | InputType::Duration => {
+                            let initial = match schema.kind {
+                                InputType::String | InputType::Duration =>
+                                    current.as_str().map(str::to_owned).unwrap_or_default(),
+                                _ => current.as_number().map(ToString::to_string).unwrap_or_default(),
+                            };
+                            let draft = self.text_drafts.entry(draft_id.clone())
+                                .or_insert_with(|| initial.clone());
+                            let response = ui.add_sized(
+                                [ui.available_width().min(212.0).max(20.0), 28.0],
+                                egui::TextEdit::singleline(draft).horizontal_align(Align::RIGHT),
+                            );
+                            let response = if schema.kind == InputType::String {
+                                response.on_hover_text("可填明文，或用 $名称$ 引用「秘密」条目")
+                            } else { response };
+                            let commit = response.lost_focus() || (response.has_focus()
+                                && ui.input(|input| input.key_pressed(egui::Key::Enter)));
+                            if (response.changed() || commit) && draft != &initial {
+                                let parsed = match schema.kind {
+                                    InputType::String => Some(Value::String(draft.clone())),
+                                    InputType::Number => draft.parse::<f64>().ok()
+                                        .filter(|value| value.is_finite()).map(Value::from),
+                                    InputType::Integer => draft.parse::<i64>().ok().map(Value::from),
+                                    InputType::Duration if datasource::parse_duration(draft).is_ok() =>
+                                        Some(Value::String(draft.clone())),
+                                    _ => None,
                                 };
-                                let draft = self
-                                    .text_drafts
-                                    .entry(draft_id.clone())
-                                    .or_insert_with(|| initial.clone());
-                                let editor = egui::TextEdit::singleline(draft);
-                                ui.add_space((ui.available_width() - 224.0).max(0.0));
-                                let response = ui.add_sized(
-                                    [(ui.available_width() - 4.0).min(220.0).max(20.0), 28.0],
-                                    editor.horizontal_align(Align::RIGHT),
-                                );
-                                let response = if schema.kind == InputType::String {
-                                    response.on_hover_text("可填明文，或用 $名称$ 引用「秘密」条目")
+                                if schema.required && draft.trim().is_empty() {
+                                    invalid_number = commit;
+                                } else if let Some(value) = parsed {
+                                    input_update = Some(value);
                                 } else {
-                                    response
-                                };
-                                let edited = response.changed();
-                                let commit = response.lost_focus()
-                                    || (response.has_focus()
-                                        && ui.input(|input| input.key_pressed(egui::Key::Enter)));
-                                if (edited || commit) && draft != &initial {
-                                    let parsed = match schema.kind {
-                                        InputType::String => Some(Value::String(draft.clone())),
-                                        InputType::Number => draft
-                                            .parse::<f64>()
-                                            .ok()
-                                            .filter(|value| value.is_finite())
-                                            .map(Value::from),
-                                        InputType::Integer => {
-                                            draft.parse::<i64>().ok().map(Value::from)
-                                        }
-                                        InputType::Duration
-                                            if datasource::parse_duration(draft).is_ok() =>
-                                        {
-                                            Some(Value::String(draft.clone()))
-                                        }
-                                        _ => None,
-                                    };
-                                    if schema.required && draft.trim().is_empty() {
-                                        invalid_number = commit;
-                                    } else if let Some(value) = parsed {
-                                        input_update = Some(value);
-                                    } else {
-                                        // Intermediate edits such as "-" or "10m" must not
-                                        // display a warning until the edit is committed.
-                                        invalid_number = commit;
-                                    }
+                                    invalid_number = commit;
                                 }
                             }
                         }
+                    }
+                };
+                if inner_width < 410.0 {
+                    ui.label(egui::RichText::new(&schema.label).strong());
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(inner_width, 30.0), Layout::right_to_left(Align::Center),
+                        &mut control,
+                    );
+                } else {
+                    ui.horizontal(|ui| {
+                        let label_width = (inner_width - 240.0).max(1.0);
+                        ui.add_sized(
+                            [label_width, 28.0],
+                            egui::Label::new(egui::RichText::new(&schema.label).strong()).truncate(),
+                        ).on_hover_text(&schema.label);
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(224.0, 28.0), Layout::right_to_left(Align::Center),
+                            &mut control,
+                        );
                     });
-
-                    if let Some(value) = input_update {
-                        self.set_source_status(
-                            &source.id,
-                            manager.set_input(&source.id, key, value),
-                        );
-                    }
-                    if invalid_number {
-                        self.set_source_error(
-                            &source.id,
-                            format!("{} 的格式或范围无效。", schema.label),
-                        );
-                    }
-                    if (index + 1) % columns_count == 0 {
-                        ui.end_row();
-                    }
+                }
+                if !schema.description.is_empty() {
+                    ui.add(egui::Label::new(
+                        egui::RichText::new(&schema.description).small().weak(),
+                    ).truncate()).on_hover_text(&schema.description);
                 }
             });
+            if let Some(value) = input_update {
+                self.set_source_status(&source.id, manager.set_input(&source.id, key, value));
+            }
+            if invalid_number {
+                self.set_source_error(&source.id, format!("{} 的格式或范围无效。", schema.label));
+            }
+            ui.add_space(5.0);
+        }
     }
 
     pub(super) fn runtime_settings(
@@ -188,9 +147,9 @@ impl DataSourceView {
         if !source.metrics.is_empty() {
             for metric in &source.metrics {
                 form_surface(ui).show(ui, |ui| {
-                    // Reserve all available detail-pane width so nested runtime
-                    // rows are aligned with the metric and timestamp rows.
-                    ui.set_width(ui.available_width().max(1.0));
+                    // Display settings stay compact, with labels on the
+                    // left and only the actual controls on the right.
+                    ui.set_width(form_width(ui).min(676.0));
                     ui.label(egui::RichText::new(&metric.name).strong());
                     ui.label(egui::RichText::new(
                         format!("胶囊：{}", metric.capsule_text),

@@ -162,43 +162,45 @@ pub(super) fn switch_row(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bo
     response.clicked()
 }
 
-/// Keep the setting label and its control in reserved, non-overlapping
-/// regions. The surrounding frame fills the source detail pane instead of
-/// shrinking to a 490-point column.
+/// Controls stay compact and aligned on the right, even when the data
+/// source detail pane itself is extremely wide.
+pub(super) fn form_width(ui: &egui::Ui) -> f32 {
+    ui.available_width().max(1.0).min(700.0)
+}
+
 pub(super) fn runtime_row(
     ui: &mut egui::Ui,
     label: &str,
     control: impl FnOnce(&mut egui::Ui),
 ) -> egui::Rect {
-    form_surface(ui).show(ui, |ui| {
-        let width = ui.available_width().max(1.0);
-        ui.set_width(width);
-        let control_width = 160.0;
-        let gap = ui.spacing().item_spacing.x;
-        if width < 330.0 {
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new(label).strong());
+    let width = form_width(ui);
+    if width < 310.0 {
+        ui.allocate_ui_with_layout(
+            Vec2::new(width, 58.0), Layout::top_down(Align::Min), |ui| {
+                ui.add(egui::Label::new(egui::RichText::new(label)).truncate())
+                    .on_hover_text(label);
                 ui.allocate_ui_with_layout(
-                    Vec2::new(width, 28.0),
-                    Layout::right_to_left(Align::Center),
-                    control,
+                    Vec2::new(width, 28.0), Layout::right_to_left(Align::Center), control,
                 );
-            });
-        } else {
-            ui.horizontal(|ui| {
-                let title_width = (width - control_width - gap).max(1.0);
+            },
+        ).response.rect
+    } else {
+        ui.allocate_ui_with_layout(
+            Vec2::new(width, 32.0), Layout::left_to_right(Align::Center), |ui| {
+                let gap = ui.spacing().item_spacing.x;
+                let control_width = 166.0;
                 ui.add_sized(
-                    [title_width, 28.0],
-                    egui::Label::new(egui::RichText::new(label).strong()).truncate(),
+                    [(width - control_width - gap).max(1.0), 28.0],
+                    egui::Label::new(label).truncate(),
                 ).on_hover_text(label);
                 ui.allocate_ui_with_layout(
                     Vec2::new(control_width, 28.0),
                     Layout::right_to_left(Align::Center),
                     control,
                 );
-            });
-        }
-    }).response.rect
+            },
+        ).response.rect
+    }
 }
 
 pub(super) fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) -> egui::Rect {

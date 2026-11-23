@@ -134,9 +134,10 @@ mod responsive_tests {
                 "at {width} pt info width {} does not fill {available}",
                 info.width(),
             );
+            let expected_controls = available.min(700.0);
             assert!(
-                (notification.width() - available).abs() <= 5.0,
-                "at {width} pt notification width {} does not fill {available}",
+                (notification.width() - expected_controls).abs() <= 5.0,
+                "at {width} pt setting row width {} should remain near {expected_controls}",
                 notification.width(),
             );
             assert!(

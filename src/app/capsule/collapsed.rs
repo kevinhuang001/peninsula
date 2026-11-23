@@ -80,9 +80,15 @@ pub(super) fn show(
     let mut action = None;
     for (item, width) in views.into_iter().zip(widths) {
         let view = item.view;
+        let chip_height = if renderer::is_multiline_capsule(&view.content) {
+            // All stacked-content chips (including network) share this size.
+            36.0
+        } else {
+            CHIP_HEIGHT
+        };
         let item_rect = Rect::from_center_size(
             Pos2::new(x + width * 0.5, center_y),
-            Vec2::new(width, CHIP_HEIGHT),
+            Vec2::new(width, chip_height),
         );
         let mascot = view.id.as_str() == crate::core::mascot::MASCOT_SLOT_ID;
         let item_opacity = if mascot {
