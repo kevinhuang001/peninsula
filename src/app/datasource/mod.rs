@@ -15,10 +15,10 @@ use support::*;
 
 const LEFT_WIDTH: f32 = 212.0;
 const COLUMN_GAP: f32 = 12.0;
-const VIEW_WIDTH: f32 = 820.0;
+const VIEW_WIDTH: f32 = 740.0;
 const VIEW_HEIGHT: f32 = 680.0;
 const COMPACT_WIDTH: f32 = 620.0;
-const DETAIL_WIDTH: f32 = 600.0;
+const DETAIL_WIDTH: f32 = 510.0;
 
 /// Resolution-based layout, never based on physical pixels or OS DPI directly.
 fn compact_layout(width: f32) -> bool {
@@ -101,6 +101,40 @@ mod responsive_tests {
     }
 
     #[test]
+    fn datasource_default_window_stays_narrow_with_readable_detail_width() {
+        assert_eq!(preferred_size([1600.0, 1000.0]).x, 740.0);
+        assert_eq!(DETAIL_WIDTH, 510.0);
+        assert!(VIEW_WIDTH >= LEFT_WIDTH + COLUMN_GAP + DETAIL_WIDTH);
+    }
+
+    #[test]
+    fn parameter_labels_are_drawn_at_the_left_edge() {
+        let context = egui::Context::default();
+        let mut label_rect = None;
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO, Vec2::new(500.0, 180.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        label_rect = Some(left_aligned_label(ui, "仓库所有者", 220.0));
+                    });
+            },
+        );
+        let rect = label_rect.unwrap();
+        let x = output.shapes.iter().find_map(|shape| {
+            let egui::Shape::Text(text) = &shape.shape else { return None };
+            (text.galley.job.text == "仓库所有者").then_some(text.pos.x)
+        }).expect("input label text must be painted");
+        assert!((x - rect.left()).abs() <= 1.5, "label x={x}, row starts at {}", rect.left());
+    }
+
+    #[test]
     fn detail_rows_fill_right_pane_and_keep_controls_inside() {
         // Logical point widths; the same geometry is used at all DPI scales.
         for width in [360.0, 540.0, 790.0, 1200.0] {
@@ -135,7 +169,7 @@ mod responsive_tests {
                 "at {width} pt info width {} does not fill {available}",
                 info.width(),
             );
-            let expected_controls = available.min(560.0);
+            let expected_controls = available.min(470.0);
             assert!(
                 (notification.width() - expected_controls).abs() <= 5.0,
                 "at {width} pt setting row width {} should remain near {expected_controls}",

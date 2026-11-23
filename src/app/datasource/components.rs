@@ -165,7 +165,24 @@ pub(super) fn switch_row(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bo
 /// Controls stay compact and aligned on the right, even when the data
 /// source detail pane itself is extremely wide.
 pub(super) fn form_width(ui: &egui::Ui) -> f32 {
-    ui.available_width().max(1.0).min(560.0)
+    ui.available_width().max(1.0).min(470.0)
+}
+
+/// egui centers text in a fixed-width Label by default. All data source
+/// settings (including input parameters) must paint their label at the
+/// allocated region's left edge instead.
+pub(super) fn left_aligned_label(ui: &mut egui::Ui, label: &str, width: f32) -> egui::Rect {
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(width.max(1.0), 28.0), egui::Sense::hover());
+    ui.painter().with_clip_rect(rect).text(
+        rect.left_center(),
+        egui::Align2::LEFT_CENTER,
+        label,
+        Typography::font_id(ui.ctx(), Typography::FORM_LABEL),
+        ui.visuals().text_color(),
+    );
+    response.on_hover_text(label);
+    rect
 }
 
 pub(super) fn runtime_row(
@@ -190,19 +207,7 @@ pub(super) fn runtime_row(
                 let gap = ui.spacing().item_spacing.x;
                 let control_width = 166.0;
                 let label_width = (width - control_width - gap).max(1.0);
-                let (label_rect, hover) = ui.allocate_exact_size(
-                    Vec2::new(label_width, 28.0), egui::Sense::hover(),
-                );
-                // Paint at the allocated region's LEFT edge. egui's sized
-                // Label may center its text inside a wide allocated box.
-                ui.painter().with_clip_rect(label_rect).text(
-                    label_rect.left_center(),
-                    egui::Align2::LEFT_CENTER,
-                    label,
-                    Typography::font_id(ui.ctx(), 13.0),
-                    ui.visuals().text_color(),
-                );
-                hover.on_hover_text(label);
+                left_aligned_label(ui, label, label_width);
                 ui.allocate_ui_with_layout(
                     Vec2::new(control_width, 28.0),
                     Layout::right_to_left(Align::Center),
