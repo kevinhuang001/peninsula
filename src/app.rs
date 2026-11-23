@@ -431,6 +431,9 @@ impl eframe::App for IslandApp {
     }
 
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
+        // egui's alignment inspector draws orange "Unaligned" captions on
+        // fractional widget edges. It is a developer overlay, not user UI.
+        context.style_mut(|style| style.debug.show_unaligned = false);
         crate::ui::typography::Typography::install(context, self.preferences.text_scale);
         let now = Instant::now();
         self.poll_unlock_task(context, now);
@@ -502,7 +505,7 @@ impl eframe::App for IslandApp {
         }
 
         self.extensions
-            .set_visible(self.state.expanded && !self.settings_open && !self.datasource_open);
+            .set_visible(self.state.expanded && !self.settings_open);
         for output in self.extensions.update(now) {
             self.apply_extension_output(output, context);
         }
@@ -554,7 +557,7 @@ impl eframe::App for IslandApp {
         }
         if self.notifications.update(
             now,
-            !self.settings_open && !self.datasource_open && unlock_handoff.is_none(),
+            !self.settings_open && unlock_handoff.is_none(),
             do_not_disturb,
         ) {
             self.state.show_notification();
@@ -706,13 +709,11 @@ impl eframe::App for IslandApp {
             };
         let minimum_body_height = (minimum.y - capsule::EXPANDED_BASE_HEIGHT).max(0.0);
         let widget_height = content_height.max(minimum_body_height.min(widget_limit[1]));
-        let datasource_size = datasource::preferred_size(surface_limit);
         let pointer = context.input(|input| input.pointer.hover_pos());
         if let Some(previous) = self.page_switch_from.take() {
             let next = capsule::resized_bounds(previous, widget_width, widget_height);
             if self.state.expanded
                 && !self.settings_open
-                && !self.datasource_open
                 && notice.is_none()
                 && (next.height() + 1.0 < previous.height()
                     || next.width() + 1.0 < previous.width())
@@ -728,9 +729,7 @@ impl eframe::App for IslandApp {
                 self.page_edge_grace = Some((previous, now + Duration::from_millis(1000)));
             }
         }
-        let width = if self.datasource_open {
-            datasource_size.x
-        } else if self.settings_open {
+        let width = if self.settings_open {
             self.settings_view
                 .width(context, &self.preferences)
                 .min(surface_limit[0])
@@ -759,7 +758,6 @@ impl eframe::App for IslandApp {
             now,
             !self.state.expanded
                 && !self.settings_open
-                && !self.datasource_open
                 && notice.is_none()
                 && unlock_handoff.is_none(),
         );
@@ -814,7 +812,7 @@ impl eframe::App for IslandApp {
         let capsule_width = capsule_layout::width(&self.preferences, &capsule_views);
         self.update_viewport_size(
             context,
-            capsule_width.max(widget_width).max(datasource_size.x).max(self.state.width.value),
+            capsule_width.max(widget_width).max(self.state.width.value),
         );
         if let Some(unlock) = unlock_handoff {
             self.state
@@ -834,8 +832,6 @@ impl eframe::App for IslandApp {
                     .min(widget_limit[1])
             } else if self.state.hides_widget() {
                 0.0
-            } else if self.datasource_open {
-                datasource_size.y
             } else if self.settings_open {
                 self.settings_view
                     .extra_height(context, &self.preferences)
@@ -891,9 +887,6 @@ impl eframe::App for IslandApp {
                             capsule_views: &capsule_views,
                             settings_open: self.settings_open,
                             datasource_open: self.datasource_open,
-                            datasource_size,
-                            datasource_view: &mut self.datasource_view,
-                            datasources: &mut self.datasources,
                             settings_view: &mut self.settings_view,
                             active_widget: &mut self.active_widget,
                             widget_ids: &widget_ids,
@@ -922,6 +915,25 @@ impl eframe::App for IslandApp {
                     interactive_rect = Some(rect);
                 });
             });
+
+        // The data-source manager is a separate OS viewport. Its UI and
+        // import chooser never enlarge the capsule or block its layout.
+        let datasource_changed = if self.datasource_open {
+            let (close, changed) = datasource::show_window(
+                context,
+                &mut self.datasource_view,
+                &mut self.datasources,
+                &mut self.preferences,
+                self.screen_size(),
+            );
+            if close {
+                self.datasource_open = false;
+                context.request_repaint();
+            }
+            changed
+        } else {
+            false
+        };
 
         if let Some((
             alert_interaction,
@@ -956,7 +968,6 @@ impl eframe::App for IslandApp {
             }
             if toggle_settings {
                 self.settings_open = !self.settings_open;
-                self.datasource_open = false;
                 let width = if self.settings_open {
                     self.settings_view
                         .width(context, &self.preferences)
@@ -974,21 +985,16 @@ impl eframe::App for IslandApp {
                 });
             }
             if toggle_datasource {
-                self.datasource_open = !self.datasource_open;
-                self.settings_open = false;
-                self.state.retarget_expanded_width(if self.datasource_open {
-                    datasource_size.x
-                } else {
-                    widget_width
-                });
-                self.widget_height.target(if self.datasource_open {
-                    datasource_size.y
-                } else {
-                    widget_height
-                });
+                // Repeated clicks focus the existing window instead of
+                // resizing or replacing the expanded capsule.
+                self.datasource_open = true;
+                context.send_viewport_cmd_to(
+                    datasource::viewport_id(),
+                    egui::ViewportCommand::Focus,
+                );
                 context.request_repaint();
             }
-            if preferences_changed {
+            if preferences_changed || datasource_changed {
                 context.request_repaint();
                 self.extensions
                     .apply_contribution_preferences(self.preferences.contribution_preferences());
@@ -1163,7 +1169,7 @@ impl eframe::App for IslandApp {
         if handoff.is_none()
             && self.state.observe_interaction(
                 hovering || dragging || notice.is_some() || menu_rect.is_some(),
-                self.settings_open || self.datasource_open,
+                self.settings_open,
                 dt,
             )
         {
@@ -1182,7 +1188,7 @@ impl eframe::App for IslandApp {
         let extension_wake = self.extensions.next_wake(
             now,
             !self.state.expanded,
-            (self.state.expanded && !self.settings_open && !self.datasource_open).then_some(&self.active_widget),
+            (self.state.expanded && !self.settings_open).then_some(&self.active_widget),
         );
         let quiet_wake = (!self.preferences.quiet_hours.periods().is_empty())
             .then_some(now + Duration::from_secs(30));
