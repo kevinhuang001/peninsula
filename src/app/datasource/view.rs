@@ -146,8 +146,8 @@ impl DataSourceView {
         manager: &DataSourceManager,
     ) {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("数据源").size(14.0).strong());
-            ui.label(RichText::new(sources.len().to_string()).size(12.0).weak());
+            ui.label(RichText::new("数据源").size(Typography::font_id(ui.ctx(), Typography::TITLE).size).strong());
+            ui.label(RichText::new(sources.len().to_string()).size(Typography::font_id(ui.ctx(), Typography::BODY).size).weak());
         });
         ui.add_space(8.0);
         egui::ScrollArea::vertical()
@@ -243,7 +243,7 @@ impl DataSourceView {
             let title_width = (width - 158.0).max(72.0);
             ui.add_sized(
                 [title_width, 31.0],
-                egui::Label::new(RichText::new(&source.name).size(20.0).strong()).truncate(),
+                egui::Label::new(RichText::new(&source.name).size(Typography::font_id(ui.ctx(), Typography::HEADING).size).strong()).truncate(),
             ).on_hover_text(&source.name);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let clicked = ui.add_enabled(
@@ -264,18 +264,18 @@ impl DataSourceView {
                 "自动监控中"
             } else {
                 "仅手动刷新"
-            }).size(11.0).color(if source.enabled {
+            }).size(Typography::font_id(ui.ctx(), Typography::FORM_HINT).size).color(if source.enabled {
                 accent(ui)
             } else {
                 ui.visuals().weak_text_color()
             }));
             if let Some(updated) = source.updated_ms {
                 ui.label(RichText::new(format!("上次更新 {}", updated_time_text(updated)))
-                    .size(11.0).weak());
+                    .size(Typography::font_id(ui.ctx(), Typography::FORM_HINT).size).weak());
             }
         });
         if !source.description.is_empty() {
-            ui.add(egui::Label::new(RichText::new(&source.description).size(12.0).weak())
+            ui.add(egui::Label::new(RichText::new(&source.description).size(Typography::font_id(ui.ctx(), Typography::BODY).size).weak())
                 .truncate()).on_hover_text(&source.description);
         }
         ui.add_space(10.0);
@@ -311,7 +311,7 @@ impl DataSourceView {
             });
         if let Some(error) = &source.last_error {
             ui.add_space(6.0);
-            ui.colored_label(egui::Color32::from_rgb(239, 145, 126), error);
+            ui.colored_label(ui.visuals().warn_fg_color, error);
         }
         if self.status_source.as_deref() == Some(source.id.as_str()) && !self.status.is_empty() {
             ui.colored_label(ui.visuals().warn_fg_color, &self.status);
@@ -333,7 +333,7 @@ impl DataSourceView {
                     .or_insert_with(|| configured_template.to_owned());
                 let mut name_update = None;
                 form_surface(ui).show(ui, |ui| {
-                    ui.label(RichText::new("显示名称").size(12.0).strong());
+                    ui.label(RichText::new("显示名称").size(Typography::font_id(ui.ctx(), Typography::BODY).size).strong());
                     let response = ui.add(
                         egui::TextEdit::singleline(draft)
                             .desired_width(ui.available_width().min(500.0)),
