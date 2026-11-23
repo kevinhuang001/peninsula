@@ -918,13 +918,14 @@ impl eframe::App for IslandApp {
 
         // The data-source manager is a separate OS viewport. Its UI and
         // import chooser never enlarge the capsule or block its layout.
+        let datasource_screen = self.screen_size();
         let datasource_changed = if self.datasource_open {
             let (close, changed) = datasource::show_window(
                 context,
                 &mut self.datasource_view,
                 &mut self.datasources,
                 &mut self.preferences,
-                self.screen_size(),
+                datasource_screen,
             );
             if close {
                 self.datasource_open = false;
@@ -1086,7 +1087,7 @@ impl eframe::App for IslandApp {
         }
 
         let dragging = self.window_drag.update(frame);
-        let can_turn_page = self.state.expanded && notice.is_none() && !self.settings_open && !self.datasource_open;
+        let can_turn_page = self.state.expanded && notice.is_none() && !self.settings_open;
         let grace_rect = self.page_edge_grace.take().filter(|(rect, deadline)| {
             can_turn_page
                 && now < *deadline
