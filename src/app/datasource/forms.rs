@@ -17,16 +17,17 @@ impl DataSourceView {
             ui.label("此数据源没有用户参数。");
             return;
         }
-        for (key, schema) in &source.input_schema {
+        // One panel for all parameter rows; no nested per-input cards.
+        form_surface(ui).show(ui, |ui| {
+            ui.set_width(form_width(ui));
+            for (index, (key, schema)) in source.input_schema.iter().enumerate() {
             let current = source.inputs.get(key).cloned()
                 .or_else(|| schema.default.clone()).unwrap_or(Value::Null);
             let draft_id = format!("{}::{key}", source.id);
             let mut input_update = None;
             let mut invalid_number = false;
-            form_surface(ui).show(ui, |ui| {
-                let inner_width = form_width(ui).min(676.0);
-                ui.set_width(inner_width);
-                let mut control = |ui: &mut egui::Ui| {
+            let inner_width = ui.available_width().max(1.0);
+            let mut control = |ui: &mut egui::Ui| {
                     match schema.kind {
                         InputType::Boolean => {
                             let mut value = current.as_bool().unwrap_or(false);
@@ -58,7 +59,9 @@ impl DataSourceView {
                                 .or_insert_with(|| initial.clone());
                             let response = ui.add_sized(
                                 [ui.available_width().min(212.0).max(20.0), 28.0],
-                                egui::TextEdit::singleline(draft).horizontal_align(Align::RIGHT),
+                                egui::TextEdit::singleline(draft)
+                                    .frame(false)
+                                    .horizontal_align(Align::RIGHT),
                             );
                             let response = if schema.kind == InputType::String {
                                 response.on_hover_text("可填明文，或用 $名称$ 引用「秘密」条目")
@@ -107,15 +110,17 @@ impl DataSourceView {
                         egui::RichText::new(&schema.description).small().weak(),
                     ).truncate()).on_hover_text(&schema.description);
                 }
-            });
             if let Some(value) = input_update {
                 self.set_source_status(&source.id, manager.set_input(&source.id, key, value));
             }
             if invalid_number {
                 self.set_source_error(&source.id, format!("{} 的格式或范围无效。", schema.label));
             }
-            ui.add_space(5.0);
+            if index + 1 < source.input_schema.len() {
+                ui.separator();
+            }
         }
+        });
     }
 
     pub(super) fn runtime_settings(
@@ -125,11 +130,16 @@ impl DataSourceView {
         manager: &mut DataSourceManager,
     ) {
         section_title(ui, "运行设置", "");
-        self.duration_setting(
-            ui, source, manager, "refresh", "自动刷新间隔",
-            source.refresh_interval_ms, Duration::from_secs(30),
-            Duration::from_secs(24 * 60 * 60),
-        );
+        // Runtime settings used to have no background at all. Match the
+        // single-surface metrics/parameters sections.
+        form_surface(ui).show(ui, |ui| {
+            ui.set_width(form_width(ui));
+            self.duration_setting(
+                ui, source, manager, "refresh", "自动刷新间隔",
+                source.refresh_interval_ms, Duration::from_secs(30),
+                Duration::from_secs(24 * 60 * 60),
+            );
+        });
     }
 
     /// These are the same Core contribution preferences shown in Settings.
@@ -278,6 +288,7 @@ impl DataSourceView {
                     .add_sized(
                         [72.0, 26.0],
                         egui::TextEdit::singleline(draft)
+                            .frame(false)
                             .desired_width(72.0)
                             .horizontal_align(Align::RIGHT),
                     )
