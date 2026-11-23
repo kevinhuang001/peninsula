@@ -194,9 +194,10 @@ impl Definition {
             return Err("V1 必须提供一个 value，且不能声明 values".into());
         }
         if self.schema == SCHEMA_ID_V2 &&
-            (self.value.is_some() || self.alert.is_some() || self.values.is_empty() || self.values.len() > 32)
+            (self.value.is_some() || self.alert.is_some() || self.capsule_text.is_some()
+                || self.values.is_empty() || self.values.len() > 32)
         {
-            return Err("V2 必须提供 1 至 32 个 values，不能声明根级 value/alert".into());
+            return Err("V2 必须提供 1 至 32 个 values，不能声明根级 value/alert/capsule_text".into());
         }
         if (self.request.is_some() && !self.requests.is_empty())
             || (self.request.is_none() && self.requests.is_empty())
