@@ -22,8 +22,8 @@ use std::{
 use url::Url;
 
 pub use schema::{
-    parse_duration, AlertOperator, Definition, HttpMethod, IconSpec, InputDefinition, InputType,
-    ValueDefinition,
+    parse_duration, AlertMode, AlertOperator, Definition, HttpMethod, IconSpec, InputDefinition, InputType,
+    MetricDefinition, ValueDefinition,
 };
 
 const MAX_RESPONSE_BYTES: usize = 1_048_576;
@@ -87,6 +87,32 @@ struct SavedState {
     last_alert_ms: Option<u64>,
     #[serde(default)]
     pending_alert: Option<PendingAlertMarker>,
+    #[serde(default)]
+    metrics: BTreeMap<String, MetricState>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MetricState {
+    #[serde(default)]
+    value: Option<f64>,
+    #[serde(default)]
+    previous: Option<f64>,
+    #[serde(default)]
+    formatted: Option<String>,
+    #[serde(default)]
+    pending_delta: f64,
+    #[serde(default)]
+    last_alert_ms: Option<u64>,
+    #[serde(default)]
+    pending_alert: Option<PendingAlertMarker>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct MetricSwitch {
+    capsule: bool,
+    alerts: bool,
+    alert_interval_ms: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -102,6 +128,7 @@ struct ManagedSource {
     capsule: bool,
     active_alerts: bool,
     alert_interval_ms: u64,
+    metric_switches: BTreeMap<String, MetricSwitch>,
     next_refresh: Instant,
     last_request: Option<Instant>,
     in_flight: bool,
@@ -125,6 +152,7 @@ pub struct SourceSnapshot {
     pub inputs: BTreeMap<String, Value>,
     pub input_schema: BTreeMap<String, InputDefinition>,
     pub value_path: String,
+    pub metrics: Vec<MetricSnapshot>,
     pub value: Option<f64>,
     pub formatted: Option<String>,
     pub updated_ms: Option<u64>,
@@ -138,6 +166,19 @@ pub struct SourceSnapshot {
     pub storage_error: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct MetricSnapshot {
+    pub id: String,
+    pub name: String,
+    pub value_path: String,
+    pub value: Option<f64>,
+    pub formatted: Option<String>,
+    pub pending_delta: f64,
+    pub has_alert: bool,
+    pub alert_status: String,
+    pub alert_interval_ms: u64,
+}
+
 struct FinishedRequest {
     id: String,
     generation: u64,
@@ -146,9 +187,14 @@ struct FinishedRequest {
 
 #[derive(Debug)]
 struct FetchResult {
+    metrics: BTreeMap<String, ExtractedMetric>,
+    status: u16,
+}
+
+#[derive(Debug)]
+struct ExtractedMetric {
     value: f64,
     formatted: String,
-    status: u16,
 }
 
 struct FetchError {
@@ -180,8 +226,20 @@ impl crate::extension::RuntimeExtension for DataSourceCatalog {
 pub(super) fn notification_source_local(id: &ExtensionId) -> Option<&str> {
     let key = id.as_str();
     key.strip_prefix("datasource/")
-        .and_then(|key| key.strip_suffix("/notification"))
+        .and_then(|key| key.split_once('/').map(|(source, _)| source))
         .or_else(|| key.strip_prefix("datasource."))
+}
+
+fn notification_metric_local(id: &ExtensionId) -> Option<(&str, &str)> {
+    let tail = id.as_str().strip_prefix("datasource/")?;
+    let (source, rest) = tail.split_once('/')?;
+    let metric = rest.strip_suffix("/notification")?;
+    (!metric.is_empty()).then_some((source, metric))
+}
+
+pub(crate) fn metric_notification_id(id: &str, metric: &str) -> Result<ExtensionId, String> {
+    ExtensionId::new(format!("datasource/{id}/{metric}/notification"))
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn notification_id(id: &str) -> Result<ExtensionId, String> {
@@ -300,6 +358,7 @@ impl DataSourceManager {
                         capsule: false,
                         active_alerts: false,
                         alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
+                        metric_switches: BTreeMap::new(),
                         next_refresh,
                         last_request: None,
                         in_flight: false,
@@ -336,7 +395,7 @@ impl DataSourceManager {
                 let alert_status = alert_diagnostic(source, now_ms);
                 SourceSnapshot {
                     id: id.clone(),
-                    name: source.definition.name.clone(),
+                    name: source.definition.display_name(&source.config.inputs),
                     description: source.definition.description.clone(),
                     origin: source.config.origin.clone(),
                     enabled: source.config.enabled,
@@ -348,7 +407,25 @@ impl DataSourceManager {
                         .as_millis() as u64,
                     inputs: source.config.inputs.clone(),
                     input_schema: source.definition.inputs.clone(),
-                    value_path: source.definition.value.path.clone(),
+                    value_path: source.definition.value.as_ref().map_or_else(
+                        || source.definition.values.values().next().map_or(String::new(), |metric| metric.value.path.clone()),
+                        |value| value.path.clone()
+                    ),
+                    metrics: source.definition.values.iter().map(|(metric_id, metric)| {
+                        let state = source.state.metrics.get(metric_id);
+                        let runtime = source.metric_switches.get(metric_id);
+                        MetricSnapshot {
+                            id: metric_id.clone(),
+                            name: metric.name.clone(),
+                            value_path: metric.value.path.clone(),
+                            value: state.and_then(|state| state.value),
+                            formatted: state.and_then(|state| state.formatted.clone()),
+                            pending_delta: state.map_or(0.0, |state| state.pending_delta),
+                            has_alert: metric.alert.is_some(),
+                            alert_status: metric_alert_diagnostic(source, metric_id, now_ms),
+                            alert_interval_ms: runtime.map_or(source.config.min_alert_interval_ms, |runtime| runtime.alert_interval_ms),
+                        }
+                    }).collect(),
                     value: source.state.value,
                     formatted: source.state.formatted.clone(),
                     updated_ms: source.state.updated_ms,
@@ -618,7 +695,10 @@ impl DataSourceManager {
             .map_or(0, |source| source.generation.wrapping_add(1));
         let state = previous.as_ref().map_or_else(SavedState::default, |old| {
             if old.definition.origin().ok() == Some(origin.clone())
-                && old.definition.value.path == definition.value.path
+                && old.definition.value.as_ref().map(|v| &v.path) == definition.value.as_ref().map(|v| &v.path)
+                && old.definition.values.iter().map(|(key, metric)| (key, &metric.value.path)).eq(
+                    definition.values.iter().map(|(key, metric)| (key, &metric.value.path))
+                )
             {
                 old.state.clone()
             } else {
@@ -649,6 +729,7 @@ impl DataSourceManager {
                 capsule,
                 active_alerts: false,
                 alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
+                metric_switches: previous.as_ref().map_or_else(BTreeMap::new, |old| old.metric_switches.clone()),
                 next_refresh: now,
                 last_request: None,
                 in_flight,
@@ -1231,6 +1312,11 @@ fn new_config(
             .filter_map(|(key, input)| input.default.clone().map(|value| (key.clone(), value)))
             .collect(),
     }
+}
+
+pub(crate) fn metric_capsule_id(id: &str, metric: &str) -> Result<ExtensionId, String> {
+    ExtensionId::new(format!("{DATA_SOURCE_CAPSULE_PREFIX}{id}/{metric}/value"))
+        .map_err(|_| "数据源指标 id 无效".to_owned())
 }
 
 pub(crate) fn capsule_id(id: &str) -> Result<ExtensionId, String> {
@@ -2066,6 +2152,7 @@ mod tests {
             capsule: true,
             active_alerts: false,
             alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
+            metric_switches: BTreeMap::new(),
             next_refresh: Instant::now(),
             last_request: None,
             in_flight: false,
