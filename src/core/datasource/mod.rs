@@ -54,6 +54,8 @@ struct SourceConfig {
     origin: String,
     #[serde(default)]
     inputs: BTreeMap<String, Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name_override: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -143,6 +145,8 @@ struct ManagedSource {
 pub struct SourceSnapshot {
     pub id: String,
     pub name: String,
+    pub name_template: Option<String>,
+    pub name_override: Option<String>,
     pub description: String,
     pub origin: String,
     pub enabled: bool,
@@ -396,7 +400,9 @@ impl DataSourceManager {
                 let alert_status = alert_diagnostic(source, now_ms);
                 SourceSnapshot {
                     id: id.clone(),
-                    name: source.definition.display_name(&source.config.inputs),
+                    name: source_display_name(source),
+                    name_template: source.definition.name_template.clone(),
+                    name_override: source.config.name_override.clone(),
                     description: source.definition.description.clone(),
                     origin: source.config.origin.clone(),
                     enabled: source.config.enabled,
@@ -450,7 +456,7 @@ impl DataSourceManager {
         let mut entries = Vec::new();
         for source in self.sources.values() {
             let id = &source.definition.id;
-            let display_name = source.definition.display_name(&source.config.inputs);
+            let display_name = source_display_name(source);
             if source.definition.is_multi() {
                 for (metric_id, metric) in &source.definition.values {
                     if let Ok(capsule) = metric_capsule_id(id, metric_id) {
@@ -599,7 +605,7 @@ impl DataSourceManager {
                             .and_then(|state| state.formatted.as_deref()).unwrap_or("—");
                         views.push(capsule_view_for(
                             source, capsule, formatted,
-                            format!("{} {}", source.definition.display_name(&source.config.inputs), metric.name),
+                            format!("{} {}", source_display_name(source), metric.name),
                         ));
                     }
                 }
@@ -607,7 +613,7 @@ impl DataSourceManager {
                 if let Ok(capsule) = capsule_id(id) {
                     views.push(capsule_view_for(
                         source, capsule, source.state.formatted.as_deref().unwrap_or("—"),
-                        source.definition.display_name(&source.config.inputs),
+                        source_display_name(source),
                     ));
                 }
             }
@@ -841,6 +847,24 @@ impl DataSourceManager {
         source.state.last_error = None;
         source.state.http_status = None;
         source.next_refresh = Instant::now();
+        Ok(())
+    }
+
+    pub fn set_display_name(&mut self, id: &str, template: String) -> Result<(), String> {
+        let source = self.source_mut(id)?;
+        let text = template.trim();
+        if text.chars().count() > 80 { return Err("名称最多 80 个字符".into()); }
+        if !text.is_empty() {
+            schema::validate_placeholders(text, &source.definition, false)?;
+        }
+        let previous = source.config.name_override.replace(text.to_owned());
+        if text.is_empty() { source.config.name_override = None; }
+        if let Err(error) = self.save_all() {
+            if let Some(source) = self.sources.get_mut(id) {
+                source.config.name_override = previous;
+            }
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -1371,6 +1395,23 @@ fn metric_from_notification(notification_id: &str) -> Option<&str> {
     (!metric.is_empty() && suffix.starts_with("alert-")).then_some(metric)
 }
 
+fn source_display_name(source: &ManagedSource) -> String {
+    let Some(template) = source.config.name_override.as_deref() else {
+        return source.definition.display_name(&source.config.inputs);
+    };
+    let mut result = template.to_owned();
+    for (key, value) in &source.config.inputs {
+        let name = value_to_string(value);
+        let replacement = if name.starts_with('$') && name.ends_with('$') {
+            "****"
+        } else {
+            name.as_str()
+        };
+        result = result.replace(&format!("${{input.{key}}}"), replacement);
+    }
+    if result.trim().is_empty() { source.definition.name.clone() } else { result }
+}
+
 fn new_config(
     definition: &Definition,
     origin: String,
@@ -1388,6 +1429,7 @@ fn new_config(
             .iter()
             .filter_map(|(key, input)| input.default.clone().map(|value| (key.clone(), value)))
             .collect(),
+        name_override: None,
     }
 }
 
