@@ -26,7 +26,7 @@ pub(super) fn paint_header(
         icons,
         opacity,
     } = content;
-    let text = if settings_open || datasource_open {
+    let text = if settings_open {
         Color32::WHITE
     } else {
         ui.visuals().text_color()
@@ -99,7 +99,7 @@ pub(super) fn paint_header(
         text,
         opacity,
     )
-    .on_hover_text(if datasource_open { "返回组件" } else { "管理数据源" })
+    .on_hover_text(if datasource_open { "显示数据源窗口" } else { "打开数据源窗口" })
     .clicked();
     let dashboard_requested = header_control(
         ui,
