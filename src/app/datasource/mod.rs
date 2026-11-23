@@ -15,7 +15,6 @@ use support::*;
 
 const LEFT_WIDTH: f32 = 212.0;
 const COLUMN_GAP: f32 = 12.0;
-const CARD_CONTENT_WIDTH: f32 = 490.0;
 const VIEW_WIDTH: f32 = 980.0;
 const VIEW_HEIGHT: f32 = 680.0;
 const COMPACT_WIDTH: f32 = 620.0;
@@ -97,6 +96,57 @@ mod responsive_tests {
             let size = preferred_size([w, h]);
             assert!(size.x > 0.0 && size.x <= w);
             assert!(size.y > 0.0 && size.y <= h);
+        }
+    }
+
+    #[test]
+    fn detail_rows_fill_right_pane_and_keep_controls_inside() {
+        // Logical point widths; the same geometry is used at all DPI scales.
+        for width in [360.0, 540.0, 790.0, 1200.0] {
+            let context = egui::Context::default();
+            let mut geometry = None;
+            let _ = context.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO, Vec2::new(width, 600.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ctx, |ui| {
+                            let available = ui.available_width();
+                            let info = info_card(ui, "开放 Issue", "0 个", 13.0);
+                            let mut control = egui::Rect::NOTHING;
+                            let notification = runtime_row(ui, "通知提醒", |ui| {
+                                control = ui
+                                    .add_sized([50.0, 22.0], egui::Button::new("切换"))
+                                    .rect;
+                            });
+                            geometry = Some((available, info, notification, control));
+                        });
+                },
+            );
+            let (available, info, notification, control) = geometry.unwrap();
+            assert!(
+                (info.width() - available).abs() <= 5.0,
+                "at {width} pt info width {} does not fill {available}",
+                info.width(),
+            );
+            assert!(
+                (notification.width() - available).abs() <= 5.0,
+                "at {width} pt notification width {} does not fill {available}",
+                notification.width(),
+            );
+            assert!(
+                notification.contains(control.center()),
+                "at {width} pt notification control is outside its row",
+            );
+            assert!(
+                control.right() <= notification.right() + 1.0,
+                "at {width} pt notification control overflows right edge",
+            );
         }
     }
 
