@@ -737,6 +737,50 @@ mod tests {
     }
 
     #[test]
+    fn v2_multi_url_routes_metrics_to_declared_requests() {
+        let mut example = serde_json::json!({
+            "schema": "peninsula.datasource/v2",
+            "id": "github-repository",
+            "name": "GitHub",
+            "inputs": {
+                "owner": {"type": "string", "label": "Owner", "default": "openai"}
+            },
+            "requests": {
+                "issues": {
+                    "method": "GET",
+                    "url": "https://api.github.com/search/issues",
+                    "query": {"q": "repo:${input.owner}/example is:issue"}
+                },
+                "stars": {
+                    "method": "GET",
+                    "url": "https://example.com/api/stars"
+                }
+            },
+            "values": {
+                "issues": {"name": "Issues", "request": "issues", "value": {"path": "$.total_count"}},
+                "stars": {"name": "Stars", "request": "stars", "value": {"path": "$.count"}}
+            }
+        });
+        let definition = Definition::parse(&example.to_string()).unwrap();
+        assert!(definition.request.is_none());
+        assert_eq!(definition.requests.len(), 2);
+        assert_eq!(definition.values["issues"].request.as_deref(), Some("issues"));
+        assert_eq!(definition.origins().unwrap().len(), 2);
+        assert!(definition.origin().unwrap().contains("https://api.github.com"));
+
+        example["values"]["issues"]["request"] = serde_json::json!("missing");
+        assert!(Definition::parse(&example.to_string()).is_err());
+        example["values"]["issues"]["request"] = serde_json::json!("issues");
+        example["request"] = serde_json::json!({
+            "method": "GET", "url": "https://example.com/api/extra"
+        });
+        assert!(Definition::parse(&example.to_string()).is_err());
+        example.as_object_mut().unwrap().remove("request");
+        example["requests"]["stars"]["url"] = serde_json::json!("https://${input.owner}.example.com");
+        assert!(Definition::parse(&example.to_string()).is_err());
+    }
+
+    #[test]
     fn secret_inputs_and_secret_placeholders_are_rejected() {
         let mut document = sample();
         document["inputs"]["api_key"] = serde_json::json!({
