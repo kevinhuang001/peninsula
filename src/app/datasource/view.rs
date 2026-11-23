@@ -280,35 +280,22 @@ impl DataSourceView {
         }
         ui.add_space(10.0);
 
-        // A dense, responsive metric grid uses the available detail width.
-        // Previously values appeared in narrow stacked rows and wasted half
-        // the independent viewport.
-        let metrics = source.metrics.len().max(1);
-        let columns = if width >= 690.0 { 3 } else if width >= 400.0 { 2 } else { 1 };
-        let columns = columns.min(metrics);
-        let gap = 10.0;
-        let tile_width = ((width - gap * (columns - 1) as f32) / columns as f32).max(1.0);
-        egui::Grid::new(("datasource-values", &source.id))
-            .num_columns(columns)
-            .spacing([gap, gap])
-            .show(ui, |ui| {
-                if source.metrics.is_empty() {
-                    metric_tile(
-                        ui, "当前值", source.formatted.as_deref().unwrap_or("—"),
-                        source.last_error.as_deref(), tile_width,
-                    );
-                } else {
-                    for (i, metric) in source.metrics.iter().enumerate() {
-                        metric_tile(
-                            ui, &metric.name, metric.formatted.as_deref().unwrap_or("—"),
-                            metric.last_error.as_deref(), tile_width,
-                        );
-                        if (i + 1) % columns == 0 {
-                            ui.end_row();
-                        }
-                    }
-                }
-            });
+        // Always use a single column: one metric occupies the complete detail
+        // width. Responsive layout is handled inside the row, not with a grid.
+        if source.metrics.is_empty() {
+            metric_row(
+                ui, "当前值", source.formatted.as_deref().unwrap_or("—"),
+                source.last_error.as_deref(),
+            );
+        } else {
+            for metric in &source.metrics {
+                metric_row(
+                    ui, &metric.name, metric.formatted.as_deref().unwrap_or("—"),
+                    metric.last_error.as_deref(),
+                );
+                ui.add_space(5.0);
+            }
+        }
         if let Some(error) = &source.last_error {
             ui.add_space(6.0);
             ui.colored_label(ui.visuals().warn_fg_color, error);
