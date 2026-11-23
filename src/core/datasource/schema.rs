@@ -8,6 +8,22 @@ pub const SCHEMA_ID_V2: &str = "peninsula.datasource/v2";
 pub const MIN_REFRESH: std::time::Duration = std::time::Duration::from_secs(30);
 pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// All capsules use the same renderer; the data source only selects whether
+/// the source name and formatted value share a row or occupy two rows.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CapsuleTextLayout {
+    #[default]
+    SingleLine,
+    TwoLine,
+}
+
+impl CapsuleTextLayout {
+    fn is_single_line(&self) -> bool {
+        matches!(self, Self::SingleLine)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
@@ -19,6 +35,8 @@ pub struct Definition {
     /// Optional text shown on the single-value capsule, e.g. "Star: ${value}".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capsule_text: Option<String>,
+    #[serde(default, skip_serializing_if = "CapsuleTextLayout::is_single_line")]
+    pub capsule_layout: CapsuleTextLayout,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
@@ -132,6 +150,8 @@ pub struct MetricDefinition {
     pub value: ValueDefinition,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capsule_text: Option<String>,
+    #[serde(default, skip_serializing_if = "CapsuleTextLayout::is_single_line")]
+    pub capsule_layout: CapsuleTextLayout,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alert: Option<AlertDefinition>,
 }
@@ -195,6 +215,7 @@ impl Definition {
         }
         if self.schema == SCHEMA_ID_V2 &&
             (self.value.is_some() || self.alert.is_some() || self.capsule_text.is_some()
+                || self.capsule_layout != CapsuleTextLayout::SingleLine
                 || self.values.is_empty() || self.values.len() > 32)
         {
             return Err("V2 必须提供 1 至 32 个 values，不能声明根级 value/alert/capsule_text".into());
@@ -706,6 +727,33 @@ mod tests {
 
         let error = Definition::parse(&document.to_string()).unwrap_err();
         assert!(error.contains("请求体.auth.token"), "{error}");
+    }
+
+    #[test]
+    fn two_line_capsule_layout_has_a_strict_schema_and_default() {
+        let mut doc = sample();
+        let original = Definition::parse(&doc.to_string()).unwrap();
+        assert_eq!(original.capsule_layout, super::CapsuleTextLayout::SingleLine);
+        doc["capsule_layout"] = serde_json::json!("two_line");
+        let two_line = Definition::parse(&doc.to_string()).unwrap();
+        assert_eq!(two_line.capsule_layout, super::CapsuleTextLayout::TwoLine);
+        doc["capsule_layout"] = serde_json::json!("three_line");
+        assert!(Definition::parse(&doc.to_string()).is_err());
+
+        let multi = serde_json::json!({
+            "schema": "peninsula.datasource/v2",
+            "id": "github-repo",
+            "name": "GitHub",
+            "name_template": "${input.repo}",
+            "inputs": {"repo": {"type": "string", "label": "Repo", "default": "peninsula"}},
+            "request": {"method": "GET", "url": "https://example.com/data"},
+            "values": {"issue": {
+                "name": "Issue", "value": {"path": "$.issues"},
+                "capsule_text": "Issue: ${value}", "capsule_layout": "two_line"
+            }}
+        });
+        let definition = Definition::parse(&multi.to_string()).unwrap();
+        assert_eq!(definition.values["issue"].capsule_layout, super::CapsuleTextLayout::TwoLine);
     }
 
     #[test]
