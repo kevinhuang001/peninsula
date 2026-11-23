@@ -68,7 +68,7 @@ pub(super) fn method_pill(ui: &mut egui::Ui, method: &str) {
 }
 
 pub(super) fn section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
-    ui.label(RichText::new(title).size(15.0).strong());
+    ui.label(RichText::new(title).size(Typography::font_id(ui.ctx(), Typography::TITLE).size).strong());
     if !subtitle.is_empty() {
         ui.label(
             RichText::new(subtitle)
@@ -198,14 +198,14 @@ pub(super) fn metric_tile(
     surface(ui).show(ui, |ui| {
         ui.set_width((outer_width - 24.0).max(1.0));
         ui.set_min_height(77.0);
-        ui.label(RichText::new(label).size(12.0).color(ui.visuals().weak_text_color()));
+        ui.label(RichText::new(label).size(Typography::font_id(ui.ctx(), Typography::BODY).size).color(ui.visuals().weak_text_color()));
         ui.add_space(4.0);
-        ui.add(egui::Label::new(RichText::new(value).size(24.0).strong()).truncate())
+        ui.add(egui::Label::new(RichText::new(value).size(Typography::font_id(ui.ctx(), Typography::HEADING * 1.3).size).strong()).truncate())
             .on_hover_text(value);
         if let Some(error) = error {
             ui.add_space(2.0);
-            ui.add(egui::Label::new(RichText::new(error).size(11.0).color(
-                egui::Color32::from_rgb(237, 145, 126),
+            ui.add(egui::Label::new(RichText::new(error).size(Typography::font_id(ui.ctx(), Typography::FORM_HINT).size).color(
+                ui.visuals().warn_fg_color,
             )).truncate()).on_hover_text(error);
         }
     });
