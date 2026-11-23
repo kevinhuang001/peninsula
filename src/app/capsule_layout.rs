@@ -42,7 +42,7 @@ pub(super) fn measure_views<'a>(
         .into_iter()
         .map(|view| {
             let mut item = CapsuleItem::from(view);
-            if view.fit_width {
+            if view.fit_width || renderer::is_multiline_capsule(&view.content) {
                 // Include the chip insets and round up so fractional metrics
                 // cannot introduce an ellipsis on the last glyph.
                 let width = (renderer::capsule_content_width(
@@ -102,7 +102,10 @@ pub(super) fn width(preferences: &AppPreferences, available: &[CapsuleItem<'_>])
         + HORIZONTAL_PADDING;
     let fits_content = available
         .iter()
-        .any(|view| view.view.fit_width && preferences.is_enabled(&view.view.id));
+        .any(|view| {
+            (view.view.fit_width || renderer::is_multiline_capsule(&view.view.content))
+                && preferences.is_enabled(&view.view.id)
+        });
     if fits_content {
         required.clamp(MIN_WIDTH, MAX_CONTENT_WIDTH)
     } else {
