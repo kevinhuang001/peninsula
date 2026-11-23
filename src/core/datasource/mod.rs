@@ -852,7 +852,16 @@ impl DataSourceManager {
             .ok_or_else(|| "参数不存在".to_owned())?;
         validate_runtime_input(input, &value)?;
         let input_kind = input.kind;
+        let old_metrics = source.state.metrics.clone();
+        let old_value = source.state.value;
+        let old_formatted = source.state.formatted.clone();
         let previous = source.config.inputs.insert(key.to_owned(), value);
+        if source.definition.is_multi() {
+            source.state.metrics.clear();
+        } else {
+            source.state.value = None;
+            source.state.formatted = None;
+        }
         let previous_next_refresh = source.next_refresh;
         let previous_force_refresh = source.force_refresh;
         let previous_retry_at = source.state.retry_at_ms;
@@ -886,6 +895,9 @@ impl DataSourceManager {
                 }
                 source.next_refresh = previous_next_refresh;
                 source.force_refresh = previous_force_refresh;
+                source.state.metrics = old_metrics;
+                source.state.value = old_value;
+                source.state.formatted = old_formatted;
                 source.state.retry_at_ms = previous_retry_at;
                 source.retry_count = previous_retry_count;
                 source.state.last_error = previous_error;
@@ -959,8 +971,23 @@ impl DataSourceManager {
             source.force_refresh = false;
             match finished.result {
                 Ok(result) => {
-                    source.state.value = Some(result.value);
-                    source.state.formatted = Some(result.formatted);
+                    for (metric_id, metric) in result.metrics {
+                        if source.definition.is_multi() {
+                            let state = source.state.metrics.entry(metric_id).or_default();
+                            if let Some(previous) = state.value {
+                                let difference = metric.value - previous;
+                                if difference.is_finite() {
+                                    state.pending_delta += difference;
+                                }
+                            }
+                            state.previous = state.value;
+                            state.value = Some(metric.value);
+                            state.formatted = Some(metric.formatted);
+                        } else {
+                            source.state.value = Some(metric.value);
+                            source.state.formatted = Some(metric.formatted);
+                        }
+                    }
                     source.state.updated_ms = Some(timestamp_ms());
                     source.state.last_error = None;
                     source.state.http_status = Some(result.status);
@@ -968,7 +995,14 @@ impl DataSourceManager {
                     source.retry_count = 0;
                     source.next_refresh = now + configured_interval(source);
                     if source.active_alerts {
-                        if let Some(alert) = evaluate_alert(source, timestamp_ms()) {
+                        let at = timestamp_ms();
+                        if source.definition.is_multi() {
+                            for metric_id in source.definition.values.keys() {
+                                if let Some(alert) = evaluate_metric_alert(source, metric_id, at) {
+                                    notifications.push(alert);
+                                }
+                            }
+                        } else if let Some(alert) = evaluate_alert(source, at) {
                             notifications.push(alert);
                         }
                     }
@@ -1831,36 +1865,31 @@ async fn execute_request(task: RequestTask) -> Result<FetchResult, FetchError> {
     }
     let json: Value =
         serde_json::from_slice(&bytes).map_err(|_| fetch_error("响应不是合法 JSON"))?;
-    let mut selector = jsonpath_lib::Selector::new();
-    selector
-        .str_path(&task.definition.value.path)
-        .map_err(|_| fetch_error("JSONPath 无效"))?;
-    selector.value(&json);
-    let values = selector
-        .select()
-        .map_err(|_| fetch_error("JSONPath 解析失败"))?;
-    if values.len() != 1 {
-        return Err(fetch_error("JSONPath 必须匹配唯一数值"));
+    // A single HTTP response may supply several independently selectable metrics.
+    let mut metrics = BTreeMap::new();
+    if task.definition.is_multi() {
+        for (id, definition) in &task.definition.values {
+            metrics.insert(id.clone(), extract_metric(&json, &definition.value)?);
+        }
+    } else if let Some(spec) = &task.definition.value {
+        metrics.insert("value".to_owned(), extract_metric(&json, spec)?);
     }
-    let raw = values[0]
-        .as_f64()
-        .or_else(|| {
-            values[0]
-                .as_str()
-                .and_then(|value| value.trim().parse::<f64>().ok())
-        })
+    Ok(FetchResult { metrics, status: status.as_u16() })
+}
+
+fn extract_metric(json: &Value, spec: &ValueDefinition) -> Result<ExtractedMetric, FetchError> {
+    let mut selector = jsonpath_lib::Selector::new();
+    selector.str_path(&spec.path).map_err(|_| fetch_error("JSONPath 无效"))?;
+    selector.value(json);
+    let values = selector.select().map_err(|_| fetch_error("JSONPath 解析失败"))?;
+    if values.len() != 1 { return Err(fetch_error("JSONPath 必须匹配唯一数值")); }
+    let raw = values[0].as_f64()
+        .or_else(|| values[0].as_str().and_then(|v| v.trim().parse::<f64>().ok()))
         .filter(|value| value.is_finite())
         .ok_or_else(|| fetch_error("提取结果不是有限数值"))?;
-    let spec = &task.definition.value;
     let value = raw * spec.multiply / spec.divide + spec.offset;
-    if !value.is_finite() {
-        return Err(fetch_error("数值转换结果无效"));
-    }
-    Ok(FetchResult {
-        value,
-        formatted: format_value(value, spec),
-        status: status.as_u16(),
-    })
+    if !value.is_finite() { return Err(fetch_error("数值转换结果无效")); }
+    Ok(ExtractedMetric { value, formatted: format_value(value, spec) })
 }
 
 fn fetch_error(message: &str) -> FetchError {
