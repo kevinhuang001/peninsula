@@ -7,11 +7,11 @@ pub(super) fn surface(ui: &egui::Ui) -> egui::Frame {
         .fill(fill)
         .stroke(Stroke::new(1.0_f32, border))
         .corner_radius(10.0)
-        .inner_margin(egui::Margin::same(12))
+        .inner_margin(egui::Margin::same(14))
 }
 
 pub(super) fn form_surface(ui: &egui::Ui) -> egui::Frame {
-    surface(ui).inner_margin(egui::Margin::symmetric(12, 7))
+    surface(ui).inner_margin(egui::Margin::symmetric(12, 6))
 }
 
 pub(super) fn accent(ui: &egui::Ui) -> Color32 {
@@ -68,7 +68,7 @@ pub(super) fn method_pill(ui: &mut egui::Ui, method: &str) {
 }
 
 pub(super) fn section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
-    ui.label(RichText::new(title).size(Typography::font_id(ui.ctx(), Typography::TITLE).size).strong());
+    ui.label(RichText::new(title).text_style(egui::TextStyle::Heading).strong());
     if !subtitle.is_empty() {
         ui.label(
             RichText::new(subtitle)
@@ -76,7 +76,7 @@ pub(super) fn section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
                 .color(ui.visuals().weak_text_color()),
         );
     }
-    ui.add_space(5.0);
+    ui.add_space(6.0);
 }
 
 pub(super) fn switch(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
@@ -118,7 +118,7 @@ pub(super) fn switch(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
 
 pub(super) fn switch_row(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bool {
     let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width(), 28.0),
+        Vec2::new(ui.available_width().min(CARD_CONTENT_WIDTH), 28.0),
         egui::Sense::click(),
     );
     if response.clicked() {
@@ -169,7 +169,7 @@ pub(super) fn runtime_row(
     control: impl FnOnce(&mut egui::Ui),
 ) {
     form_surface(ui).show(ui, |ui| {
-        let width = (ui.available_width() - 24.0).max(1.0);
+        let width = (ui.available_width() - 24.0).max(1.0).min(CARD_CONTENT_WIDTH);
         ui.set_width(width);
         if width < 260.0 {
             ui.vertical(|ui| {
@@ -185,47 +185,26 @@ pub(super) fn runtime_row(
     });
 }
 
-/// One metric per full-width row, regardless of window size. The content
-/// flows vertically on a narrow viewport instead of forming squashed cards.
-pub(super) fn metric_row(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &str,
-    error: Option<&str>,
-) -> egui::Rect {
-    let outer_width = ui.available_width().max(1.0);
+pub(super) fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) {
     form_surface(ui).show(ui, |ui| {
-        let content_width = (outer_width - 24.0).max(1.0);
-        ui.set_width(content_width);
-        let caption = RichText::new(label)
-            .size(Typography::font_id(ui.ctx(), Typography::BODY).size)
-            .color(ui.visuals().weak_text_color());
-        let number = RichText::new(value)
-            .size(Typography::font_id(ui.ctx(), Typography::HEADING * 1.15).size)
-            .strong();
-        if content_width < 280.0 {
-            ui.add(egui::Label::new(caption).truncate()).on_hover_text(label);
-            ui.add(egui::Label::new(number).truncate()).on_hover_text(value);
-        } else {
-            ui.horizontal(|ui| {
-                ui.add_sized(
-                    [(content_width * 0.55).max(1.0), 30.0],
-                    egui::Label::new(caption).truncate(),
-                ).on_hover_text(label);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.add(egui::Label::new(number).truncate()).on_hover_text(value);
-                });
-            });
-        }
-        if let Some(error) = error {
-            ui.add(
-                egui::Label::new(
-                    RichText::new(error)
-                        .size(Typography::font_id(ui.ctx(), Typography::FORM_HINT).size)
-                        .color(ui.visuals().warn_fg_color),
-                )
-                .truncate(),
-            ).on_hover_text(error);
-        }
-    }).response.rect
+        let (rect, _) = ui.allocate_exact_size(
+            Vec2::new(ui.available_width().min(CARD_CONTENT_WIDTH), 28.0),
+            egui::Sense::hover(),
+        );
+        ui.painter().text(
+            rect.left_center(),
+            egui::Align2::LEFT_CENTER,
+            label,
+            Typography::font_id(ui.ctx(), 12.0),
+            ui.visuals().weak_text_color(),
+        );
+        ui.painter().text(
+            rect.right_center(),
+            egui::Align2::RIGHT_CENTER,
+            value,
+            Typography::font_id(ui.ctx(), value_size),
+            ui.visuals().text_color(),
+        );
+    });
 }
+
