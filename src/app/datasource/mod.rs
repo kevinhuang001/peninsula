@@ -135,6 +135,42 @@ mod responsive_tests {
     }
 
     #[test]
+    fn metric_values_share_one_background_without_per_row_frames() {
+        let context = egui::Context::default();
+        let mut bounds = None;
+        context.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO, Vec2::new(540.0, 280.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        let panel = form_surface(ui).show(ui, |ui| {
+                            let issue = info_row(ui, "开放 Issue", "3 个", 13.0);
+                            ui.separator();
+                            let pr = info_row(ui, "开放 PR", "2 个", 13.0);
+                            ui.separator();
+                            let stars = info_row(ui, "Star 数", "4 个", 13.0);
+                            (issue, pr, stars)
+                        });
+                        bounds = Some((panel.response.rect, panel.inner));
+                    });
+            },
+        );
+        let (frame, (issue, pr, stars)) = bounds.unwrap();
+        assert!(frame.contains(issue.center()));
+        assert!(frame.contains(pr.center()));
+        assert!(frame.contains(stars.center()));
+        assert!(issue.bottom() < pr.top() && pr.bottom() < stars.top());
+        assert!((issue.left() - pr.left()).abs() < 0.5);
+        assert!((issue.width() - stars.width()).abs() < 0.5);
+    }
+
+    #[test]
     fn detail_rows_fill_right_pane_and_keep_controls_inside() {
         // Logical point widths; the same geometry is used at all DPI scales.
         for width in [360.0, 540.0, 790.0, 1200.0] {
@@ -152,7 +188,7 @@ mod responsive_tests {
                         .frame(egui::Frame::NONE)
                         .show(ctx, |ui| {
                             let available = ui.available_width();
-                            let info = info_card(ui, "开放 Issue", "0 个", 13.0);
+                            let info = info_row(ui, "开放 Issue", "0 个", 13.0);
                             let mut control = egui::Rect::NOTHING;
                             let notification = runtime_row(ui, "通知提醒", |ui| {
                                 control = ui

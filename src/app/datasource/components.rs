@@ -218,26 +218,27 @@ pub(super) fn runtime_row(
     }
 }
 
-pub(super) fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) -> egui::Rect {
-    form_surface(ui).show(ui, |ui| {
-        let (rect, _) = ui.allocate_exact_size(
-            Vec2::new(ui.available_width().max(1.0), 28.0),
-            egui::Sense::hover(),
-        );
-        ui.painter().text(
-            rect.left_center(),
-            egui::Align2::LEFT_CENTER,
-            label,
-            Typography::font_id(ui.ctx(), 12.0),
-            ui.visuals().weak_text_color(),
-        );
-        ui.painter().text(
-            rect.right_center(),
-            egui::Align2::RIGHT_CENTER,
-            value,
-            Typography::font_id(ui.ctx(), value_size),
-            ui.visuals().text_color(),
-        );
-    }).response.rect
+/// Paint a label/value pair without a card of its own. The caller owns
+/// exactly one surface for the entire metrics section.
+pub(super) fn info_row(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) -> egui::Rect {
+    let (rect, _) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width().max(1.0), 28.0),
+        egui::Sense::hover(),
+    );
+    ui.painter().text(
+        rect.left_center(),
+        egui::Align2::LEFT_CENTER,
+        label,
+        Typography::font_id(ui.ctx(), 12.0),
+        ui.visuals().weak_text_color(),
+    );
+    ui.painter().text(
+        rect.right_center(),
+        egui::Align2::RIGHT_CENTER,
+        value,
+        Typography::font_id(ui.ctx(), value_size),
+        ui.visuals().text_color(),
+    );
+    rect
 }
 

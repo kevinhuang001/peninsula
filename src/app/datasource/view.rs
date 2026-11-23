@@ -286,20 +286,27 @@ impl DataSourceView {
             ui.label(RichText::new(&source.description).text_style(egui::TextStyle::Small).weak());
         }
         ui.add_space(10.0);
-        if source.metrics.is_empty() {
-            info_card(ui, "当前值", source.formatted.as_deref().unwrap_or("—"), 13.0);
-        } else {
-            for metric in &source.metrics {
-                info_card(ui, &metric.name, metric.formatted.as_deref().unwrap_or("—"), 13.0);
-                ui.add_space(5.0);
-            }
-        }
-        ui.add_space(8.0);
+        // A single card contains every value and its last update. Individual
+        // rows have no frame, so there are no stacked background surfaces.
         let updated = source
             .updated_ms
             .map(updated_time_text)
             .unwrap_or_else(|| "等待首次更新".into());
-        info_card(ui, "更新时间", &updated, 12.0);
+        form_surface(ui).show(ui, |ui| {
+            ui.set_width(ui.available_width().max(1.0));
+            if source.metrics.is_empty() {
+                info_row(ui, "当前值", source.formatted.as_deref().unwrap_or("—"), 13.0);
+            } else {
+                for (index, metric) in source.metrics.iter().enumerate() {
+                    if index > 0 {
+                        ui.separator();
+                    }
+                    info_row(ui, &metric.name, metric.formatted.as_deref().unwrap_or("—"), 13.0);
+                }
+            }
+            ui.separator();
+            info_row(ui, "更新时间", &updated, 12.0);
+        });
         ui.add_space(10.0);
         self.presentation_settings(ui, source, preferences);
         ui.add_space(10.0);
