@@ -216,7 +216,7 @@ pub(super) fn build(calendar: &CalendarExtension) -> WidgetView {
         format!("{} / {:02}", shown.year(), shown.month())
     };
 
-    // Keep navigation as one compact action group on the right. The flexible
+    // Keep navigation as one capsule action group on the right. The flexible
     // spacer takes the available width, rather than spreading all 4 elements.
     let controls = ViewNode::row(vec![
         button("‹", "calendar:previous"),
@@ -389,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn widget_has_compact_navigation_and_complete_month_grid_only() {
+    fn widget_has_capsule_navigation_and_complete_month_grid_only() {
         let extension = CalendarExtension::default();
         let widget = build(&extension);
         let Node::Column(_, children) = &widget.root.kind else {

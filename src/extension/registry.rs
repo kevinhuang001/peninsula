@@ -254,7 +254,7 @@ mod tests {
             )
         };
         let entries = vec![
-            make("first", ContributionKind::Compact),
+            make("first", ContributionKind::Capsule),
             make("second", ContributionKind::Widget),
             make("third", ContributionKind::Notification),
         ];
@@ -280,7 +280,7 @@ mod tests {
     fn duplicate_contributions_and_core_pages_are_rejected() {
         let c = ContributionDescriptor::builtin(
             "test/cpu",
-            ContributionKind::Compact,
+            ContributionKind::Capsule,
             "CPU",
             "cpu",
             true,

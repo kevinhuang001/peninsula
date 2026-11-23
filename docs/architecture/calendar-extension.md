@@ -1,8 +1,8 @@
 # 日历扩展 / Calendar (内置)
 
 ## 设置规约
-- 扩展 ID：`builtin.calendar`；四类贡献：`month` Widget、`time` Compact、`today` Compact、`holidays` Notification。
-- 时间日期与日历合并为一个扩展（`builtin.calendar`），包含时间 Compact、日期 Compact、月历 Widget、节日提醒。扩展设置保留国家、地区、农历开关、时间格式选项；仅移除 Widget 顶部的国家、时区文字。
+- 扩展 ID：`builtin.calendar`；四类贡献：`month` Widget、`time` Capsule、`today` Capsule、`holidays` Notification。
+- 时间日期与日历合并为一个扩展（`builtin.calendar`），包含时间 Capsule、日期 Capsule、月历 Widget、节日提醒。扩展设置保留国家、地区、农历开关、时间格式选项；仅移除 Widget 顶部的国家、时区文字。
 - 中国地区可选显示农历，使用 `lunar-lite` 阳历转农历；非中国地区默认只显示公历。公历日期始终显示在大号行。
 - 节日第一优先级：月历格子在任何有节日的日期显示节日名，**不显示农历日期**。普通日期在开启农历时显示“初十、十六”等农历信息。
 - 中国传统节日含春节、除夕、元宵节、端午节、七夕节、中秋节、重阳节、腊八节等，由现成农历库计算日期后匹配节日规则。其它支持国家由 `holidays-rs` 提供法定公共假日的日期与名称。
@@ -10,7 +10,7 @@
 - 日期与定时采用 `chrono` / `chrono-tz` 的 IANA 时区与 DST 规则，**不能**用固定偏移代替地区时区。
 
 ## 通知
-通知中心自动显示 `builtin.calendar/holidays` 贡献项，关闭会停用其定时任务，不影响月历和 Compact。
+通知中心自动显示 `builtin.calendar/holidays` 贡献项，关闭会停用其定时任务，不影响月历和 Capsule。
 设置项 `when = 前一天 | 当天`、`hour = 0..23`、`minute = 0..59` 均通过宿主统一设置表单保存。一个节日对应当天或前一天的选定当地时刻。
 为避免应用重启或 DST 回拨后重复提醒，持久记录 `festival-date + timing + name`，并在一年多后清理。应用未运行时不保证系统级推送或补发。
 

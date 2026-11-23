@@ -1,6 +1,6 @@
 use super::monitor::{self, Download, DownloadState, Snapshot};
 use crate::extension::{
-    CompactView, ContributionDescriptor, ContributionKind, ExtensionId, ExtensionOutput,
+    CapsuleView, ContributionDescriptor, ContributionKind, ExtensionId, ExtensionOutput,
     Notification, NotificationAction, NotificationAlertView, NotificationCenterItemView,
     NotificationPresentationProvider, NotificationPriority, RuntimeExtension, ViewNode,
 };
@@ -12,21 +12,21 @@ use std::{
 
 pub const NOTIFICATION_ID: &str = "builtin.downloads/notifications";
 const SERVICE_ID: &str = "builtin.downloads/service.monitor";
-pub const COMPACT_ID: &str = "builtin.downloads/status";
-const COMPACT_WIDTH: f32 = 124.0;
+pub const CAPSULE_ID: &str = "builtin.downloads/status";
+const CAPSULE_WIDTH: f32 = 124.0;
 const COMPLETION_HOLD: Duration = Duration::from_secs(3);
 
 pub fn descriptors() -> Vec<ContributionDescriptor> {
     vec![
         ContributionDescriptor::builtin(
-            COMPACT_ID,
-            ContributionKind::Compact,
+            CAPSULE_ID,
+            ContributionKind::Capsule,
             "下载",
             "download",
             false,
             5,
         )
-        .with_size_hint(COMPACT_WIDTH, 28.0)
+        .with_size_hint(CAPSULE_WIDTH, 28.0)
         .with_dependency(ExtensionId::builtin(SERVICE_ID)),
         ContributionDescriptor::builtin(
             NOTIFICATION_ID,
@@ -60,7 +60,7 @@ pub struct DownloadExtension {
     snapshot: Snapshot,
     notification_sequence: u64,
     notification_enabled: bool,
-    compact_enabled: bool,
+    capsule_enabled: bool,
     recent_completion: Option<(Download, Instant)>,
 }
 
@@ -71,7 +71,7 @@ impl DownloadExtension {
             snapshot: Snapshot::default(),
             notification_sequence: 0,
             notification_enabled: false,
-            compact_enabled: false,
+            capsule_enabled: false,
             recent_completion: None,
         }
     }
@@ -121,7 +121,7 @@ impl RuntimeExtension for DownloadExtension {
             self.updates = None;
             self.snapshot = Snapshot::default();
         }
-        if matches!(id.as_str(), COMPACT_ID | SERVICE_ID) {
+        if matches!(id.as_str(), CAPSULE_ID | SERVICE_ID) {
             self.recent_completion = None;
         }
         Ok(())
@@ -132,7 +132,7 @@ impl RuntimeExtension for DownloadExtension {
         active: &std::collections::BTreeMap<ExtensionId, crate::extension::Settings>,
     ) {
         self.notification_enabled = active.contains_key(&ExtensionId::builtin(NOTIFICATION_ID));
-        self.compact_enabled = active.contains_key(&ExtensionId::builtin(COMPACT_ID));
+        self.capsule_enabled = active.contains_key(&ExtensionId::builtin(CAPSULE_ID));
     }
     fn on_contribution_update(
         &mut self,
@@ -150,7 +150,7 @@ impl RuntimeExtension for DownloadExtension {
             .is_some_and(|(_, expires)| now >= *expires)
         {
             self.recent_completion = None;
-            output.invalidated.push(ExtensionId::builtin(COMPACT_ID));
+            output.invalidated.push(ExtensionId::builtin(CAPSULE_ID));
         }
         while let Some(Ok(mut snapshot)) = self.updates.as_ref().map(|w| w.try_recv()) {
             for download in snapshot
@@ -159,7 +159,7 @@ impl RuntimeExtension for DownloadExtension {
                 .filter(|download| download.state == DownloadState::Complete)
             {
                 output.mascot_events.push("download.completed".into());
-                if self.compact_enabled {
+                if self.capsule_enabled {
                     self.recent_completion = Some((download.clone(), now + COMPLETION_HOLD));
                 }
                 if self.notification_enabled {
@@ -170,12 +170,12 @@ impl RuntimeExtension for DownloadExtension {
                 }
             }
             self.snapshot = snapshot;
-            output.invalidated.push(ExtensionId::builtin(COMPACT_ID));
+            output.invalidated.push(ExtensionId::builtin(CAPSULE_ID));
         }
         output
     }
 
-    fn compact_views(&self) -> Vec<CompactView> {
+    fn capsule_views(&self) -> Vec<CapsuleView> {
         let Some(download) = self.snapshot.preferred_active().or_else(|| {
             self.recent_completion
                 .as_ref()
@@ -189,9 +189,9 @@ impl RuntimeExtension for DownloadExtension {
         } else {
             ColorSpec::Cyan
         };
-        let size = compact_size(download.received);
+        let size = capsule_size(download.received);
         let icon = if complete {
-            ViewNode::svg("compact/check", 16.0).motion(Motion {
+            ViewNode::svg("capsule/check", 16.0).motion(Motion {
                 duration_ms: 300,
                 easing: Easing::EaseOut,
                 tracks: vec![MotionTrack::new(
@@ -224,12 +224,12 @@ impl RuntimeExtension for DownloadExtension {
                 format!("下载中 · {size}"),
             )
         };
-        let content = ViewNode::compact(
+        let content = ViewNode::capsule(
             leading,
             ViewNode::column(
                 vec![
-                    super::super::compact_value(title, false).color(ColorSpec::PrimaryText),
-                    super::super::compact_detail(detail),
+                    super::super::capsule_value(title, false).color(ColorSpec::PrimaryText),
+                    super::super::capsule_detail(detail),
                 ],
                 Flow {
                     gap: Some(0.0),
@@ -237,20 +237,20 @@ impl RuntimeExtension for DownloadExtension {
                     ..Default::default()
                 },
             ),
-            CompactLayout {
+            CapsuleLayout {
                 leading_size: [25.0, 25.0],
                 gap: 6.0,
                 ..Default::default()
             },
         )
         .color(color);
-        vec![CompactView {
-            id: ExtensionId::builtin(COMPACT_ID),
+        vec![CapsuleView {
+            id: ExtensionId::builtin(CAPSULE_ID),
             source_extension_id: ExtensionId::builtin(NOTIFICATION_ID),
             content,
             visibility: Default::default(),
             min_width: 86.0,
-            preferred_width: COMPACT_WIDTH,
+            preferred_width: CAPSULE_WIDTH,
             fit_width: false,
             priority: 1,
             tooltip: Some(if complete {
@@ -375,7 +375,7 @@ fn open_file(path: &Path, reveal: bool) -> Result<(), String> {
     }
 }
 
-fn compact_size(bytes: u64) -> String {
+fn capsule_size(bytes: u64) -> String {
     let mut value = bytes as f64;
     let mut unit = 0;
     while value >= 1024.0 && unit < 3 {
@@ -386,7 +386,7 @@ fn compact_size(bytes: u64) -> String {
 }
 
 #[cfg(test)]
-mod compact_tests {
+mod capsule_tests {
     use super::*;
 
     #[test]
@@ -397,7 +397,7 @@ mod compact_tests {
             snapshot: Snapshot::default(),
             notification_sequence: 0,
             notification_enabled: true,
-            compact_enabled: true,
+            capsule_enabled: true,
             recent_completion: None,
         };
         let context =
@@ -419,7 +419,7 @@ mod compact_tests {
             })
             .unwrap();
         extension.on_contribution_update(&context, &service, now);
-        let active = serde_json::to_string(&extension.compact_views()[0].content).unwrap();
+        let active = serde_json::to_string(&extension.capsule_views()[0].content).unwrap();
         assert!(active.contains("lucide/arrow-down"));
         assert!(active.contains("下载中"));
 
@@ -440,11 +440,11 @@ mod compact_tests {
                 .len(),
             1
         );
-        let complete = serde_json::to_string(&extension.compact_views()[0].content).unwrap();
-        assert!(complete.contains("compact/check"));
+        let complete = serde_json::to_string(&extension.capsule_views()[0].content).unwrap();
+        assert!(complete.contains("capsule/check"));
         assert!(complete.contains("下载完成"));
 
         extension.on_contribution_update(&context, &service, now + COMPLETION_HOLD);
-        assert!(extension.compact_views().is_empty());
+        assert!(extension.capsule_views().is_empty());
     }
 }

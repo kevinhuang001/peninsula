@@ -2,16 +2,16 @@ use super::{Align, Overflow, Size, SizeSpec, ViewNode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Compact {
+pub struct Capsule {
     pub leading: ViewNode,
     pub content: ViewNode,
     #[serde(default)]
-    pub layout: CompactLayout,
+    pub layout: CapsuleLayout,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct CompactLayout {
+pub struct CapsuleLayout {
     pub leading_size: [f32; 2],
     pub leading_min_size: [f32; 2],
     pub leading_max_size: [Option<f32>; 2],
@@ -30,7 +30,7 @@ pub struct CompactLayout {
     pub overflow: Overflow,
 }
 
-impl Default for CompactLayout {
+impl Default for CapsuleLayout {
     fn default() -> Self {
         Self {
             leading_size: [24.0; 2],

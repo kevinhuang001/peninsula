@@ -1,14 +1,14 @@
 use crate::extension::{
-    CompactView, ContributionDescriptor, ContributionKind, ExtensionId,
+    CapsuleView, ContributionDescriptor, ContributionKind, ExtensionId,
 };
-use crate::ui::declarative::{ColorSpec, CompactLayout, ViewNode};
+use crate::ui::declarative::{ColorSpec, CapsuleLayout, ViewNode};
 
 pub(super) const CLOCK_ID: &str = "builtin.calendar/time";
 
 pub(super) fn clock_descriptor() -> ContributionDescriptor {
     ContributionDescriptor::builtin(
         CLOCK_ID,
-        ContributionKind::Compact,
+        ContributionKind::Capsule,
         "时间",
         "clock",
         false,
@@ -18,16 +18,16 @@ pub(super) fn clock_descriptor() -> ContributionDescriptor {
 }
 
 
-pub(super) fn compact_view(twelve_hour: bool, show_date: bool) -> CompactView {
+pub(super) fn capsule_view(twelve_hour: bool, show_date: bool) -> CapsuleView {
         let time =
             time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-        CompactView {
+        CapsuleView {
             id: ExtensionId::builtin(CLOCK_ID),
             source_extension_id: ExtensionId::builtin(CLOCK_ID),
-            content: ViewNode::compact(
+            content: ViewNode::capsule(
                 ViewNode::svg(clock_svg(time.hour(), time.minute()), 18.0)
                     .color(ColorSpec::Warning),
-                super::super::compact_value(
+                super::super::capsule_value(
                     format!(
                         "{:02}:{:02}{}{}",
                         if twelve_hour {
@@ -53,7 +53,7 @@ pub(super) fn compact_view(twelve_hour: bool, show_date: bool) -> CompactView {
                     ),
                     true,
                 ),
-                CompactLayout {
+                CapsuleLayout {
                     leading_size: [18.0, 20.0],
                     gap: 4.0,
                     ..Default::default()

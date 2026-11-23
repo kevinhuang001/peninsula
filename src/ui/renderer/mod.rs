@@ -1,6 +1,6 @@
 mod animation;
 mod assets;
-mod compact;
+mod capsule;
 mod layout;
 mod paint;
 
@@ -161,7 +161,7 @@ pub fn natural_content_width(
     measure_natural_width(ctx, root, limit, icons, None)
 }
 
-pub fn compact_content_width(
+pub fn capsule_content_width(
     ctx: &egui::Context,
     root: &ViewNode,
     limit: f32,
@@ -173,7 +173,7 @@ pub fn compact_content_width(
         root,
         limit,
         icons,
-        Some(CompactTextAppearance {
+        Some(CapsuleTextAppearance {
             size: text_size,
             color: None,
         }),
@@ -185,7 +185,7 @@ fn measure_natural_width(
     root: &ViewNode,
     limit: f32,
     icons: &Icons,
-    appearance: Option<CompactTextAppearance>,
+    appearance: Option<CapsuleTextAppearance>,
 ) -> f32 {
     let ui = Ui::new(
         ctx.clone(),
@@ -194,7 +194,7 @@ fn measure_natural_width(
     );
     let mut renderer = Renderer::new(&ui, icons);
     renderer.intrinsic_width = true;
-    renderer.compact_text_appearance = appearance;
+    renderer.capsule_text_appearance = appearance;
     renderer
         .measure(&ui, root, vec2(point(limit), 0.0), [None; 2], 0)
         .x
@@ -227,7 +227,7 @@ pub fn scrolls_horizontally(view: &WidgetView) -> bool {
     ) || layout::scrolls(&view.root, 0, 0, &mut 4096)
 }
 
-pub fn show_compact(
+pub fn show_capsule(
     ui: &mut Ui,
     rect: Rect,
     id: &ExtensionId,
@@ -235,25 +235,25 @@ pub fn show_compact(
     icons: &Icons,
     opacity: f32,
 ) -> Option<crate::extension::Action> {
-    show_compact_in_clip(ui, rect, rect, id, node, icons, opacity, None)
+    show_capsule_in_clip(ui, rect, rect, id, node, icons, opacity, None)
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct CompactTextAppearance {
+pub struct CapsuleTextAppearance {
     pub size: f32,
     pub color: Option<Color32>,
 }
 
-pub fn show_compact_with_appearance(
+pub fn show_capsule_with_appearance(
     ui: &mut Ui,
     rect: Rect,
     id: &ExtensionId,
     node: &ViewNode,
     icons: &Icons,
     opacity: f32,
-    appearance: CompactTextAppearance,
+    appearance: CapsuleTextAppearance,
 ) -> Option<crate::extension::Action> {
-    show_compact_in_clip(ui, rect, rect, id, node, icons, opacity, Some(appearance))
+    show_capsule_in_clip(ui, rect, rect, id, node, icons, opacity, Some(appearance))
 }
 
 /// Paint a positioned Prompt layer while allowing motion across the capsule.
@@ -266,10 +266,10 @@ pub fn show_prompt_layer(
     icons: &Icons,
     opacity: f32,
 ) -> Option<crate::extension::Action> {
-    show_compact_in_clip(ui, rect, capsule, id, node, icons, opacity, None)
+    show_capsule_in_clip(ui, rect, capsule, id, node, icons, opacity, None)
 }
 
-fn show_compact_in_clip(
+fn show_capsule_in_clip(
     ui: &mut Ui,
     rect: Rect,
     clip: Rect,
@@ -277,14 +277,14 @@ fn show_compact_in_clip(
     node: &ViewNode,
     icons: &Icons,
     opacity: f32,
-    appearance: Option<CompactTextAppearance>,
+    appearance: Option<CapsuleTextAppearance>,
 ) -> Option<crate::extension::Action> {
     if !rect.is_positive() || opacity <= 0.0 || !ui.is_rect_visible(rect) {
         return None;
     }
     let mut renderer = Renderer::new(ui, icons);
-    renderer.compact_text_appearance = appearance;
-    let mut surface = ui.new_child(UiBuilder::new().id_salt(("compact", id)).max_rect(rect));
+    renderer.capsule_text_appearance = appearance;
+    let mut surface = ui.new_child(UiBuilder::new().id_salt(("capsule", id)).max_rect(rect));
     surface.set_clip_rect(ui.clip_rect().intersect(clip));
     // The chip keeps its allocation while shorter content sits in its center.
     let measured = renderer.in_cell(&surface, node, rect.size(), [Align::Start; 2], 0);
@@ -312,13 +312,13 @@ struct Renderer<'a> {
     remaining: usize,
     measure_remaining: usize,
     animations_remaining: usize,
-    compact_text_appearance: Option<CompactTextAppearance>,
+    capsule_text_appearance: Option<CapsuleTextAppearance>,
 }
 
 struct Theme {
     gap: f32,
     radius: f32,
-    accent: Color32,
+    tokens: crate::ui::palette::ThemeTokens,
     dark: bool,
 }
 
@@ -328,7 +328,7 @@ impl Theme {
         Self {
             gap: ui.spacing().item_spacing.x,
             radius: f32::from(visuals.widgets.inactive.corner_radius.nw),
-            accent: visuals.selection.bg_fill,
+            tokens: crate::ui::palette::accent_tokens(ui.ctx(), visuals.dark_mode),
             dark: visuals.dark_mode,
         }
     }
@@ -342,11 +342,11 @@ impl Theme {
             MutedText => text.muted,
             Surface => ui.visuals().panel_fill,
             SurfaceVariant => ui.visuals().widgets.noninteractive.bg_fill,
-            Accent => self.accent,
-            OnAccent => ui.visuals().selection.stroke.color,
-            AccentSubtle => self
-                .accent
-                .gamma_multiply(if self.dark { 0.26 } else { 0.12 }),
+            Accent => self.tokens.accent,
+            OnAccent => self.tokens.on_accent,
+            AccentSubtle => self.tokens.accent_subtle,
+            OnAccentSubtle => self.tokens.on_accent_subtle,
+            AccentShade(shade) => self.tokens.scale.at(shade.index()),
             Border => ui.visuals().widgets.noninteractive.bg_stroke.color,
             Success => text.success,
             Warning => text.warning,
@@ -371,13 +371,13 @@ impl<'a> Renderer<'a> {
             remaining: 4096,
             measure_remaining: 16_384,
             animations_remaining: 24,
-            compact_text_appearance: None,
+            capsule_text_appearance: None,
         }
     }
 
     fn paint_root(&mut self, ui: &mut Ui, rect: Rect, node: &ViewNode, opacity: f32) {
         let mut size = self.in_cell(ui, node, rect.size(), [Align::Stretch; 2], 0);
-        if matches!(node.kind, Node::Compact(_)) {
+        if matches!(node.kind, Node::Capsule(_)) {
             size = size.min(rect.size());
         }
         self.paint(
@@ -478,8 +478,8 @@ impl<'a> Renderer<'a> {
             });
     }
 
-    fn compact_text_style(&self, mut style: TextStyle) -> TextStyle {
-        if let Some(appearance) = self.compact_text_appearance {
+    fn capsule_text_style(&self, mut style: TextStyle) -> TextStyle {
+        if let Some(appearance) = self.capsule_text_appearance {
             style.font_size = FontSize::Custom(appearance.size);
             style.font_weight = FontWeight::Bold;
             style.line_height = None;

@@ -1,16 +1,16 @@
 use crate::{
-    app::settings::{CompactPreferences, SettingsView},
+    app::settings::{AppPreferences, SettingsView},
     extension::{ActionInvocation, AlertInteraction, ExtensionId, Notification, WidgetView},
 };
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
-mod compact;
+mod collapsed;
 mod expanded;
 use crate::ui::renderer;
 pub(super) use expanded::{navigation_rect, navigation_width, NAVIGATION_HEIGHT};
 
 use super::{
-    compact_layout::{CompactItem, CAPSULE_HEIGHT},
+    capsule_layout::{CapsuleItem, CAPSULE_HEIGHT},
     icons::Icons,
     widgets,
 };
@@ -27,7 +27,7 @@ pub(super) fn body_size(width: f32, widget_height: f32) -> Vec2 {
     )
 }
 
-pub(super) fn draw_compact_chip(ui: &egui::Ui, rect: Rect, opacity: f32) {
+pub(super) fn draw_capsule_chip(ui: &egui::Ui, rect: Rect, opacity: f32) {
     ui.painter().rect_filled(
         rect,
         rect.height() * 0.5,
@@ -40,8 +40,8 @@ pub(super) fn draw_compact_chip(ui: &egui::Ui, rect: Rect, opacity: f32) {
 }
 
 pub(super) struct CapsuleWidgets<'a> {
-    pub preferences: &'a mut CompactPreferences,
-    pub compact_views: &'a [CompactItem<'a>],
+    pub preferences: &'a mut AppPreferences,
+    pub capsule_views: &'a [CapsuleItem<'a>],
     pub settings_open: bool,
     pub settings_view: &'a mut SettingsView,
     pub active_widget: &'a mut ExtensionId,
@@ -115,13 +115,13 @@ pub(super) fn show(
     let mut quiet_toggled = false;
     let mut dashboard_requested = false;
     let (settings, pin_toggled) = if progress < 0.9 {
-        widget_action = compact::show(
+        widget_action = collapsed::show(
             ui,
             rect,
             progress,
-            compact::CompactContent {
+            collapsed::CapsuleContent {
                 prefs: content.preferences,
-                views: content.compact_views,
+                views: content.capsule_views,
                 icons: content.icons,
                 handoff: None,
             },
@@ -162,7 +162,7 @@ pub(super) fn show(
         let clicked = ui
             .add(
                 egui::Button::new(egui::RichText::new("退出灵动岛").color(egui::Color32::WHITE))
-                    .fill(ui.visuals().selection.bg_fill),
+                    .fill(crate::ui::palette::accent_tokens(ui.ctx(), ui.visuals().dark_mode).accent),
             )
             .clicked();
         if clicked {
@@ -191,27 +191,27 @@ pub(super) fn show(
 pub(super) fn show_unlock_handoff(
     ui: &mut egui::Ui,
     width: f32,
-    compact_width: f32,
+    capsule_width: f32,
     handoff: super::unlock::UnlockHandoff,
-    preferences: &CompactPreferences,
-    views: &[CompactItem<'_>],
+    preferences: &AppPreferences,
+    views: &[CapsuleItem<'_>],
     icons: &Icons,
 ) -> Rect {
     let (shell, _) = ui.allocate_exact_size(Vec2::new(width, CAPSULE_HEIGHT), Sense::hover());
     paint_shell(ui, shell, 0.0, false);
     let destination =
-        Rect::from_center_size(shell.center(), Vec2::new(compact_width, CAPSULE_HEIGHT));
+        Rect::from_center_size(shell.center(), Vec2::new(capsule_width, CAPSULE_HEIGHT));
     let mut surface = ui.new_child(
         egui::UiBuilder::new()
             .id_salt("unlock-handoff")
             .max_rect(shell),
     );
     surface.set_clip_rect(ui.clip_rect().intersect(shell));
-    compact::show(
+    collapsed::show(
         &mut surface,
         destination,
         0.0,
-        compact::CompactContent {
+        collapsed::CapsuleContent {
             prefs: preferences,
             views,
             icons,
@@ -319,7 +319,7 @@ struct ExpandedContent<'a> {
     icons: &'a Icons,
     settings_open: bool,
     settings_view: &'a mut SettingsView,
-    preferences: &'a mut CompactPreferences,
+    preferences: &'a mut AppPreferences,
 }
 
 fn paint_expanded(

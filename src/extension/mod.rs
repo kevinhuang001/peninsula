@@ -18,7 +18,7 @@ pub use notification::{
 };
 pub use registry::{ExtensionRegistry, RegistrationError, NOTIFICATION_CENTER_ID};
 pub use view::{
-    Action, ActionInvocation, AlertInteraction, CompactView, CompactVisibility, Event,
+    Action, ActionInvocation, AlertInteraction, CapsuleView, CapsuleVisibility, Event,
     ExtensionOutput, HostScheduler, NotificationPresentationProvider, Prompt, PromptLayer,
     RuntimeExtension, ScheduledTask, SettingSearchTask, WidgetVisibility,
 };

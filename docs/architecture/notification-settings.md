@@ -12,14 +12,14 @@ Extension-wide options shared by many notifications belong in `ExtensionDescript
 
 For each user-owned market asset, the market extension registers:
 
-- `builtin.market/assets/<kind>/<symbol>/price-alert` as a `Notification` contribution, and a separate optional `Compact` contribution.
+- `builtin.market/assets/<kind>/<symbol>/price-alert` as a `Notification` contribution, and a separate optional `Capsule` contribution.
 - `condition: Enum("高于" | "低于")` and `threshold: Float` as notification-specific fields.
-- `builtin.market/service.quotes` as an on-demand background dependency. No Widget or Compact is required for alerts.
+- `builtin.market/service.quotes` as an on-demand background dependency. No Widget or Capsule is required for alerts.
 - `alert_interval_minutes: Integer`, valid from **1–10,080 minutes**, once on the **market extension**. All per-asset price alerts share it.
 
 The Notifications → Market UI displays this one shared interval before the asset list, and displays each asset's independent enable switch, condition and **editable target price text field**. The text editor accepts finite nonnegative decimal values, keeps incomplete typing as a UI draft, and commits valid prices into the contribution's existing Float setting; a blank value clears the threshold to zero. Nonpositive prices cannot activate the notification. The source of truth is the existing extension setting; the same cooldown control in Extensions → Market edits the same record.
 
-A threshold must be finite and **greater than zero** before a price-alert contribution can start. A switch records the user's intended enabled state; Core only starts a contribution after its activation rules pass. When an enabled contribution has an incomplete activation field, show a **brief warning adjacent to that specific schema field** (e.g. `目标价格：需填写大于 0 的数值`), not a card-wide “待配置/请启用” banner. Clear the warning on a valid edit, without requiring the user to toggle the switch again. This is generic host logic using `SettingSchema.activation`; the market plugin does not render any notification setup warnings itself. Removing an asset unregisters its notification contribution and stops any associated work. Dynamic contribution IDs remain stable while the asset is present.
+A threshold must be finite and **greater than zero** before a price-alert contribution can start. A switch records the user's intended enabled state; Core starts a contribution only after its activation rules pass. For an incomplete activation field, show a brief warning beside that field (for example `目标价格：需填写大于 0 的数值`), not a card-wide banner. Clear it as soon as the value becomes valid; the switch need not be toggled again. Removing an asset unregisters its notification contribution and stops any associated work. Dynamic contribution IDs remain stable while the asset is present.
 
 On each new quote, compare the current price with the selected condition and threshold. Only emit an alert when the condition matches and the asset has not alerted during the shared cooldown period. Quiet Hours / Do Not Disturb affects notification delivery, not prompt contributions.
 
@@ -35,16 +35,16 @@ An inactive contribution does not remain subscribed to events or schedule work a
 
 ## Capsule and Components navigation
 
-**胶囊 (Capsule)** keeps Motion, Mascot and Compact 样式, and owns two more secondary menus:
+**胶囊 (Capsule)** keeps Motion, Mascot and Capsule 样式, and owns two more secondary menus:
 
-- **Compact 开关**: switches grouped by owning extension; switching does not change order.
-- **Compact 顺序**: sorting contains **enabled Compact** entries only.
-- **Compact 样式**: independent Compact typography configuration.
+- **Capsule 开关**: switches grouped by owning extension; switching does not change order.
+- **Capsule 顺序**: sorting contains **enabled Capsule** entries only.
+- **Capsule 样式**: independent Capsule typography configuration.
 
 **组件 (Components)** remains a first-level settings page, but owns **only Widget** secondary menus:
 
-- **Widget 开关**: switches grouped by owning extension. A disabled, permanently-on **通知中心** row appears first; the user cannot toggle it.
-- **Widget 顺序**: a fixed **通知中心** row appears first and has no move controls, followed by sortable **enabled Widget** entries only. No explanatory paragraph is needed.
+- **组件开关**: switches grouped by owning extension. A disabled, permanently-on **通知中心** row appears first; the user cannot toggle it.
+- **组件顺序**: a fixed **通知中心** row appears first and has no move controls, followed by sortable **enabled Widget** entries only. No explanatory paragraph is needed.
 
 Widget theme and accent configuration remain in General settings.
 

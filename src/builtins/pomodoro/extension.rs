@@ -1,6 +1,6 @@
 use super::timer::{Phase, Pomodoro};
 use crate::extension::{
-    Action, CompactView, CompactVisibility, ContributionDescriptor, ContributionKind, Event,
+    Action, CapsuleView, CapsuleVisibility, ContributionDescriptor, ContributionKind, Event,
     ExtensionId, ExtensionOutput, Notification, NotificationAction, NotificationAlertView,
     NotificationCenterItemView, NotificationPresentationProvider, NotificationPriority,
     ReloadPolicy, RuntimeExtension, ScheduledTask, SettingSchema, SettingValue, Settings, ViewNode,
@@ -10,7 +10,7 @@ use crate::ui::declarative::*;
 use std::time::{Instant, SystemTime};
 
 pub const WIDGET_ID: &str = "builtin.pomodoro/timer";
-pub const COMPACT_ID: &str = "builtin.pomodoro/status";
+pub const CAPSULE_ID: &str = "builtin.pomodoro/status";
 pub const NOTIFICATION_ID: &str = "builtin.pomodoro/notifications";
 const SERVICE_ID: &str = "builtin.pomodoro/service.timer";
 const TIMER_TASK: &str = "builtin.pomodoro/timer";
@@ -18,8 +18,8 @@ const TIMER_TASK: &str = "builtin.pomodoro/timer";
 pub fn descriptors() -> Vec<ContributionDescriptor> {
     vec![
         ContributionDescriptor::builtin(
-            COMPACT_ID,
-            ContributionKind::Compact,
+            CAPSULE_ID,
+            ContributionKind::Capsule,
             "番茄钟进度",
             "timer",
             true,
@@ -363,19 +363,19 @@ impl RuntimeExtension for PomodoroExtension {
         Some(view)
     }
 
-    fn compact_refresh_interval(&self) -> Option<std::time::Duration> {
+    fn capsule_refresh_interval(&self) -> Option<std::time::Duration> {
         self.timer
             .running
             .then_some(std::time::Duration::from_millis(250))
     }
 
-    fn compact_views(&self) -> Vec<CompactView> {
+    fn capsule_views(&self) -> Vec<CapsuleView> {
         let now = Instant::now();
         let progress = self.timer.progress_at(now);
-        vec![CompactView {
-            id: ExtensionId::builtin(COMPACT_ID),
+        vec![CapsuleView {
+            id: ExtensionId::builtin(CAPSULE_ID),
             source_extension_id: ExtensionId::builtin(WIDGET_ID),
-            content: ViewNode::compact(
+            content: ViewNode::capsule(
                 ViewNode::new(Node::Stack(
                     [Align::Center; 2],
                     vec![
@@ -399,11 +399,11 @@ impl RuntimeExtension for PomodoroExtension {
                 .sized(Size::Fixed(26.0), Size::Fixed(26.0)),
                 ViewNode::column(
                     vec![
-                        super::super::compact_value(
+                        super::super::capsule_value(
                             format_time(self.timer.remaining_at(now)),
                             true,
                         ),
-                        super::super::compact_detail(if self.timer.running {
+                        super::super::capsule_detail(if self.timer.running {
                             "剩余时间"
                         } else {
                             "已暂停"
@@ -416,7 +416,7 @@ impl RuntimeExtension for PomodoroExtension {
                     },
                 )
                 .color(ColorSpec::PrimaryText),
-                CompactLayout {
+                CapsuleLayout {
                     leading_size: [26.0, 26.0],
                     gap: 6.0,
                     ..Default::default()
@@ -424,9 +424,9 @@ impl RuntimeExtension for PomodoroExtension {
             )
             .color(self.phase_color()),
             visibility: if self.timer.has_started() {
-                CompactVisibility::Visible
+                CapsuleVisibility::Visible
             } else {
-                CompactVisibility::Hidden
+                CapsuleVisibility::Hidden
             },
             min_width: 88.0,
             preferred_width: 88.0,
@@ -535,34 +535,34 @@ fn format_time(seconds: f32) -> String {
 }
 
 #[cfg(test)]
-mod compact_tests {
+mod capsule_tests {
     use super::*;
 
     #[test]
-    fn compact_is_hidden_until_start_and_after_reset() {
+    fn capsule_is_hidden_until_start_and_after_reset() {
         let mut extension = PomodoroExtension::default();
         let now = Instant::now();
         assert_eq!(
-            extension.compact_views()[0].visibility,
-            CompactVisibility::Hidden
+            extension.capsule_views()[0].visibility,
+            CapsuleVisibility::Hidden
         );
         let output = extension.on_action(Action::Toggle, now);
         assert!(output
             .invalidated
             .contains(&ExtensionId::builtin(WIDGET_ID)));
         assert_eq!(
-            extension.compact_views()[0].visibility,
-            CompactVisibility::Visible
+            extension.capsule_views()[0].visibility,
+            CapsuleVisibility::Visible
         );
         extension.on_action(Action::Toggle, now);
         assert_eq!(
-            extension.compact_views()[0].visibility,
-            CompactVisibility::Visible
+            extension.capsule_views()[0].visibility,
+            CapsuleVisibility::Visible
         );
         extension.on_action(Action::Reset, now);
         assert_eq!(
-            extension.compact_views()[0].visibility,
-            CompactVisibility::Hidden
+            extension.capsule_views()[0].visibility,
+            CapsuleVisibility::Hidden
         );
     }
 }

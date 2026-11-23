@@ -56,7 +56,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_download_uses_the_first_active_download() {
+    fn capsule_download_uses_the_first_active_download() {
         let snapshot = Snapshot {
             active: vec![active("partial"), active("browser-row")],
             completed: Vec::new(),
@@ -65,7 +65,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_download_returns_none_when_nothing_is_active() {
+    fn capsule_download_returns_none_when_nothing_is_active() {
         let snapshot = Snapshot {
             active: vec![active("partial")],
             completed: Vec::new(),

@@ -81,7 +81,7 @@ pub struct ExtensionManager {
     effective_settings: HashMap<ExtensionId, Settings>,
     startup_output: Vec<ExtensionOutput>,
     widget_cache: ViewCache<ExtensionId, Option<Arc<WidgetView>>>,
-    compact_cache: ViewCache<usize, Vec<Arc<crate::extension::CompactView>>>,
+    capsule_cache: ViewCache<usize, Vec<Arc<crate::extension::CapsuleView>>>,
     setting_searches: HashMap<(ExtensionId, String), SettingSearchJob>,
     prompt_queue: VecDeque<Prompt>,
     active_prompt: Option<ActivePrompt>,
@@ -148,7 +148,7 @@ impl ExtensionManager {
             effective_settings: HashMap::new(),
             startup_output: vec![],
             widget_cache: ViewCache::default(),
-            compact_cache: ViewCache::default(),
+            capsule_cache: ViewCache::default(),
             setting_searches: HashMap::new(),
             prompt_queue: VecDeque::new(),
             active_prompt: None,
@@ -263,7 +263,7 @@ impl ExtensionManager {
             self.owners.insert(entry.id.clone(), index);
             self.widget_cache.invalidate(&entry.id);
         }
-        self.compact_cache.invalidate(&index);
+        self.capsule_cache.invalidate(&index);
         self.registry = next;
         self.registration_errors.remove(&owner);
         self.settings_errors
@@ -345,7 +345,7 @@ impl ExtensionManager {
             for entry in descriptor.contributions.iter().filter(|entry| {
                 matches!(
                     entry.kind,
-                    ContributionKind::Compact
+                    ContributionKind::Capsule
                         | ContributionKind::Widget
                         | ContributionKind::Notification
                 ) && self
@@ -441,7 +441,7 @@ impl ExtensionManager {
             for id in previous.keys().chain(next.keys()) {
                 self.widget_cache.invalidate(id);
             }
-            self.compact_cache.invalidate(&owner);
+            self.capsule_cache.invalidate(&owner);
             *previous = next;
             self.extensions[owner].on_contribution_state(
                 &self
@@ -800,7 +800,7 @@ impl ExtensionManager {
     pub fn invalidate_views(&mut self, id: &ExtensionId) {
         self.widget_cache.invalidate(id);
         if let Some(owner) = self.owners.get(id) {
-            self.compact_cache.invalidate(owner);
+            self.capsule_cache.invalidate(owner);
         }
     }
 
@@ -827,7 +827,7 @@ impl ExtensionManager {
     pub fn next_wake(
         &self,
         now: Instant,
-        compact_visible: bool,
+        capsule_visible: bool,
         active_widget: Option<&ExtensionId>,
     ) -> Option<Instant> {
         let mut wake = active_widget.and_then(|id| self.widget_cache.refresh_at(id));
@@ -860,10 +860,10 @@ impl ExtensionManager {
                 _ => None,
             };
             wake = wake.into_iter().chain(due).min();
-            if compact_visible {
+            if capsule_visible {
                 wake = wake
                     .into_iter()
-                    .chain(self.compact_cache.refresh_at(&owner))
+                    .chain(self.capsule_cache.refresh_at(&owner))
                     .min();
             }
         }
@@ -929,7 +929,7 @@ impl ExtensionManager {
             self.motion_policy = policy;
             for (owner, runtime) in self.extensions.iter_mut().enumerate() {
                 runtime.set_motion_policy(policy);
-                self.compact_cache.invalidate(&owner);
+                self.capsule_cache.invalidate(&owner);
             }
             for c in self.registry.by_kind(ContributionKind::Widget) {
                 self.widget_cache.invalidate(&c.id);
@@ -1052,7 +1052,7 @@ impl ExtensionManager {
         for c in &descriptor.contributions {
             self.widget_cache.invalidate(&c.id);
         }
-        self.compact_cache.invalidate(&owner);
+        self.capsule_cache.invalidate(&owner);
         let record = ExtensionLifecycleRecord {
             version: descriptor.version,
             enabled,
@@ -1173,17 +1173,17 @@ impl ExtensionManager {
             .clone()
     }
 
-    pub fn compact_views(&mut self, now: Instant) -> Vec<Arc<crate::extension::CompactView>> {
+    pub fn capsule_views(&mut self, now: Instant) -> Vec<Arc<crate::extension::CapsuleView>> {
         for (index, extension) in self
             .extensions
             .iter()
             .enumerate()
             .filter(|(index, _)| self.states[*index] == LifecycleState::Running)
         {
-            self.compact_cache.get_or_build(index, now, || {
+            self.capsule_cache.get_or_build(index, now, || {
                 (
                     extension
-                        .compact_views()
+                        .capsule_views()
                         .into_iter()
                         .filter(|view| {
                             self.owners.get(&view.id) == Some(&index)
@@ -1191,11 +1191,11 @@ impl ExtensionManager {
                                 && self
                                     .registry
                                     .get(&view.id)
-                                    .is_some_and(|entry| entry.kind == ContributionKind::Compact)
+                                    .is_some_and(|entry| entry.kind == ContributionKind::Capsule)
                         })
                         .map(Arc::new)
                         .collect(),
-                    extension.compact_refresh_interval(),
+                    extension.capsule_refresh_interval(),
                 )
             });
         }
@@ -1203,8 +1203,8 @@ impl ExtensionManager {
             .iter()
             .enumerate()
             .filter(|(index, _)| self.states[*index] == LifecycleState::Running)
-            .flat_map(|(index, _)| self.compact_cache.get(&index).into_iter().flatten())
-            .filter(|view| view.visibility == crate::extension::CompactVisibility::Visible)
+            .flat_map(|(index, _)| self.capsule_cache.get(&index).into_iter().flatten())
+            .filter(|view| view.visibility == crate::extension::CapsuleVisibility::Visible)
             .cloned()
             .collect()
     }
@@ -1420,7 +1420,7 @@ impl ExtensionManager {
         if self.registry.get(source_id).is_some_and(|entry| {
             matches!(
                 entry.kind,
-                ContributionKind::Widget | ContributionKind::Compact
+                ContributionKind::Widget | ContributionKind::Capsule
             )
         }) && !self.contribution_running(source_id)
         {
@@ -1524,7 +1524,7 @@ impl ExtensionManager {
         for contribution in &self.registry.extensions()[owner].contributions {
             self.widget_cache.invalidate(&contribution.id);
         }
-        self.compact_cache.invalidate(&owner);
+        self.capsule_cache.invalidate(&owner);
         result
     }
 }
@@ -1663,16 +1663,16 @@ mod tests {
                         1,
                     ),
                     C::builtin(
-                        "test.module/compact.a",
-                        ContributionKind::Compact,
+                        "test.module/capsule.a",
+                        ContributionKind::Capsule,
                         "A",
                         "",
                         true,
                         0,
                     ),
                     C::builtin(
-                        "test.module/compact.b",
-                        ContributionKind::Compact,
+                        "test.module/capsule.b",
+                        ContributionKind::Capsule,
                         "B",
                         "",
                         true,
@@ -1709,9 +1709,9 @@ mod tests {
             self.observations.lock().unwrap().events += 1;
             Default::default()
         }
-        fn compact_views(&self) -> Vec<crate::extension::CompactView> {
-            ["test.module/compact.a", "test.module/compact.b"]
-                .map(|id| crate::extension::CompactView {
+        fn capsule_views(&self) -> Vec<crate::extension::CapsuleView> {
+            ["test.module/capsule.a", "test.module/capsule.b"]
+                .map(|id| crate::extension::CapsuleView {
                     id: ExtensionId::builtin(id),
                     source_extension_id: ExtensionId::builtin("test.module"),
                     content: crate::extension::ViewNode::text("", Default::default()),
@@ -1907,7 +1907,7 @@ mod tests {
         );
         let id = ExtensionId::builtin("test.module");
         let now = Instant::now();
-        assert_eq!(h.compact_views(now).len(), 2);
+        assert_eq!(h.capsule_views(now).len(), 2);
         assert_eq!(h.widget_ids().len(), 2);
         h.set_enabled(&id, true).unwrap();
         assert_eq!(log.lock().unwrap().starts, 1);
@@ -1933,7 +1933,7 @@ mod tests {
             h.widget_ids(),
             [ExtensionId::builtin(NOTIFICATION_CENTER_ID)]
         );
-        assert!(h.compact_views(now).is_empty());
+        assert!(h.capsule_views(now).is_empty());
         assert!(h
             .on_event(
                 &crate::extension::Event::Custom("test.module::1::deadline".into()),
@@ -1952,7 +1952,7 @@ mod tests {
             log.lock().unwrap().configured["minutes"],
             SettingValue::Integer(42)
         );
-        assert_eq!(h.compact_views(now).len(), 2);
+        assert_eq!(h.capsule_views(now).len(), 2);
         let fresh = h
             .on_action(&id, Action::Toggle, now)
             .unwrap()

@@ -7,7 +7,7 @@ mod usb;
 use crate::{
     core::mascot::MascotExpression,
     extension::{
-        CompactView, ExtensionContext, ExtensionDescriptor, ExtensionOutput, ExtensionId,
+        CapsuleView, ExtensionContext, ExtensionDescriptor, ExtensionOutput, ExtensionId,
         NotificationPresentationProvider, ReloadPolicy, RuntimeExtension,
         SettingSchema, SettingValue, Settings,
     },
@@ -53,7 +53,7 @@ impl RuntimeExtension for DeviceExtension {
         descriptor.execution_policy =
             crate::extension::ExecutionPolicy::Interval(std::time::Duration::from_millis(250));
         // Consolidation must not make the two independent prompts inseparable.
-        // The battery Compact remains managed by the Components page.
+        // The battery Capsule remains managed by the Components page.
         descriptor.settings = vec![
             SettingSchema::new(
                 "power_prompt_enabled",
@@ -137,8 +137,8 @@ impl RuntimeExtension for DeviceExtension {
         ExtensionOutput::default()
     }
 
-    fn compact_views(&self) -> Vec<CompactView> {
-        self.battery.compact_views()
+    fn capsule_views(&self) -> Vec<CapsuleView> {
+        self.battery.capsule_views()
     }
 
     fn mascot_state(&self) -> std::collections::BTreeMap<String, String> {
@@ -156,17 +156,17 @@ mod tests {
     use crate::extension::{ContributionKind, ExtensionId};
 
     #[test]
-    fn device_is_one_extension_with_independent_compact_and_two_prompts() {
+    fn device_is_one_extension_with_independent_capsule_and_two_prompts() {
         let descriptor = DeviceExtension::default().descriptor();
         assert_eq!(descriptor.id, ExtensionId::builtin("builtin.device"));
         assert_eq!(descriptor.name, "设备");
-        let compact: Vec<_> = descriptor.contributions.iter()
-            .filter(|c| c.kind == ContributionKind::Compact).collect();
+        let capsule: Vec<_> = descriptor.contributions.iter()
+            .filter(|c| c.kind == ContributionKind::Capsule).collect();
         let prompts: Vec<_> = descriptor.contributions.iter()
             .filter(|c| c.kind == ContributionKind::Prompt).collect();
-        assert_eq!(compact.len(), 1);
+        assert_eq!(capsule.len(), 1);
         assert_eq!(prompts.len(), 2);
-        assert!(compact.iter().any(|c| c.id.as_str() == "builtin.device/battery"));
+        assert!(capsule.iter().any(|c| c.id.as_str() == "builtin.device/battery"));
         assert!(prompts.iter().any(|c| c.id.as_str() == "builtin.device/power-prompt"));
         assert!(prompts.iter().any(|c| c.id.as_str() == "builtin.device/usb-prompt"));
         assert_eq!(descriptor.settings.len(), 2);
@@ -178,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn changing_device_prompt_settings_keeps_battery_compact_independent() {
+    fn changing_device_prompt_settings_keeps_battery_capsule_independent() {
         let ctx = ExtensionContext::new(std::path::PathBuf::new(), std::path::PathBuf::new());
         let mut device = DeviceExtension::default();
         let settings = [
@@ -193,7 +193,7 @@ mod tests {
         );
         assert!(!device.power_prompt_enabled);
         assert!(!device.usb_prompt_enabled);
-        assert_eq!(device.compact_views().len(), 1);
+        assert_eq!(device.capsule_views().len(), 1);
     }
 
     #[test]

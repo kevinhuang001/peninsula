@@ -225,7 +225,7 @@ fn short_blink_expression_reaches_closed_eyes_before_returning_to_idle() {
 }
 
 #[test]
-fn compact_settles_from_the_last_unlock_pose() {
+fn capsule_settles_from_the_last_unlock_pose() {
     let start = Instant::now();
     let mut host = MascotHost::default();
     host.update_unlock(UnlockMascotState::Succeeded, start, MotionPolicy::Full);
@@ -254,8 +254,8 @@ fn compact_settles_from_the_last_unlock_pose() {
 }
 
 #[test]
-fn compact_slot_is_fixed_and_passive() {
-    let view = MascotHost::default().compact_slot();
+fn capsule_slot_is_fixed_and_passive() {
+    let view = MascotHost::default().capsule_slot();
     assert_eq!(view.min_width, 38.0);
     assert_eq!(view.preferred_width, view.min_width);
     assert!(!view.fit_width);

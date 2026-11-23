@@ -130,7 +130,7 @@ impl Renderer<'_> {
         color: Color32,
         opacity: f32,
     ) {
-        let color = self.compact_text_appearance.map_or(color, |appearance| {
+        let color = self.capsule_text_appearance.map_or(color, |appearance| {
             let primary = self.theme.color(ui, ColorSpec::PrimaryText);
             let background = ui.visuals().widgets.noninteractive.bg_fill;
             appearance
@@ -140,28 +140,28 @@ impl Renderer<'_> {
                 })
                 .linear_multiply(opacity)
         });
-        text(ui, rect, value, self.compact_text_style(style), color);
+        text(ui, rect, value, self.capsule_text_style(style), color);
     }
 
     pub(super) fn leaf_size(&self, ui: &Ui, node: &ViewNode, available: Vec2) -> Vec2 {
         let measure_text = |value, style| galley(ui, value, style, available.x, false).size();
         match &node.kind {
             Node::Text { text, text_style } => {
-                measure_text(text.as_str(), self.compact_text_style(*text_style))
+                measure_text(text.as_str(), self.capsule_text_style(*text_style))
                     .min(vec2(available.x, f32::INFINITY))
             }
             Node::Icon { icon_style, .. } => Vec2::splat(point(icon_style.size)),
             Node::Metric { label, value, unit } => {
                 let caption = measure_text(
                     label,
-                    self.compact_text_style(TextStyle {
+                    self.capsule_text_style(TextStyle {
                         font_size: FontSize::Small,
                         ..Default::default()
                     }),
                 );
                 let data = measure_text(
                     &format!("{value}{unit}"),
-                    self.compact_text_style(TextStyle {
+                    self.capsule_text_style(TextStyle {
                         font_size: FontSize::Title,
                         ..Default::default()
                     }),
@@ -169,7 +169,7 @@ impl Renderer<'_> {
                 vec2(caption.x.max(data.x), caption.y + data.y)
             }
             Node::Badge(label) => {
-                measure_text(label, self.compact_text_style(TextStyle::default())) + vec2(12.0, 4.0)
+                measure_text(label, self.capsule_text_style(TextStyle::default())) + vec2(12.0, 4.0)
             }
             Node::Divider { vertical } => {
                 if *vertical {
@@ -196,7 +196,7 @@ impl Renderer<'_> {
                 .first()
                 .map_or(Vec2::ZERO, |asset| image_size(ui, asset)),
             Node::Control { label, kind, .. } => {
-                measure_text(label, self.compact_text_style(TextStyle::default()))
+                measure_text(label, self.capsule_text_style(TextStyle::default()))
                     + vec2(
                         if matches!(kind, ControlKind::Toggle { .. }) {
                             30.0
@@ -445,8 +445,8 @@ impl Renderer<'_> {
             ui
         };
 
-        if let Node::Compact(compact) = &node.kind {
-            self.paint_compact(ui, compact, inner, id, foreground, opacity, depth + 1);
+        if let Node::Capsule(capsule) = &node.kind {
+            self.paint_capsule(ui, capsule, inner, id, foreground, opacity, depth + 1);
             return;
         }
         if let Node::Motion { motion, child } = &node.kind {

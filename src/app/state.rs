@@ -9,7 +9,7 @@ pub(super) struct IslandState {
     pub width: Spring,
     pub height: Spring,
     expanded_width: f32,
-    compact_width: f32,
+    capsule_width: f32,
     hover_elapsed: f32,
     leave_elapsed: f32,
     shrink_grace_remaining: f32,
@@ -26,7 +26,7 @@ impl Default for IslandState {
             width: Spring::new(114.0),
             height: Spring::new(0.0),
             expanded_width: 244.0,
-            compact_width: 114.0,
+            capsule_width: 114.0,
             hover_elapsed: 0.0,
             leave_elapsed: 0.0,
             shrink_grace_remaining: 0.0,
@@ -38,12 +38,12 @@ impl Default for IslandState {
 }
 
 impl IslandState {
-    pub fn begin_unlock_transition(&mut self, compact_width: f32) {
+    pub fn begin_unlock_transition(&mut self, capsule_width: f32) {
         self.expanded = false;
         self.hover_elapsed = 0.0;
         self.suppress_hover_until_exit = true;
-        self.compact_width = compact_width;
-        self.width = Spring::new(compact_width);
+        self.capsule_width = capsule_width;
+        self.width = Spring::new(capsule_width);
         self.height = Spring::new(0.0);
     }
 
@@ -74,7 +74,7 @@ impl IslandState {
         self.shrink_grace_remaining = 0.0;
         self.width.tune(620.0, 1.0);
         self.height.tune(620.0, 1.0);
-        self.width.target(self.compact_width);
+        self.width.target(self.capsule_width);
         self.height.target(0.0);
     }
 
@@ -108,10 +108,10 @@ impl IslandState {
         }
     }
 
-    pub fn set_compact_width(&mut self, width: f32) {
-        self.compact_width = width.max(64.0);
+    pub fn set_capsule_width(&mut self, width: f32) {
+        self.capsule_width = width.max(64.0);
         if !self.expanded && !self.animating() {
-            self.width.target(self.compact_width);
+            self.width.target(self.capsule_width);
         }
     }
 
@@ -161,7 +161,7 @@ impl IslandState {
                     self.leave_elapsed = 0.0;
                     self.width.tune(620.0, 1.0);
                     self.height.tune(620.0, 1.0);
-                    self.width.target(self.compact_width);
+                    self.width.target(self.capsule_width);
                     self.height.target(0.0);
                     return true;
                 }
@@ -319,16 +319,16 @@ mod tests {
     }
 
     #[test]
-    fn compact_content_width_is_used_again_after_closing() {
+    fn capsule_content_width_is_used_again_after_closing() {
         let mut state = IslandState::default();
-        state.set_compact_width(240.0);
+        state.set_capsule_width(240.0);
         state.observe_hover(true, 0.2);
         state.observe_hover(false, 0.3);
         assert_eq!(state.width.target_value(), 240.0);
     }
 
     #[test]
-    fn a_settled_close_returns_the_capsule_to_compact_bounds() {
+    fn a_settled_close_returns_the_capsule_to_capsule_bounds() {
         let mut state = IslandState::default();
         state.observe_hover(true, 0.2);
         for _ in 0..120 {

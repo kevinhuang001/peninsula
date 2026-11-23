@@ -1,6 +1,6 @@
-# Compact freshness recording
+# Capsule freshness recording
 
-[45-second native Linux recording](../docs/media/compact-refresh-linux.mp4)
+[45-second native Linux recording](../docs/media/capsule-refresh-linux.mp4)
 
 The recording runs the actual app, the MPRIS backend and the local LRC lookup.
 It plays no audio. It covers pause/resume, forward/backward seek and 2× playback.
@@ -19,7 +19,7 @@ and fixture on the same private bus. In that shell:
 cargo build --locked --features demo-power
 export PENINSULA_DEMO_POWER_FILE="$PWD/work/demo-power.json"
 mkdir -p work
-python scripts/demo-compact.py --power-file "$PENINSULA_DEMO_POWER_FILE" \
+python scripts/demo-capsule.py --power-file "$PENINSULA_DEMO_POWER_FILE" \
   --start-file "$PWD/work/start-recording" &
 target/debug/island-lab
 ```
@@ -34,7 +34,7 @@ XDG data/config/state directory when testing alongside another app instance.
 ## Coverage
 
 - Mailbox replacement ensures a stalled consumer gets the latest observation.
-- Power updates invalidate Compact even when no metrics update arrives; later
+- Power updates invalidate Capsule even when no metrics update arrives; later
   CPU samples cannot overwrite newer power state.
 - Windows decoding distinguishes AC connected from the actual charging flag,
   preserves AC state when percentage is unknown, and handles no battery.

@@ -66,7 +66,7 @@ impl std::error::Error for IdError {}
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ContributionKind {
     Widget,
-    Compact,
+    Capsule,
     Notification,
     BackgroundService,
     EventHandler,
@@ -162,7 +162,7 @@ impl ContributionDescriptor {
                 | ContributionKind::MascotExpression => vec![Capability::Event],
                 ContributionKind::Prompt => vec![Capability::Prompt],
                 ContributionKind::BackgroundService => vec![Capability::Schedule],
-                ContributionKind::Widget | ContributionKind::Compact => {
+                ContributionKind::Widget | ContributionKind::Capsule => {
                     vec![Capability::View, Capability::Action]
                 }
             },

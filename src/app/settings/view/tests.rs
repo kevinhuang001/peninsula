@@ -5,7 +5,7 @@ use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
 fn frame(
     ctx: &egui::Context,
     view: &mut SettingsView,
-    prefs: &mut CompactPreferences,
+    prefs: &mut AppPreferences,
     events: Vec<Event>,
 ) -> egui::FullOutput {
     ctx.run(
@@ -59,7 +59,7 @@ fn toggle_for(output: &egui::FullOutput, label: &str) -> Rect {
 fn click(
     ctx: &egui::Context,
     view: &mut SettingsView,
-    prefs: &mut CompactPreferences,
+    prefs: &mut AppPreferences,
     point: Pos2,
 ) {
     frame(ctx, view, prefs, vec![Event::PointerMoved(point)]);
@@ -81,7 +81,7 @@ fn click(
 #[test]
 fn secret_editor_buttons_respond_to_clicks() {
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let mut view = SettingsView {
         section: Section::Secrets,
         secret_dialog_open: true,
@@ -111,7 +111,7 @@ fn secret_editor_buttons_respond_to_clicks() {
 #[test]
 fn plugin_names_remain_in_second_column_and_configuration_is_in_the_right_panel() {
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let mut view = SettingsView {
         section: Section::Extensions,
         ..Default::default()
@@ -138,7 +138,7 @@ fn plugin_names_remain_in_second_column_and_configuration_is_in_the_right_panel(
 #[test]
 fn stopped_extension_forms_are_editable_and_switching_plugins_keeps_values() {
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let id = ExtensionId::builtin("builtin.calendar");
     // The merged calendar is enabled by default because its month Widget is
     // enabled; explicitly stop it to test offline settings editing.
@@ -197,7 +197,7 @@ fn stopped_extension_forms_are_editable_and_switching_plugins_keeps_values() {
 fn every_menu_keeps_its_bordered_navigation_and_content_panels() {
     for section in Section::ALL {
         let ctx = egui::Context::default();
-        let mut prefs = CompactPreferences::default();
+        let mut prefs = AppPreferences::default();
         let mut view = SettingsView {
             section,
             ..Default::default()
@@ -219,14 +219,14 @@ fn every_menu_keeps_its_bordered_navigation_and_content_panels() {
 #[test]
 fn settings_height_grows_with_content_before_host_applies_the_screen_limit() {
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let mut view = SettingsView::default();
     frame(&ctx, &mut view, &mut prefs, vec![]);
     let general = view.extra_height(&ctx, &prefs);
     view.section = Section::Extensions;
     let extensions = view.extra_height(&ctx, &prefs);
     view.section = Section::Capsule;
-    view.capsule_section = CapsuleSection::CompactSwitch;
+    view.capsule_section = CapsuleSection::CapsuleSwitch;
     let capsule = view.extra_height(&ctx, &prefs);
     assert!(extensions > general);
     assert!(capsule > general);
@@ -236,7 +236,7 @@ fn settings_height_grows_with_content_before_host_applies_the_screen_limit() {
 #[test]
 fn capsule_submenus_keep_configuration_in_the_third_column() {
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let mut view = SettingsView {
         section: Section::Capsule,
         ..Default::default()
@@ -268,7 +268,7 @@ fn capsule_submenus_keep_configuration_in_the_third_column() {
 #[test]
 fn settings_width_follows_the_selected_content_and_screen_limit() {
     let ctx = egui::Context::default();
-    let prefs = CompactPreferences::default();
+    let prefs = AppPreferences::default();
     let _ = ctx.run(
         RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1400.0, 900.0))),
@@ -305,36 +305,36 @@ fn settings_width_follows_the_selected_content_and_screen_limit() {
 }
 
 #[test]
-fn compact_switches_and_order_live_in_capsule_not_components() {
+fn capsule_switches_and_order_live_in_capsule_not_components() {
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let mut view = SettingsView {
         section: Section::Capsule,
-        capsule_section: CapsuleSection::CompactSwitch,
+        capsule_section: CapsuleSection::CapsuleSwitch,
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for title in ["动态效果", "Mascot", "Compact 样式", "Compact 开关", "Compact 顺序"] {
+    for title in ["动态效果", "Mascot", "胶囊样式", "胶囊开关", "胶囊顺序"] {
         assert!(text_rect(&output, title).width() > 0.0);
     }
-    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Compact 顺序").center());
-    assert_eq!(view.capsule_section, CapsuleSection::CompactOrder);
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "胶囊顺序").center());
+    assert_eq!(view.capsule_section, CapsuleSection::CapsuleOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    assert!(text_rect(&output, "Compact 顺序（仅已开启）").width() > 0.0);
+    assert!(text_rect(&output, "胶囊顺序（仅已开启）").width() > 0.0);
 
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件").center());
     assert_eq!(view.section, Section::Components);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for title in ["Widget 开关", "Widget 顺序"] {
+    for title in ["组件开关", "组件顺序"] {
         assert!(text_rect(&output, title).width() > 0.0);
     }
     assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
-        egui::Shape::Text(text) if text.galley.job.text == "Compact 开关"
-            || text.galley.job.text == "Compact 顺序")));
-    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 顺序").center());
+        egui::Shape::Text(text) if text.galley.job.text == "胶囊开关"
+            || text.galley.job.text == "胶囊顺序")));
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件顺序").center());
     assert_eq!(view.component_section, ComponentSection::WidgetOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    assert!(text_rect(&output, "Widget 顺序（仅已开启）").width() > 0.0);
+    assert!(text_rect(&output, "组件顺序（仅已开启）").width() > 0.0);
     assert!(text_rect(&output, "通知中心").width() > 0.0);
     assert!(text_rect(&output, "固定").width() > 0.0);
 }
@@ -342,7 +342,7 @@ fn compact_switches_and_order_live_in_capsule_not_components() {
 #[test]
 fn notifications_menu_is_preserved() {
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let mut view = SettingsView {
         section: Section::Notifications,
         ..Default::default()
@@ -354,16 +354,16 @@ fn notifications_menu_is_preserved() {
 #[test]
 fn component_submenus_only_contain_widget_switch_and_order() {
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let mut view = SettingsView {
         section: Section::Components,
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for label in ["Widget 开关", "Widget 顺序"] {
+    for label in ["组件开关", "组件顺序"] {
         assert!(text_rect(&output, label).width() > 0.0, "{label}");
     }
-    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 开关").center());
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件开关").center());
     assert_eq!(view.component_section, ComponentSection::WidgetSwitch);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "通知中心").width() > 0.0);
@@ -382,10 +382,10 @@ fn component_submenus_only_contain_widget_switch_and_order() {
     click(&ctx, &mut view, &mut prefs,
         egui::pos2(row_rect.right() - 24.0, row_rect.center().y));
     assert_eq!(prefs, before);
-    click(&ctx, &mut view, &mut prefs, text_rect(&output, "Widget 顺序").center());
+    click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件顺序").center());
     assert_eq!(view.component_section, ComponentSection::WidgetOrder);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    assert!(text_rect(&output, "Widget 顺序（仅已开启）").width() > 0.0);
+    assert!(text_rect(&output, "组件顺序（仅已开启）").width() > 0.0);
 }
 
 #[test]
@@ -417,7 +417,7 @@ fn nested_settings_children_preserve_input_focus_stroke_edges() {
 fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
     use crate::extension::{ContributionDescriptor, SettingSchema};
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let id = ExtensionId::builtin("builtin.market/assets/stock/AAPL/price-alert");
     let market = prefs.pages.iter_mut().find(|page| {
         page.descriptor.id.as_str() == "builtin.market"
@@ -454,8 +454,7 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
             ],
         ),
     );
-    // Newly added alerts can be switched on before a valid price is
-    // entered; that intent does not make the runtime contribution active.
+    // An alert may be enabled before its activation threshold is complete.
     prefs.set_contribution_enabled(id.clone(), true);
     assert!(!prefs.contribution_values.contains_key(&id));
     let output = ctx.run(
@@ -511,9 +510,6 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
             "待配置：请完成必填配置后启用提醒"
         )
     )));
-
-    // The host uses the same generic schema and automatically clears the
-    // field-level warning when the input becomes an activating value.
     prefs.contribution_values.get_mut(&id).unwrap()
         .insert("threshold".into(), SettingValue::Float(150.50));
     let configured = ctx.run(
@@ -558,7 +554,7 @@ fn generic_number_text_accepts_decimals_and_rejects_invalid_values() {
 #[test]
 fn notification_renderer_is_generic_for_calendar_contributions() {
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let output = ctx.run(
         RawInput {
             screen_rect: Some(Rect::from_min_size(
@@ -578,22 +574,22 @@ fn notification_renderer_is_generic_for_calendar_contributions() {
 }
 
 #[test]
-fn compact_configuration_remains_in_capsule_and_widgets_remain_first_level() {
+fn capsule_configuration_remains_in_capsule_and_widgets_remain_first_level() {
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let mut view = SettingsView {
         section: Section::Capsule,
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for title in ["组件", "动态效果", "Compact 样式", "Compact 开关", "Compact 顺序"] {
+    for title in ["组件", "动态效果", "胶囊样式", "胶囊开关", "胶囊顺序"] {
         assert!(text_rect(&output, title).width() > 0.0);
     }
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件").center());
     assert_eq!(view.section, Section::Components);
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     let panels = Panels::new(bounds(), true);
-    for label in ["Widget 开关", "Widget 顺序"] {
+    for label in ["组件开关", "组件顺序"] {
         assert!(panels.plugins.unwrap().contains(text_rect(&output, label).center()));
     }
     assert_eq!(view.component_section, ComponentSection::WidgetSwitch);
@@ -601,12 +597,12 @@ fn compact_configuration_remains_in_capsule_and_widgets_remain_first_level() {
 }
 
 #[test]
-fn compact_font_size_is_a_dropdown_and_not_a_numeric_drag_field() {
+fn capsule_font_size_is_a_dropdown_and_not_a_numeric_drag_field() {
     let ctx = egui::Context::default();
-    let mut prefs = CompactPreferences::default();
+    let mut prefs = AppPreferences::default();
     let mut view = SettingsView {
         section: Section::Capsule,
-        capsule_section: CapsuleSection::CompactStyle,
+        capsule_section: CapsuleSection::CapsuleStyle,
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
@@ -614,7 +610,7 @@ fn compact_font_size_is_a_dropdown_and_not_a_numeric_drag_field() {
     assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
         egui::Shape::Text(text)
             if text.galley.job.text.contains(
-                &format!("{} pt", prefs.compact_text_size)
+                &format!("{} pt", prefs.capsule_text_size)
             )
     )), "font-size control must render a selected point size");
 }

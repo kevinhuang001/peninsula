@@ -16,7 +16,7 @@
 - 监听 Chromium 系浏览器、Firefox 和 macOS Safari 的下载；可在设置中启用收起态进度，完成后展开并提供打开文件和显示所在位置的操作。
 - 展开后查看 CPU、GPU、上下行网络速率。
 - 设置面板直接显示在胶囊内；可配置收缩状态内容、免打扰时段，以及番茄钟专注/休息时长（各 1–180 分钟）。
-- 声明式数据源可从 `.pds.json` 导入 HTTP(S) 数值，展示在 Compact 并按阈值提醒。自动刷新和最短提醒间隔由每个已导入实例单独设置；提醒冷却在重启、停用、参数调整和更新定义后继续保留。
+- 声明式数据源可从 `.pds.json` 导入 HTTP(S) 数值，展示在 Capsule 并按阈值提醒。自动刷新和最短提醒间隔由每个已导入实例单独设置；提醒冷却在重启、停用、参数调整和更新定义后继续保留。
 - 快递 Widget 通过 OpenCLI 后台查询淘宝和京东，默认每 20 分钟刷新一次，可在「设置 → 快递」修改间隔。每个平台在本地保留上一次成功结果；首次查询建立基线，之后出现新快递、状态变化或新物流节点时进入通知中心。快递变更通知和取件通知可分别开启，待取件时优先发送取件提醒。
 - 可选启用 Bilibili 私信和收到的赞通知；通过系统 OpenCLI 和现有 Chrome 登录态读取，不要求输入 Cookie。
 - 顶部月亮按钮可手动常开免打扰；在计划时段中关闭时，只跳过当前时段，之后仍按计划启用。
@@ -45,12 +45,12 @@ opencli plugin install github:kevinhuang001/opencli-kuaidi
 
 展开态固定按钮左侧的仪表盘按钮会打开一个独立窗口，按屏幕空间排列所有 Widget。展开 Widget 的最小宽度为屏幕宽度的 25%，最小高度为屏幕高度的 160/900。较小的内容会在展开区域内居中。
 
-Windows 和 Linux 提供音乐扩展。检测到正在播放的媒体会话时显示音乐 Widget 和 Compact 歌词。暂停后保留播放控制，停止会话或退出播放器后隐藏。Widget 展示歌曲、进度、上一首、播放/暂停、下一首及歌词。带时间轴的歌词会同步到 Compact，纯文本歌词可以在 Widget 内滚动阅读。
+Windows 和 Linux 提供音乐扩展。检测到正在播放的媒体会话时显示音乐 Widget 和 Capsule 歌词。暂停后保留播放控制，停止会话或退出播放器后隐藏。Widget 展示歌曲、进度、上一首、播放/暂停、下一首及歌词。带时间轴的歌词会同步到 Capsule，纯文本歌词可以在 Widget 内滚动阅读。
 
 - Windows 读取系统媒体会话。Linux 读取支持 MPRIS 的播放器，播放本地文件时优先读取同名 `.lrc`。
 - 在线查词时会将歌名和艺人提交给 [LRCLIB](https://lrclib.net/)、网易云音乐或 QQ 音乐。音乐界面与歌词实现参考 [岛仔（Daozai）](https://github.com/Renly1994/xiaotang-daozai)，保留其 MIT 许可。
 
-扩展可通过 `CompactView.visibility` 声明当前是否显示，宿主同时应用用户的 Compact 开关。番茄钟首次开始后才出现，暂停时保留，重置后隐藏。
+扩展可通过 `CapsuleView.visibility` 声明当前是否显示，宿主同时应用用户的 Capsule 开关。番茄钟首次开始后才出现，暂停时保留，重置后隐藏。
 
 ## 开发
 
@@ -89,9 +89,9 @@ CI 会在 macOS、Windows 和 Linux 上运行测试并构建 release。
 
 ## 扩展架构
 
-- `src/extension/` 定义扩展 ID、版本化描述、生命周期 Hook、声明式设置、Widget/Compact/Prompt 视图数据、通知视图、Doctor 自检和操作契约；Hook 状态持久化在用户数据目录。
+- `src/extension/` 定义扩展 ID、版本化描述、生命周期 Hook、声明式设置、Widget/Capsule/Prompt 视图数据、通知视图、Doctor 自检和操作契约；Hook 状态持久化在用户数据目录。
 - `src/core/` 管理扩展调度、操作分发、通知待处理状态、提醒展示队列和 Prompt FIFO 队列。提醒关闭或超时不会清除通知；确认、扩展操作和逐条/全部清理会将其标记为已处理。
-- `src/builtins/` 注册 Download、Market、Performance、Pomodoro、Bilibili 通知及表情和时钟 Compact。性能 Widget 与 Compact 共用一个采样器快照；番茄钟使用 Core Deadline 调度，并保存专注/休息时长。
+- `src/builtins/` 注册 Download、Market、Performance、Pomodoro、Bilibili 通知及表情和时钟 Capsule。性能 Widget 与 Capsule 共用一个采样器快照；番茄钟使用 Core Deadline 调度，并保存专注/休息时长。
 - 扩展通过 `src/sdk/process.rs` 调用普通外部命令；OpenCLI 没有专门的 Core 封装。
 - `src/app/` 管理胶囊外壳、设置面板、页面切换和窗口行为。
 
@@ -99,7 +99,7 @@ CI 会在 macOS、Windows 和 Linux 上运行测试并构建 release。
 
 ### 声明式 Widget
 
-Widget 注册后默认为可见。扩展可通过 `RuntimeExtension::widget_visibility` 返回 `Hidden`，宿主会将它从轮播和仪表盘同时移除。运行时状态变化时，扩展返回 Widget ID 让宿主刷新缓存。Compact 由组件自己的 `CompactView::visibility` 和用户的 Compact 显示设置共同决定。
+Widget 注册后默认为可见。扩展可通过 `RuntimeExtension::widget_visibility` 返回 `Hidden`，宿主会将它从轮播和仪表盘同时移除。运行时状态变化时，扩展返回 Widget ID 让宿主刷新缓存。Capsule 由组件自己的 `CapsuleView::visibility` 和用户的 Capsule 显示设置共同决定。
 
 扩展在 `src/ui/declarative.rs` 提供的数据类型上组合视图；展开页、收起态扩展组件和通知界面都由 `src/ui/renderer/` 绘制。扩展可以返回不同的数据和操作 ID，窗口大小、位置、切页和操作路由由宿主决定。视图在数据失效或到达刷新期限时重建；计时器暂停时不做定时重建。
 
@@ -117,7 +117,7 @@ Widget 注册后默认为可见。扩展可通过 `RuntimeExtension::widget_visi
 
 每个扩展设置页都有 Doctor 区域。扩展返回稳定 ID、检查标题、状态、原因和可选处理建议；Doctor 回调只读取已缓存的检查结果，进程、浏览器和网络探测在后台任务中完成。OpenCLI 集成应分别报告命令、插件、浏览器连接和账号登录状态。
 
-Prompt 是一次性展示贡献。扩展发布带有声明式 Compact 内容和展示时长的 Prompt；宿主按接收顺序排队，同一时刻只显示一个，并独占整个 Compact 区域。到时或队列清空后恢复普通 Compact 内容。Prompt 没有 while 条件和优先级；它只在 Compact 可见时计时。动画继续使用共享声明式 Motion 渲染。免打扰只约束通知，不暂停或丢弃 Prompt。
+Prompt 是一次性展示贡献。扩展发布带有声明式 Capsule 内容和展示时长的 Prompt；宿主按接收顺序排队，同一时刻只显示一个，并独占整个 Capsule 区域。到时或队列清空后恢复普通 Capsule 内容。Prompt 没有 while 条件和优先级；它只在 Capsule 可见时计时。动画继续使用共享声明式 Motion 渲染。免打扰只约束通知，不暂停或丢弃 Prompt。
 
 ## Linux 音乐显示演示
 

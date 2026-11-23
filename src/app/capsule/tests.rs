@@ -1,5 +1,5 @@
 use super::{capsule_height, corner_radius, drag_handle_bounds, show, CapsuleWidgets};
-use crate::app::settings::{CompactPreferences, SettingsView};
+use crate::app::settings::{AppPreferences, SettingsView};
 use eframe::egui::{self, Pos2, Rect, Vec2};
 
 #[test]
@@ -17,7 +17,7 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                 .show(context, |ui| {
                     ui.vertical_centered(|ui| {
                         let mut tab = crate::app::widgets::default_widget_id();
-                        let mut preferences = CompactPreferences::default();
+                        let mut preferences = AppPreferences::default();
                         let mut settings_view = SettingsView::default();
                         let icons = crate::app::icons::Icons::load(context);
                         let (widget_ids, widget_view) = widget_fixture();
@@ -28,7 +28,7 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
                             0.5,
                             126.0,
                             CapsuleWidgets {
-                                compact_views: &[],
+                                capsule_views: &[],
                                 widget_ids: &widget_ids,
                                 widget_titles: &[],
                                 widget_title: "测试",
@@ -56,7 +56,7 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
 }
 
 #[test]
-fn compact_capsule_is_shorter_without_changing_the_expanded_widget_height() {
+fn capsule_capsule_is_shorter_without_changing_the_expanded_widget_height() {
     assert_eq!(capsule_height(0.0, 76.0), 44.0);
     assert_eq!(capsule_height(1.0, 76.0), 124.0);
 }
@@ -67,7 +67,7 @@ fn settings_close_button_returns_to_the_active_widget() {
 
     let context = egui::Context::default();
     let mut tab = crate::extension::ExtensionId::builtin("builtin.system-monitor/overview");
-    let mut preferences = CompactPreferences::default();
+    let mut preferences = AppPreferences::default();
     let mut settings_view = SettingsView::default();
     let icons = crate::app::icons::Icons::load(&context);
     let (widget_ids, widget_view) = widget_fixture();
@@ -94,7 +94,7 @@ fn settings_close_button_returns_to_the_active_widget() {
                             1.0,
                             settings_view.extra_height(context, &preferences),
                             CapsuleWidgets {
-                                compact_views: &[],
+                                capsule_views: &[],
                                 widget_ids: &widget_ids,
                                 widget_titles: &[],
                                 widget_title: "测试",
@@ -173,7 +173,7 @@ fn table_text_keeps_its_destination_wrap_width_during_expansion() {
     use crate::ui::declarative::*;
     let ctx = egui::Context::default();
     let icons = crate::app::icons::Icons::load(&ctx);
-    let mut preferences = CompactPreferences::default();
+    let mut preferences = AppPreferences::default();
     let mut settings = SettingsView::default();
     let mut active = crate::extension::ExtensionId::builtin("test/table");
     let ids = vec![active.clone()];

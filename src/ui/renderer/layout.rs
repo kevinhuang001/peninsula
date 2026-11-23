@@ -92,12 +92,12 @@ pub(super) fn axes(size: SizeSpec) -> [Axis; 2] {
 
 fn node_size(node: &ViewNode) -> SizeSpec {
     let mut size = node.size;
-    if let Node::Compact(compact) = &node.kind {
+    if let Node::Capsule(capsule) = &node.kind {
         if size.width == Size::Auto {
-            size.width = compact.layout.width;
+            size.width = capsule.layout.width;
         }
         if size.height == Size::Auto {
-            size.height = compact.layout.height;
+            size.height = capsule.layout.height;
         }
     }
     size
@@ -121,10 +121,10 @@ pub(super) fn scrolls(node: &ViewNode, axis: usize, depth: usize, remaining: &mu
         Node::Scroll(axes, child) => {
             axes.axes()[axis] || scrolls(child, axis, depth + 1, remaining)
         }
-        Node::Compact(compact) => {
-            matches!(compact.layout.overflow, Overflow::Scroll(axes) if axes.axes()[axis])
-                || scrolls(&compact.content, axis, depth + 1, remaining)
-                || scrolls(&compact.leading, axis, depth + 1, remaining)
+        Node::Capsule(capsule) => {
+            matches!(capsule.layout.overflow, Overflow::Scroll(axes) if axes.axes()[axis])
+                || scrolls(&capsule.content, axis, depth + 1, remaining)
+                || scrolls(&capsule.leading, axis, depth + 1, remaining)
         }
         Node::Container(child)
         | Node::Motion { child, .. }
@@ -214,10 +214,10 @@ impl Renderer<'_> {
         let extras = vec2(padding[0] + padding[2], padding[1] + padding[3]);
         let inner = (available - extras).max(Vec2::ZERO);
         let native = match &node.kind {
-            Node::Compact(compact) => {
+            Node::Capsule(capsule) => {
                 // Unspecified height uses the intrinsic heights of both regions.
                 let inner = vec2(inner.x, explicit[1].map_or(0.0, |_| inner.y));
-                self.measure_compact(ui, compact, inner, depth + 1)
+                self.measure_capsule(ui, capsule, inner, depth + 1)
             }
             Node::Table(table) => {
                 let width = if explicit[0].is_some() {

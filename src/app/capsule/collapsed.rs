@@ -1,8 +1,8 @@
 use crate::{
     app::{
-        compact_layout::{fitted_widths, CompactItem, CHIP_HEIGHT, ITEM_GAP},
+        capsule_layout::{fitted_widths, CapsuleItem, CHIP_HEIGHT, ITEM_GAP},
         icons::Icons,
-        settings::CompactPreferences,
+        settings::AppPreferences,
         unlock::{self, UnlockHandoff},
     },
     extension::{ActionInvocation, Prompt},
@@ -10,7 +10,7 @@ use crate::{
 };
 use eframe::egui::{self, Pos2, Rect, Sense, Vec2};
 
-use super::draw_compact_chip;
+use super::draw_capsule_chip;
 
 #[derive(Clone)]
 struct PromptEntrance {
@@ -21,9 +21,9 @@ struct PromptEntrance {
 
 const PROMPT_ENTRANCE_ID: &str = "capsule-prompt-entrance";
 
-pub(super) struct CompactContent<'a> {
-    pub(super) prefs: &'a CompactPreferences,
-    pub(super) views: &'a [CompactItem<'a>],
+pub(super) struct CapsuleContent<'a> {
+    pub(super) prefs: &'a AppPreferences,
+    pub(super) views: &'a [CapsuleItem<'a>],
     pub(super) icons: &'a Icons,
     pub(super) handoff: Option<UnlockHandoff>,
 }
@@ -32,9 +32,9 @@ pub(super) fn show(
     ui: &mut egui::Ui,
     rect: Rect,
     progress: f32,
-    content: CompactContent<'_>,
+    content: CapsuleContent<'_>,
 ) -> Option<ActionInvocation> {
-    let CompactContent {
+    let CapsuleContent {
         prefs,
         views: available_views,
         icons,
@@ -54,7 +54,7 @@ pub(super) fn show(
             .collect()
     } else {
         prefs
-            .ordered_compact_items()
+            .ordered_capsule_items()
             .into_iter()
             .filter(|item| prefs.is_enabled(&item.id))
             .filter_map(|item| available_views.iter().find(|view| view.view.id == item.id))
@@ -71,10 +71,10 @@ pub(super) fn show(
     let mut x = rect.center().x - total * 0.5;
     let center_y = rect.center().y;
 
-    let appearance = renderer::CompactTextAppearance {
-        size: prefs.compact_text_size,
+    let appearance = renderer::CapsuleTextAppearance {
+        size: prefs.capsule_text_size,
         color: prefs
-            .compact_text_color
+            .capsule_text_color
             .map(|[r, g, b]| egui::Color32::from_rgb(r, g, b)),
     };
     let mut action = None;
@@ -95,12 +95,12 @@ pub(super) fn show(
             continue;
         }
         if !mascot {
-            draw_compact_chip(ui, item_rect, item_opacity);
+            draw_capsule_chip(ui, item_rect, item_opacity);
         }
         if let Some(tooltip) = view.tooltip.as_ref().filter(|_| handoff.is_none()) {
             ui.interact(
                 item_rect,
-                egui::Id::new(("compact-item", &view.id)),
+                egui::Id::new(("capsule-item", &view.id)),
                 Sense::hover(),
             )
             .on_hover_text(tooltip);
@@ -118,7 +118,7 @@ pub(super) fn show(
         } else {
             content_rect
         };
-        if let Some(clicked) = renderer::show_compact_with_appearance(
+        if let Some(clicked) = renderer::show_capsule_with_appearance(
             ui,
             content_rect,
             &view.id,
@@ -143,7 +143,7 @@ fn show_prompt(
     opacity: f32,
     prompt: &Prompt,
     icons: &Icons,
-    prefs: &CompactPreferences,
+    prefs: &AppPreferences,
 ) -> Option<ActionInvocation> {
     if opacity <= 0.0 {
         return None;

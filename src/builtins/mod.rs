@@ -14,7 +14,7 @@ mod rss;
 pub mod weather;
 use crate::extension::{Action, ExtensionRegistry, RuntimeExtension};
 use crate::ui::declarative::ViewNode;
-fn compact_value(text: impl Into<String>, monospace: bool) -> ViewNode {
+fn capsule_value(text: impl Into<String>, monospace: bool) -> ViewNode {
     use crate::ui::declarative::*;
     ViewNode::text(
         text,
@@ -28,7 +28,7 @@ fn compact_value(text: impl Into<String>, monospace: bool) -> ViewNode {
     )
 }
 
-fn compact_detail(text: impl Into<String>) -> ViewNode {
+fn capsule_detail(text: impl Into<String>) -> ViewNode {
     use crate::ui::declarative::*;
     ViewNode::text(
         text,

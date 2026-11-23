@@ -6,7 +6,7 @@ mod scheduler;
 mod tests;
 
 use crate::{
-    extension::{CompactView, ExtensionId},
+    extension::{CapsuleView, ExtensionId},
     ui::declarative::{Node, Size, ViewNode},
 };
 pub use animation::MascotPose;
@@ -76,9 +76,9 @@ impl MascotHost {
         ViewNode::new(Node::CoreMascot(self.pose)).sized(Size::Fill(1.0), Size::Fill(1.0))
     }
 
-    pub fn compact_slot(&self) -> CompactView {
+    pub fn capsule_slot(&self) -> CapsuleView {
         let id = ExtensionId::builtin(MASCOT_SLOT_ID);
-        CompactView {
+        CapsuleView {
             id: id.clone(),
             source_extension_id: id,
             content: self.node(),

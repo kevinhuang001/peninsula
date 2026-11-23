@@ -20,7 +20,7 @@ use std::{
 
 mod animation;
 mod capsule;
-mod compact_layout;
+mod capsule_layout;
 mod dashboard;
 mod datasource;
 mod fonts;
@@ -35,7 +35,7 @@ mod widget_layout;
 mod widgets;
 
 use icons::Icons;
-use settings::{CompactPreferences, SettingsView};
+use settings::{AppPreferences, SettingsView};
 
 const INITIAL_WINDOW_SIZE: [f32; 2] = [720.0, 372.0];
 const WINDOW_TOP_PADDING: f32 = 4.0;
@@ -82,7 +82,7 @@ struct IslandApp {
     mascot: crate::core::mascot::MascotHost,
     state: IslandState,
     icons: Icons,
-    preferences: CompactPreferences,
+    preferences: AppPreferences,
     settings_view: SettingsView,
     settings_open: bool,
     dashboard_open: bool,
@@ -108,10 +108,10 @@ struct IslandApp {
 
 impl IslandApp {
     fn new(context: &egui::Context) -> Self {
-        let mut preferences = CompactPreferences::load();
+        let mut preferences = AppPreferences::load();
         preferences
-            .widget_theme
-            .install(context, preferences.widget_accent);
+            .appearance_theme
+            .install(context, preferences.accent_color);
         let mut extensions = ExtensionManager::new(
             crate::builtins::runtimes(),
             preferences.contribution_preferences(),
@@ -188,7 +188,7 @@ impl IslandApp {
         }
     }
 
-    fn update_viewport_size(&mut self, context: &egui::Context, compact_width: f32) {
+    fn update_viewport_size(&mut self, context: &egui::Context, capsule_width: f32) {
         let (monitor, outer) = context.input(|input| {
             let viewport = input.viewport();
             (viewport.monitor_size, viewport.outer_rect)
@@ -201,7 +201,7 @@ impl IslandApp {
         let mut size = (monitor * SCREEN_FRACTION).floor().max(Vec2::splat(1.0));
         // A lyric may exceed the normal widget canvas. Keep room for the
         // spring overshoot as well, so the native window cannot crop it.
-        size.x = size.x.max((compact_width * 1.08).ceil());
+        size.x = size.x.max((capsule_width * 1.08).ceil());
         if self.window_size == size {
             return;
         }
@@ -765,11 +765,11 @@ impl eframe::App for IslandApp {
         let active_prompt = active_prompt.filter(|_| unlock_handoff.is_none());
         let prompt_active = active_prompt.is_some();
         let mut available_views = active_prompt.as_ref().map_or_else(
-            || self.extensions.compact_views(now),
-            |prompt| vec![Arc::new(prompt.compact_view())],
+            || self.extensions.capsule_views(now),
+            |prompt| vec![Arc::new(prompt.capsule_view())],
         );
         if !prompt_active {
-            available_views.extend(self.datasources.compact_views().into_iter().map(Arc::new));
+            available_views.extend(self.datasources.capsule_views().into_iter().map(Arc::new));
         }
         let sources = self.extensions.mascot_sources();
         let mascot_visible = self.preferences.mascot_enabled
@@ -791,9 +791,9 @@ impl eframe::App for IslandApp {
             context.request_repaint_after(delay);
         }
         if self.preferences.mascot_enabled && !prompt_active {
-            available_views.insert(0, Arc::new(self.mascot.compact_slot()));
+            available_views.insert(0, Arc::new(self.mascot.capsule_slot()));
         }
-        let mut compact_views = compact_layout::measure_views(
+        let mut capsule_views = capsule_layout::measure_views(
             context,
             available_views.iter().map(Arc::as_ref).filter(|view| {
                 prompt_active
@@ -802,27 +802,27 @@ impl eframe::App for IslandApp {
                         && view.id.as_str() == crate::core::mascot::MASCOT_SLOT_ID)
             }),
             &self.icons,
-            self.preferences.compact_text_size,
+            self.preferences.capsule_text_size,
         );
         if prompt_active {
-            for view in &mut compact_views {
+            for view in &mut capsule_views {
                 view.exclusive = true;
                 view.prompt = active_prompt.clone();
             }
         }
-        let compact_width = compact_layout::width(&self.preferences, &compact_views);
+        let capsule_width = capsule_layout::width(&self.preferences, &capsule_views);
         self.update_viewport_size(
             context,
-            compact_width.max(widget_width).max(self.state.width.value),
+            capsule_width.max(widget_width).max(self.state.width.value),
         );
         if let Some(unlock) = unlock_handoff {
             self.state
-                .begin_unlock_transition(unlock.width(compact_width));
+                .begin_unlock_transition(unlock.width(capsule_width));
             if handoff.is_none() {
                 context.request_repaint();
             }
         } else {
-            self.state.set_compact_width(compact_width);
+            self.state.set_capsule_width(capsule_width);
         }
         let dt = context.input(|input| input.unstable_dt).clamp(0.0, 0.1);
         if self.preferences.motion_off {
@@ -865,10 +865,10 @@ impl eframe::App for IslandApp {
                         interactive_rect = Some(capsule::show_unlock_handoff(
                             ui,
                             pill_width.min(self.window_size.x),
-                            compact_width.min(self.window_size.x),
+                            capsule_width.min(self.window_size.x),
                             handoff,
                             &self.preferences,
-                            &compact_views,
+                            &capsule_views,
                             &self.icons,
                         ));
                         return;
@@ -891,7 +891,7 @@ impl eframe::App for IslandApp {
                         self.widget_height.value.clamp(0.0, widget_limit[1]),
                         capsule::CapsuleWidgets {
                             preferences: &mut self.preferences,
-                            compact_views: &compact_views,
+                            capsule_views: &capsule_views,
                             settings_open: self.settings_open,
                             settings_view: &mut self.settings_view,
                             active_widget: &mut self.active_widget,
@@ -1001,8 +1001,8 @@ impl eframe::App for IslandApp {
                 self.preferences
                     .read_contribution_settings(&self.extensions);
                 self.preferences
-                    .widget_theme
-                    .install(context, self.preferences.widget_accent);
+                    .appearance_theme
+                    .install(context, self.preferences.accent_color);
                 if let Err(error) = self.preferences.save() {
                     eprintln!("Unable to save settings: {error}");
                 }

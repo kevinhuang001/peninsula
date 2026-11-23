@@ -1,9 +1,9 @@
 mod schema;
 
 use crate::{
-    extension::{CompactView, ExtensionId, Notification, NotificationPriority, ViewNode},
+    extension::{CapsuleView, ExtensionId, Notification, NotificationPriority, ViewNode},
     sdk::secrets::SecretStore,
-    ui::declarative::{ColorSpec, CompactLayout, FontSize, FontWeight, TextStyle},
+    ui::declarative::{ColorSpec, CapsuleLayout, FontSize, FontWeight, TextStyle},
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
 use eframe::egui;
@@ -30,7 +30,7 @@ const MAX_RESPONSE_BYTES: usize = 1_048_576;
 const MAX_ICON_BYTES: usize = 1_000_000;
 const MAX_ICON_PIXELS: u64 = 1_000_000;
 const MAX_CONCURRENT_REQUESTS: usize = 4;
-const DATA_SOURCE_COMPACT_PREFIX: &str = "datasource/";
+const DATA_SOURCE_CAPSULE_PREFIX: &str = "datasource/";
 const DEFAULT_REFRESH_INTERVAL_MS: u64 = 5 * 60 * 1000;
 const DEFAULT_MIN_ALERT_INTERVAL_MS: u64 = 60 * 60 * 1000;
 const MIN_ALERT_INTERVAL_MS: u64 = 60 * 1000;
@@ -99,7 +99,7 @@ struct ManagedSource {
     definition: Definition,
     config: SourceConfig,
     state: SavedState,
-    compact: bool,
+    capsule: bool,
     active_alerts: bool,
     alert_interval_ms: u64,
     next_refresh: Instant,
@@ -297,7 +297,7 @@ impl DataSourceManager {
                         definition,
                         config,
                         state,
-                        compact: false,
+                        capsule: false,
                         active_alerts: false,
                         alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
                         next_refresh,
@@ -374,10 +374,10 @@ impl DataSourceManager {
             .flat_map(|source| {
                 let mut entries = Vec::with_capacity(2);
                 let id = &source.definition.id;
-                if let Ok(compact) = compact_id(id) {
+                if let Ok(capsule) = capsule_id(id) {
                     entries.push(Descriptor::new(
-                        compact,
-                        ContributionKind::Compact,
+                        capsule,
+                        ContributionKind::Capsule,
                         source.definition.name.clone(),
                         "chart",
                         false,
@@ -416,8 +416,8 @@ impl DataSourceManager {
     pub fn apply_contributions(&mut self, host: &crate::core::extension_manager::ExtensionManager) {
         let owner_enabled = host.running(&ExtensionId::builtin(CATALOG_OWNER));
         for (id, source) in &mut self.sources {
-            let was_running = source.compact || source.active_alerts;
-            source.compact = compact_id(id).is_ok_and(|id| host.contribution_running(&id));
+            let was_running = source.capsule || source.active_alerts;
+            source.capsule = capsule_id(id).is_ok_and(|id| host.contribution_running(&id));
             source.active_alerts = notification_id(id).is_ok_and(|id| {
                 if let Some(crate::extension::SettingValue::Duration(ms)) = host
                     .configured_contribution_settings(&id)
@@ -427,7 +427,7 @@ impl DataSourceManager {
                 }
                 host.accepts_notification(&id)
             });
-            let running = source.compact || source.active_alerts;
+            let running = source.capsule || source.active_alerts;
             if !owner_enabled || (was_running && !running) {
                 source.force_refresh = false;
                 if let Some(token) = &source.cancellation {
@@ -457,12 +457,12 @@ impl DataSourceManager {
             .or_else(|| self.definition_errors.first().map(String::as_str))
     }
 
-    pub fn compact_views(&self) -> Vec<CompactView> {
+    pub fn capsule_views(&self) -> Vec<CapsuleView> {
         self.sources
             .iter()
-            .filter(|(_, source)| source.config.enabled && source.compact)
+            .filter(|(_, source)| source.config.enabled && source.capsule)
             .filter_map(|(id, source)| {
-                let id = compact_id(id).ok()?;
+                let id = capsule_id(id).ok()?;
                 let icon_key = format!(
                     "datasource-icon/{}/{}",
                     source.definition.id,
@@ -484,10 +484,10 @@ impl DataSourceManager {
                     },
                 )
                 .color(ColorSpec::PrimaryText);
-                let content = ViewNode::compact(
+                let content = ViewNode::capsule(
                     leading,
                     text,
-                    CompactLayout {
+                    CapsuleLayout {
                         leading_size: [18.0, 18.0],
                         gap: 5.0,
                         content_size: crate::ui::declarative::SizeSpec {
@@ -497,7 +497,7 @@ impl DataSourceManager {
                         ..Default::default()
                     },
                 );
-                Some(CompactView {
+                Some(CapsuleView {
                     id: id.clone(),
                     source_extension_id: id.clone(),
                     content,
@@ -616,7 +616,7 @@ impl DataSourceManager {
                 }
             }
         });
-        let compact = previous.as_ref().is_some_and(|old| old.compact);
+        let capsule = previous.as_ref().is_some_and(|old| old.capsule);
         let icon_warning = definition
             .icon
             .as_ref()
@@ -634,7 +634,7 @@ impl DataSourceManager {
                 definition,
                 config,
                 state,
-                compact,
+                capsule,
                 active_alerts: false,
                 alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
                 next_refresh: now,
@@ -819,7 +819,7 @@ impl DataSourceManager {
             .filter(|source| {
                 !source.in_flight
                     && source.config.enabled
-                    && (source.compact || source.active_alerts)
+                    && (source.capsule || source.active_alerts)
             })
             .map(|source| source.next_refresh)
             .min()
@@ -893,7 +893,7 @@ impl DataSourceManager {
                 !source.in_flight
                     && self.active_requests < MAX_CONCURRENT_REQUESTS
                     && source.config.enabled
-                    && (source.compact || source.active_alerts)
+                    && (source.capsule || source.active_alerts)
                     && (source.force_refresh || source.next_refresh <= now)
             })
             .map(|(id, _)| id.clone())
@@ -1217,8 +1217,8 @@ fn new_config(
     }
 }
 
-fn compact_id(id: &str) -> Result<ExtensionId, String> {
-    ExtensionId::new(format!("{DATA_SOURCE_COMPACT_PREFIX}{id}/value"))
+fn capsule_id(id: &str) -> Result<ExtensionId, String> {
+    ExtensionId::new(format!("{DATA_SOURCE_CAPSULE_PREFIX}{id}/value"))
         .map_err(|_| "数据源 id 无效".to_owned())
 }
 
@@ -2047,7 +2047,7 @@ mod tests {
                 formatted: Some("11.0 °C".into()),
                 ..SavedState::default()
             },
-            compact: true,
+            capsule: true,
             active_alerts: false,
             alert_interval_ms: DEFAULT_MIN_ALERT_INTERVAL_MS,
             next_refresh: Instant::now(),

@@ -3,9 +3,9 @@ use crate::extension::Action;
 use serde::{Deserialize, Serialize};
 
 mod animation;
-mod compact;
+mod capsule;
 pub use animation::*;
-pub use compact::*;
+pub use capsule::*;
 
 /// Generous host width for content-fitted, single-line surfaces (egui points).
 pub const MAX_CONTENT_WIDTH: f32 = 4096.0;
@@ -229,6 +229,22 @@ pub struct Placement {
     pub row_span: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum AccentShade {
+    S50, S100, S200, S300, S400, S500, S600, S700, S800, S900, S950,
+}
+
+impl AccentShade {
+    pub const fn index(self) -> usize {
+        match self {
+            Self::S50 => 0, Self::S100 => 1, Self::S200 => 2,
+            Self::S300 => 3, Self::S400 => 4, Self::S500 => 5,
+            Self::S600 => 6, Self::S700 => 7, Self::S800 => 8,
+            Self::S900 => 9, Self::S950 => 10,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum ColorSpec {
     #[default]
@@ -240,6 +256,8 @@ pub enum ColorSpec {
     Accent,
     OnAccent,
     AccentSubtle,
+    OnAccentSubtle,
+    AccentShade(AccentShade),
     Border,
     Success,
     Warning,
@@ -433,7 +451,7 @@ pub struct ViewNode {
 pub enum Node {
     #[serde(skip)]
     CoreMascot(crate::core::mascot::MascotPose),
-    Compact(Box<Compact>),
+    Capsule(Box<Capsule>),
     Motion {
         motion: Box<Motion>,
         child: Box<ViewNode>,
@@ -567,8 +585,8 @@ impl ViewNode {
             image_fit: None,
         }
     }
-    pub fn compact(leading: Self, content: Self, layout: CompactLayout) -> Self {
-        Self::new(Node::Compact(Box::new(Compact {
+    pub fn capsule(leading: Self, content: Self, layout: CapsuleLayout) -> Self {
+        Self::new(Node::Capsule(Box::new(Capsule {
             leading,
             content,
             layout,
@@ -620,7 +638,7 @@ impl ViewNode {
     pub fn subtle_button(label: impl Into<String>, action: Action) -> Self {
         Self::button(label, action).styled(Style {
             normal: Paint {
-                foreground: Some(ColorSpec::Info),
+                foreground: Some(ColorSpec::OnAccentSubtle),
                 background: Some(ColorSpec::AccentSubtle),
                 ..Default::default()
             },
@@ -669,5 +687,18 @@ impl ViewNode {
     pub fn styled(mut self, style: Style) -> Self {
         self.style = style;
         self
+    }
+}
+
+
+#[cfg(test)]
+mod accent_contract_tests {
+    use super::*;
+    #[test]
+    fn shade_serialization_is_stable() {
+        let color = ColorSpec::AccentShade(AccentShade::S700);
+        let json = serde_json::to_string(&color).unwrap();
+        assert_eq!(serde_json::from_str::<ColorSpec>(&json).unwrap(), color);
+        assert!(serde_json::from_str::<ColorSpec>(r#"{"AccentShade":"S999"}"#).is_err());
     }
 }
