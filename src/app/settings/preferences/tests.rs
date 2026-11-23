@@ -84,6 +84,16 @@ fn capsule_text_color_presets_round_trip_through_preferences() {
 }
 
 #[test]
+fn global_motion_preferences_are_no_longer_persisted_or_user_configurable() {
+    let prefs = AppPreferences::parse(
+        "reduced_motion=true\nmotion_off=true\nmascot_motion=Reduced",
+    );
+    assert_eq!(prefs.mascot_motion, "Reduced");
+    assert!(!prefs.encode().contains("reduced_motion="));
+    assert!(!prefs.encode().contains("motion_off="));
+}
+
+#[test]
 fn unknown_text_scale_falls_back_to_standard() {
     use crate::ui::typography::TextScale;
     assert_eq!(AppPreferences::parse("text_scale=unknown").text_scale, TextScale::Standard);

@@ -27,8 +27,6 @@ pub struct ExtensionPage {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AppPreferences {
     pub capsule_items: Vec<CapsuleItemPreference>,
-    pub reduced_motion: bool,
-    pub motion_off: bool,
     pub mascot_enabled: bool,
     pub mascot_motion: String,
     pub quiet_hours: QuietHours,
@@ -54,8 +52,6 @@ impl Default for AppPreferences {
                     order: d.default_order,
                 })
                 .collect(),
-            reduced_motion: false,
-            motion_off: false,
             mascot_enabled: true,
             mascot_motion: "Full".into(),
             quiet_hours: QuietHours::default(),
@@ -93,8 +89,6 @@ impl AppPreferences {
                 continue;
             };
             match key.trim() {
-                "reduced_motion" => settings.reduced_motion = value.trim() == "true",
-                "motion_off" => settings.motion_off = value.trim() == "true",
                 "mascot_enabled" => {
                     if let Some(v) = parse_bool(value) {
                         settings.mascot_enabled = v;
@@ -195,8 +189,6 @@ impl AppPreferences {
                 .map(|(id, enabled)| format!("contribution_enabled={id}|{enabled}")),
         );
         lines.extend([
-            format!("reduced_motion={}", self.reduced_motion),
-            format!("motion_off={}", self.motion_off),
             format!("mascot_enabled={}", self.mascot_enabled),
             format!("mascot_motion={}", self.mascot_motion),
             format!(

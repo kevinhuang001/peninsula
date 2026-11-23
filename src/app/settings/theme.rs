@@ -60,9 +60,24 @@ pub(in crate::app) fn install(context: &egui::Context, accent: [u8; 3], text_sca
             widget.bg_stroke.color = palette::BORDER;
             widget.corner_radius = CornerRadius::same(7);
         }
-        visuals.widgets.active.bg_stroke.color = tokens.accent_focus;
+        // Text editors use the focused widget stroke. Keep it neutral white,
+        // independent of the user-selected accent color.
+        visuals.widgets.active.bg_stroke.color = Color32::WHITE;
     });
     Typography::install(context, text_scale);
+}
+
+/// Draw a visible white focus outline after TextEdit has painted its field.
+/// In overlay dialogs the native focus stroke may otherwise be clipped.
+pub(super) fn focus_outline(ui: &egui::Ui, response: &egui::Response) {
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            response.rect,
+            7.0,
+            egui::Stroke::new(1.5, Color32::WHITE),
+            egui::StrokeKind::Inside,
+        );
+    }
 }
 
 pub(super) fn parse_accent_color(value: &str) -> Option<[u8; 3]> {

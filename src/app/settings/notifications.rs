@@ -2,7 +2,7 @@
 //! This file must not check extension IDs, asset types or business field keys.
 use super::{
     forms,
-    theme::{BORDER, SECONDARY_TEXT, TEXT},
+    theme::{BORDER, SECONDARY_TEXT},
     AppPreferences,
 };
 use crate::extension::{
@@ -26,8 +26,12 @@ pub(super) fn options(
     selected: Option<&ExtensionId>,
     number_drafts: &mut HashMap<(ExtensionId, String), String>,
 ) -> bool {
-    // Snapshot the catalog so UI changes never mutate registration metadata.
-    let groups: Vec<_> = prefs.pages.iter().filter_map(|page| {
+    // The selected extension is already identified by Core's second-level
+    // navigation. Do not render its name again in the configuration pane.
+    let Some((owner, shared, entries)) = prefs.pages.iter().filter_map(|page| {
+        if Some(&page.descriptor.id) != selected {
+            return None;
+        }
         let entries: Vec<ContributionDescriptor> = page.descriptor.contributions.iter()
             .filter(|entry| entry.kind == ContributionKind::Notification)
             .cloned().collect();
@@ -35,19 +39,12 @@ pub(super) fn options(
         let shared: Vec<SettingSchema> = page.descriptor.settings.iter()
             .filter(|field| field.presentation.in_notifications)
             .cloned().collect();
-        Some((page.descriptor.id.clone(), page.descriptor.name.clone(), shared, entries))
-    }).collect();
-    let mut changed = false;
-    let Some((owner, name, shared, entries)) = groups.into_iter()
-        .find(|(owner, _, _, _)| Some(owner) == selected)
-    else {
+        Some((page.descriptor.id.clone(), shared, entries))
+    }).next() else {
         forms::empty(ui, "没有可配置的通知");
         return false;
     };
-    ui.add_space(10.0);
-    ui.label(egui::RichText::new(&name)
-        .text_style(egui::TextStyle::Heading).strong().color(TEXT));
-    ui.add_space(7.0);
+    let mut changed = false;
         if let Some(page) = prefs.pages.iter_mut().find(|page| page.descriptor.id == owner) {
             for field in shared {
                 if let Some(default) = &field.default {
@@ -69,18 +66,18 @@ pub(super) fn options(
                 }
                 last_group.clone_from(&entry.group_path);
             }
-            ui.add_space(9.0);
+            ui.add_space(4.0);
             egui::Frame::new()
                 .fill(super::theme::ROW)
                 .stroke(Stroke::new(1.0, BORDER))
-                .corner_radius(10.0)
-                .inner_margin(egui::Margin::symmetric(10, 10))
+                .corner_radius(9.0)
+                .inner_margin(egui::Margin::symmetric(8, 6))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.push_id(&entry.id, |ui| {
                         ui.label(egui::RichText::new(&entry.title)
                             .text_style(egui::TextStyle::Body).strong().color(SECONDARY_TEXT));
-                        ui.add_space(6.0);
+                        ui.add_space(2.0);
                         let mut enabled = prefs.contribution_enabled(&entry);
                         if forms::boolean(ui, "启用提醒", &mut enabled) {
                             prefs.set_contribution_enabled(entry.id.clone(), enabled);

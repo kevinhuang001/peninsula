@@ -435,14 +435,9 @@ impl eframe::App for IslandApp {
             self.show_unlock_capsule(context, now);
             return;
         }
-        let global_motion = if self.preferences.motion_off {
-            crate::core::mascot::MotionPolicy::Off
-        } else if self.preferences.reduced_motion {
-            crate::core::mascot::MotionPolicy::Reduced
-        } else {
-            crate::core::mascot::MotionPolicy::Full
-        };
-        let unlock_handoff = self.unlock.handoff(now, global_motion);
+        let unlock_handoff = self.unlock.handoff(
+            now, crate::core::mascot::MotionPolicy::Full,
+        );
         let handoff = unlock_handoff.filter(|handoff| !handoff.finished());
         if unlock_handoff.is_some() && handoff.is_none() {
             self.unlock = Default::default();
@@ -755,11 +750,7 @@ impl eframe::App for IslandApp {
             self.active_widget.as_str().split('/').next().unwrap_or(""),
             self.extensions.widget_title(&self.active_widget)
         );
-        crate::ui::renderer::set_reduced_motion(
-            context,
-            self.preferences.reduced_motion || self.preferences.motion_off,
-        );
-        self.extensions.set_motion_policy(global_motion);
+        self.extensions.set_motion_policy(crate::core::mascot::MotionPolicy::Full);
         let active_prompt = self.extensions.active_prompt(
             now,
             !self.state.expanded
@@ -831,9 +822,6 @@ impl eframe::App for IslandApp {
             self.state.set_capsule_width(capsule_width);
         }
         let dt = context.input(|input| input.unstable_dt).clamp(0.0, 0.1);
-        if self.preferences.motion_off {
-            self.state.finish_motion();
-        }
         let (pill_width, progress) = self.state.advance(dt);
         self.widget_height
             .target(if let Some((_, surface)) = &self.alert_surface {
@@ -851,11 +839,7 @@ impl eframe::App for IslandApp {
             } else {
                 widget_height
             });
-        if self.preferences.motion_off {
-            self.widget_height.finish();
-        } else {
-            self.widget_height.step(dt);
-        }
+        self.widget_height.step(dt);
         let fallback = widget_view.is_none().then(empty_widget_view);
         let widget_view = widget_view.as_deref().or(fallback.as_ref()).unwrap();
 

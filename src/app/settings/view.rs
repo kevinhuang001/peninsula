@@ -34,7 +34,6 @@ const PANEL_INSET: f32 = 10.0;
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 enum CapsuleSection {
     #[default]
-    Motion,
     Mascot,
     CapsuleStyle,
     CapsuleSwitch,
@@ -42,8 +41,7 @@ enum CapsuleSection {
 }
 
 impl CapsuleSection {
-    const ALL: [Self; 5] = [
-        Self::Motion,
+    const ALL: [Self; 4] = [
         Self::Mascot,
         Self::CapsuleStyle,
         Self::CapsuleSwitch,
@@ -52,7 +50,6 @@ impl CapsuleSection {
 
     fn label(self) -> &'static str {
         match self {
-            Self::Motion => "动态效果",
             Self::Mascot => "Mascot",
             Self::CapsuleStyle => "胶囊样式",
             Self::CapsuleSwitch => "胶囊开关",
@@ -565,6 +562,9 @@ impl SettingsView {
             self.encryption_failed = false;
             self.encryption_error_at = None;
         }
+        if !error_active {
+            super::theme::focus_outline(&editor, &password_response);
+        }
         if error_active {
             editor.painter().rect_stroke(
                 password_response.rect.expand(1.5),
@@ -585,6 +585,9 @@ impl SettingsView {
             if confirmation_response.changed() {
                 self.encryption_failed = false;
                 self.encryption_error_at = None;
+            }
+            if !error_active {
+                super::theme::focus_outline(&editor, &confirmation_response);
             }
             if error_active {
                 editor.painter().rect_stroke(
@@ -722,15 +725,16 @@ impl SettingsView {
             });
             ui.add_space(8.0);
             ui.label(egui::RichText::new("名称").text_style(egui::TextStyle::Small).strong());
-            ui.add_sized(
+            let name_response = ui.add_sized(
                 [ui.available_width(), 28.0],
                 egui::TextEdit::singleline(&mut self.secret_key)
                     .text_color(TEXT)
                     .hint_text("例如 OPENAI_API_KEY"),
             );
+            super::theme::focus_outline(ui, &name_response);
             ui.add_space(10.0);
             ui.label(egui::RichText::new("私密内容").text_style(egui::TextStyle::Small).strong());
-            ui.add_sized(
+            let value_response = ui.add_sized(
                 [ui.available_width(), 28.0],
                 egui::TextEdit::singleline(&mut self.secret_value)
                     .password(!self.secret_revealed)
@@ -741,6 +745,7 @@ impl SettingsView {
                         "输入密钥或令牌"
                     }),
             );
+            super::theme::focus_outline(ui, &value_response);
             ui.add_space(3.0);
             ui.checkbox(&mut self.secret_revealed, "显示内容");
             if !self.secret_status.is_empty() {
@@ -1138,22 +1143,6 @@ fn capsule_options(
 ) -> bool {
     let mut changed = false;
     match section {
-        CapsuleSection::Motion => {
-            changed |= forms::row(ui, "全局动态效果", |ui| {
-                let before = (prefs.reduced_motion, prefs.motion_off);
-                let mut motion = if prefs.motion_off {
-                    "Off"
-                } else if prefs.reduced_motion {
-                    "Reduced"
-                } else {
-                    "Full"
-                };
-                motion_picker(ui, "global-motion", &mut motion);
-                prefs.reduced_motion = motion == "Reduced";
-                prefs.motion_off = motion == "Off";
-                before != (prefs.reduced_motion, prefs.motion_off)
-            });
-        }
         CapsuleSection::Mascot => {
             changed |= forms::boolean(ui, "显示 Mascot", &mut prefs.mascot_enabled);
             changed |= forms::row(ui, "Mascot 动画", |ui| {

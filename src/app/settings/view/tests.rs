@@ -248,10 +248,13 @@ fn capsule_submenus_keep_configuration_in_the_third_column() {
     assert!(panels
         .plugins
         .unwrap()
-        .contains(text_rect(&output, "动态效果").center()));
+        .contains(text_rect(&output, "Mascot").center()));
     assert!(panels
         .form
-        .contains(text_rect(&output, "全局动态效果").center()));
+        .contains(text_rect(&output, "显示 Mascot").center()));
+    assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+        egui::Shape::Text(text) if text.galley.job.text == "全局动态效果"
+            || text.galley.job.text == "动态效果")));
     click(
         &ctx,
         &mut view,
@@ -316,7 +319,7 @@ fn capsule_switches_and_order_live_in_capsule_not_components() {
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for title in ["动态效果", "Mascot", "胶囊样式", "胶囊开关", "胶囊顺序"] {
+    for title in ["Mascot", "胶囊样式", "胶囊开关", "胶囊顺序"] {
         assert!(text_rect(&output, title).width() > 0.0);
     }
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "胶囊顺序").center());
@@ -494,7 +497,6 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
         },
     );
     for label in [
-        "市场",
         "统一最短提醒间隔",
         "股票",
         "AAPL 价格提醒",
@@ -504,9 +506,11 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
     ] {
         assert!(text_rect(&output, label).width() > 0.0, "{label}");
     }
-    let group = text_rect(&output, "市场");
+    let group = text_rect(&output, "股票");
     let item = text_rect(&output, "AAPL 价格提醒");
     assert!(item.top() > group.bottom());
+    assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+        egui::Shape::Text(text) if text.galley.job.text == "市场")));
     // The asset settings are grouped inside their own bordered card;
     // absolute text indents depend on font metrics and are not the hierarchy.
     assert!(output.shapes.iter().any(|shape| match &shape.shape {
@@ -630,9 +634,11 @@ fn notification_renderer_is_generic_for_calendar_contributions() {
             });
         },
     );
-    for label in ["日历与时间", "节日提醒", "提醒时间", "小时（24 小时制）"] {
+    for label in ["节日提醒", "提醒时间", "小时（24 小时制）"] {
         assert!(text_rect(&output, label).width() > 0.0, "{label}");
     }
+    assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+        egui::Shape::Text(text) if text.galley.job.text == "日历与时间")));
 }
 
 #[test]
@@ -644,7 +650,7 @@ fn capsule_configuration_remains_in_capsule_and_widgets_remain_first_level() {
         ..Default::default()
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
-    for title in ["组件", "动态效果", "胶囊样式", "胶囊开关", "胶囊顺序"] {
+    for title in ["组件", "Mascot", "胶囊样式", "胶囊开关", "胶囊顺序"] {
         assert!(text_rect(&output, title).width() > 0.0);
     }
     click(&ctx, &mut view, &mut prefs, text_rect(&output, "组件").center());

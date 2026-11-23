@@ -108,12 +108,10 @@ pub(super) fn mascot_rect(rect: egui::Rect) -> egui::Rect {
 
 impl IslandApp {
     pub(super) fn mascot_policy(&self) -> MotionPolicy {
-        if self.preferences.motion_off || self.preferences.mascot_motion == "Off" {
-            MotionPolicy::Off
-        } else if self.preferences.reduced_motion || self.preferences.mascot_motion == "Reduced" {
-            MotionPolicy::Reduced
-        } else {
-            MotionPolicy::Full
+        match self.preferences.mascot_motion.as_str() {
+            "Off" => MotionPolicy::Off,
+            "Reduced" => MotionPolicy::Reduced,
+            _ => MotionPolicy::Full,
         }
     }
 
@@ -318,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn handoff_uses_the_unlock_and_capsule_endpoints_and_respects_motion_off() {
+    fn handoff_uses_the_unlock_and_capsule_endpoints_and_respects_off_policy() {
         let now = Instant::now();
         let view = UnlockView {
             success_at: Some(now),
