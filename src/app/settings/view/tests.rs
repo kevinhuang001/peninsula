@@ -580,6 +580,31 @@ fn generic_number_text_accepts_decimals_and_rejects_invalid_values() {
 }
 
 #[test]
+fn notification_price_edit_is_reported_as_dirty_to_the_app_save_pipeline() {
+    let ctx = egui::Context::default();
+    let mut prefs = AppPreferences::default();
+    let alert = ExtensionId::builtin("builtin.market/assets/stock/AAPL/price-alert");
+    let owner = ExtensionId::builtin("builtin.market");
+    let mut view = SettingsView {
+        section: Section::Notifications,
+        notification_selected: Some(owner),
+        ..Default::default()
+    };
+    view.number_drafts.insert((alert.clone(), "threshold".into()), "120".into());
+    let mut dirty = false;
+    ctx.run(RawInput {
+        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 1000.0))),
+        ..Default::default()
+    }, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            dirty = view.show(ui, bounds(), &mut prefs);
+        });
+    });
+    assert!(dirty, "valid number edits must reach the app save pipeline");
+    assert_eq!(prefs.contribution_values[&alert]["threshold"], SettingValue::Float(120.0));
+}
+
+#[test]
 fn number_text_drafts_keep_stored_values_in_sync_with_visible_valid_prices() {
     let ctx = egui::Context::default();
     let owner = ExtensionId::builtin("builtin.market/assets/stock/AAPL/price-alert");

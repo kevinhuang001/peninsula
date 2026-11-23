@@ -1862,6 +1862,45 @@ mod tests {
     }
 
     #[test]
+    fn market_price_alert_persists_when_dynamic_defaults_remain_zero() {
+        // Real Market contributions are dynamic; the catalog snapshot is restored
+        // before MarketExtension loads its watchlist on the next launch.
+        let dir = tempfile::tempdir().unwrap();
+        let context = || ExtensionContext::new(dir.path().join("data"), dir.path().join("config"));
+        let lifecycle = || Some(dir.path().join("lifecycle.tsv"));
+        let market = || crate::builtins::runtimes().into_iter()
+            .find(|runtime| runtime.descriptor().id.as_str() == "builtin.market")
+            .expect("built-in market extension");
+        let alert = ExtensionId::builtin("builtin.market/assets/stock/AAPL/price-alert");
+        {
+            let mut host = ExtensionManager::with_context(
+                vec![market()], context(), lifecycle(),
+            );
+            assert_eq!(
+                host.configured_contribution_settings(&alert)
+                    .and_then(|values| values.get("threshold")),
+                Some(&SettingValue::Float(0.0))
+            );
+            host.update_contribution_settings(
+                &alert,
+                [("condition".into(), SettingValue::Enum("高于".into())),
+                 ("threshold".into(), SettingValue::Float(120.0))].into(),
+            ).expect("price must save to contribution-settings.json");
+            assert_eq!(
+                host.configured_contribution_settings(&alert).unwrap()["threshold"],
+                SettingValue::Float(120.0)
+            );
+        }
+        let host = ExtensionManager::with_context(vec![market()], context(), lifecycle());
+        assert_eq!(
+            host.configured_contribution_settings(&alert)
+                .and_then(|values| values.get("threshold")),
+            Some(&SettingValue::Float(120.0)),
+            "restart must restore the saved target, not a fresh dynamic default"
+        );
+    }
+
+    #[test]
     fn stopped_catalog_survives_restart_and_unregistering_drops_configuration() {
         let dir = tempfile::tempdir().unwrap();
         let context = || ExtensionContext::new(dir.path().into(), dir.path().into());
