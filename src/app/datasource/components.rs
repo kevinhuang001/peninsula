@@ -230,7 +230,7 @@ pub(super) fn info_row(ui: &mut egui::Ui, label: &str, value: &str, value_size: 
         egui::Align2::LEFT_CENTER,
         label,
         Typography::font_id(ui.ctx(), 12.0),
-        ui.visuals().weak_text_color(),
+        ui.visuals().text_color(),
     );
     ui.painter().text(
         rect.right_center(),
