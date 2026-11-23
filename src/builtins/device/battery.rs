@@ -135,7 +135,7 @@ fn battery_prompt_layers(metrics: &PowerSnapshot) -> Vec<PromptLayer> {
             ViewNode::text(
                 label,
                 TextStyle {
-                    font_size: FontSize::Relative(1),
+                    font_size: FontSize::Relative(1.0),
                     ..Default::default()
                 },
             )

@@ -285,7 +285,7 @@ fn message_row(message: &EmailMessage, account: &Account, pending: bool) -> View
     let subject = ViewNode::text(
         &message.subject,
         TextStyle {
-            font_size: FontSize::Relative(1),
+            font_size: FontSize::Relative(1.0),
             font_weight: if message.is_read {
                 FontWeight::Normal
             } else {

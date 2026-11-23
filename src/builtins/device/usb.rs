@@ -146,7 +146,7 @@ fn usb_prompt(name: &str, inserted: bool) -> Prompt {
             ViewNode::text(
                 verb,
                 TextStyle {
-                    font_size: FontSize::Relative(1),
+                    font_size: FontSize::Relative(1.0),
                     font_weight: FontWeight::Bold,
                     ..Default::default()
                 },

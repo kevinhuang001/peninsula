@@ -197,7 +197,7 @@ pub(super) fn build(rss: &RssExtension) -> WidgetView {
             let title = ViewNode::text(
                 &article.title,
                 TextStyle {
-                    font_size: FontSize::Relative(1),
+                    font_size: FontSize::Relative(1.0),
                     align: Align::Start,
                     wrap: true,
                     max_lines: Some(2),

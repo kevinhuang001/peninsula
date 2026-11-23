@@ -3,7 +3,7 @@ use crate::ui::typography::Typography;
 use crate::extension::{
     DurationDisplay, EditorHint, ExtensionId, SearchOption, SettingSchema, SettingValue,
 };
-use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke, Vec2};
+use eframe::egui::{self, Align2, Color32, Rect, Sense, Stroke, Vec2};
 use std::{collections::HashMap, time::Instant};
 
 pub(super) const SWITCH_ON: Color32 = Color32::from_rgb(24, 62, 105);

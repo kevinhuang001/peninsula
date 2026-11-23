@@ -24,7 +24,7 @@ pub(super) fn preferred_width(ctx: &egui::Context, quiet: &QuietHours) -> f32 {
         .iter()
         .map(|period| {
             painter
-                .layout_no_wrap(period_label(*period), Typography::font_id(ui.ctx(), 9.2), TEXT)
+                .layout_no_wrap(period_label(*period), Typography::font_id(ctx, 9.2), TEXT)
                 .size()
                 .x
         })
@@ -203,7 +203,7 @@ fn action_button(ui: &egui::Ui, rect: Rect, id: impl std::hash::Hash, label: &st
         rect.center(),
         Align2::CENTER_CENTER,
         label,
-        FontId::proportional(if label == "×" { 14.0 } else { 10.5 }),
+        Typography::font_id(ui.ctx(), if label == "×" { 14.0 } else { 10.5 }),
         Color32::WHITE,
     );
     response.clicked()

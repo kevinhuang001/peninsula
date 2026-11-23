@@ -9,7 +9,7 @@ use super::{
 use crate::extension::{ContributionDescriptor, ContributionKind, ExtensionId};
 use crate::sdk::secrets::SecretStore;
 use crate::ui::typography::{TextScale, Typography};
-use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke};
+use eframe::egui::{self, Align2, Color32, Rect, Sense, Stroke};
 use std::{
     collections::HashMap,
     sync::mpsc::{self, Receiver, TryRecvError},
