@@ -57,6 +57,65 @@ fn capsule_paint_and_hit_bounds_follow_the_animated_width_and_height() {
 }
 
 #[test]
+fn separate_data_source_window_does_not_expand_or_replace_capsule() {
+    fn bounds(source_window_open: bool) -> Rect {
+        let context = egui::Context::default();
+        let mut rect = Rect::NOTHING;
+        let mut title_rendered = false;
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(460.0, 260.0))),
+                ..Default::default()
+            },
+            |context| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(context, |ui| {
+                        ui.vertical_centered(|ui| {
+                            let mut tab = crate::app::widgets::default_widget_id();
+                            let mut prefs = AppPreferences::default();
+                            let mut settings = SettingsView::default();
+                            let icons = crate::app::icons::Icons::load(context);
+                            let (ids, widget) = widget_fixture();
+                            rect = show(
+                                ui,
+                                context,
+                                320.0,
+                                1.0,
+                                112.0,
+                                CapsuleWidgets {
+                                    capsule_views: &[],
+                                    widget_ids: &ids,
+                                    widget_titles: &[],
+                                    widget_title: "测试",
+                                    widget_view: &widget,
+                                    widget_body_limit: egui::vec2(300.0, 76.0),
+                                    alert_view: None,
+                                    preferences: &mut prefs,
+                                    settings_open: false,
+                                    datasource_open: source_window_open,
+                                    settings_view: &mut settings,
+                                    active_widget: &mut tab,
+                                    pinned: false,
+                                    icons: &icons,
+                                    notification: None,
+                                    do_not_disturb: false,
+                                },
+                            ).0;
+                        });
+                    });
+            },
+        );
+        title_rendered |= output.shapes.iter().any(|shape| {
+            matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("测试"))
+        });
+        assert!(title_rendered, "widget title remains visible when data-source window is open");
+        rect
+    }
+    assert_eq!(bounds(false).size(), bounds(true).size());
+}
+
+#[test]
 fn capsule_capsule_is_shorter_without_changing_the_expanded_widget_height() {
     assert_eq!(capsule_height(0.0, 76.0), 44.0);
     assert_eq!(capsule_height(1.0, 76.0), 124.0);
