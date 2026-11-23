@@ -16,6 +16,9 @@ pub struct Definition {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_template: Option<String>,
+    /// Optional text shown on the single-value capsule, e.g. "Star: ${value}".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capsule_text: Option<String>,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
@@ -128,6 +131,8 @@ pub struct MetricDefinition {
     pub request: Option<String>,
     pub value: ValueDefinition,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capsule_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alert: Option<AlertDefinition>,
 }
 
@@ -224,6 +229,9 @@ impl Definition {
             }
             validate_placeholders(template, self, false)?;
         }
+        if let Some(template) = &self.capsule_text {
+            validate_capsule_text(template)?;
+        }
         if self.description.chars().count() > 1000 || self.inputs.len() > 64 {
             return Err("数据源描述或参数数量超过限制".into());
         }
@@ -299,6 +307,10 @@ impl Definition {
                 return Err(format!("指标 {key} 必须引用已声明的 request ID"));
             }
             validate_value_spec(&metric.value)?;
+            if let Some(template) = &metric.capsule_text {
+                validate_capsule_text(template)
+                    .map_err(|error| format!("指标 {key}：{error}"))?;
+            }
             if let Some(alert) = &metric.alert {
                 validate_alert_spec(alert, self)?;
             }
@@ -406,6 +418,19 @@ fn validate_request(request: &RequestDefinition, definition: &Definition) -> Res
     if let Some(body) = &request.body_text {
         validate_placeholders(body, definition, false)
             .map_err(|error| format!("请求体：{error}"))?;
+    }
+    Ok(())
+}
+
+/// Capsule templates intentionally accept only the formatted value, never
+/// arbitrary input substitutions (which could reveal a saved API secret).
+fn validate_capsule_text(template: &str) -> Result<(), String> {
+    if template.trim().is_empty() || template.chars().count() > 80
+        || !template.contains("${value}")
+        || template.replace("${value}", "").contains("${")
+        || template.chars().any(|ch| ch.is_control())
+    {
+        return Err("胶囊文字必须包含 ${value}，最多 80 字，不能引用其他参数".into());
     }
     Ok(())
 }
@@ -680,6 +705,21 @@ mod tests {
 
         let error = Definition::parse(&document.to_string()).unwrap_err();
         assert!(error.contains("请求体.auth.token"), "{error}");
+    }
+
+    #[test]
+    fn capsule_text_template_requires_value_and_cannot_expose_inputs() {
+        assert!(validate_capsule_text("Star: ${value}").is_ok());
+        assert!(validate_capsule_text("开放 PR ${value}").is_ok());
+        assert!(validate_capsule_text("${input.api_key}: ${value}").is_err());
+        assert!(validate_capsule_text("Star: ${raw}").is_err());
+        assert!(validate_capsule_text("").is_err());
+
+        let mut doc = sample();
+        doc["capsule_text"] = serde_json::json!("剩余 ${value}");
+        assert!(Definition::parse(&doc.to_string()).is_ok());
+        doc["capsule_text"] = serde_json::json!("${input.api_key}");
+        assert!(Definition::parse(&doc.to_string()).is_err());
     }
 
     #[test]
