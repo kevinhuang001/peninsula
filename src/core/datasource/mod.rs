@@ -1001,8 +1001,8 @@ impl DataSourceManager {
             .values()
             .filter(|source| {
                 !source.in_flight
-                    && source.config.enabled
-                    && (source.capsule || source.active_alerts)
+                    && (source.manual_refresh
+                        || (source.config.enabled && (source.capsule || source.active_alerts)))
             })
             .map(|source| source.next_refresh)
             .min()
@@ -1030,6 +1030,7 @@ impl DataSourceManager {
             source.cancellation = None;
             source.last_request = Some(now);
             source.force_refresh = false;
+            source.manual_refresh = false;
             match finished.result {
                 Ok(result) => {
                     let updated_metrics: Vec<String> = result.metrics.keys().cloned().collect();
@@ -1113,9 +1114,10 @@ impl DataSourceManager {
             .filter(|(_, source)| {
                 !source.in_flight
                     && self.active_requests < MAX_CONCURRENT_REQUESTS
-                    && source.config.enabled
-                    && (source.capsule || source.active_alerts)
-                    && (source.force_refresh || source.next_refresh <= now)
+                    && (source.manual_refresh
+                        || (source.config.enabled
+                            && (source.capsule || source.active_alerts)
+                            && (source.force_refresh || source.next_refresh <= now)))
             })
             .map(|(id, _)| id.clone())
             .take(MAX_CONCURRENT_REQUESTS.saturating_sub(self.active_requests))
@@ -1126,6 +1128,7 @@ impl DataSourceManager {
                     source.state.last_error = Some(error);
                     source.state.http_status = None;
                     source.force_refresh = false;
+                    source.manual_refresh = false;
                     let retry_wait = source
                         .state
                         .retry_at_ms
@@ -1155,14 +1158,14 @@ impl DataSourceManager {
         let now_ms = timestamp_ms();
         let (task, generation, previous_last_request, previous_last_request_ms, previous_retry_at) = {
             let source = self.sources.get_mut(id).ok_or("数据源不存在")?;
-            if !source.config.enabled {
+            if !source.config.enabled && !source.manual_refresh {
                 return Err("数据源已停用".into());
             }
             // Explicit parameter edits/refresh skip the local 30 s floor. A scheduled retry
             // already has its own backoff (which may be shorter than 30 s), so let it run
             // too instead of overwriting the real failure with a misleading rate-limit error.
             let is_retry = source.state.retry_at_ms.is_some();
-            if !source.force_refresh && !is_retry {
+            if !source.force_refresh && !source.manual_refresh && !is_retry {
                 if source
                     .last_request
                     .is_some_and(|last| last.elapsed() < schema::MIN_REFRESH)
@@ -1195,10 +1198,14 @@ impl DataSourceManager {
             resolve_input_secret_refs(&mut inputs, &store)?;
             validate_required_inputs(&source.definition, &inputs)?;
             let cancellation = crate::sdk::tasks::CancellationToken::default();
-            let active_metrics = source.metric_switches.iter()
-                .filter(|(_, control)| control.capsule || control.alerts)
-                .map(|(id, _)| id.clone())
-                .collect();
+            let active_metrics = if source.manual_refresh && source.definition.is_multi() {
+                source.definition.values.keys().cloned().collect()
+            } else {
+                source.metric_switches.iter()
+                    .filter(|(_, control)| control.capsule || control.alerts)
+                    .map(|(id, _)| id.clone())
+                    .collect()
+            };
             let task = RequestTask {
                 definition: source.definition.clone(),
                 active_metrics,
