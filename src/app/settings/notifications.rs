@@ -2,18 +2,28 @@
 //! This file must not check extension IDs, asset types or business field keys.
 use super::{
     forms,
-    theme::{accent_color, BORDER, SECONDARY_TEXT, TEXT},
+    theme::{BORDER, SECONDARY_TEXT, TEXT},
     AppPreferences,
 };
 use crate::extension::{
     ActivationRule, ContributionDescriptor, ContributionKind, ExtensionId, SettingSchema,
 };
-use eframe::egui::{self, Sense, Stroke};
+use eframe::egui::{self, Stroke};
 use std::collections::HashMap;
+
+/// Derive the second-level menu from declared notification contributions.
+pub(super) fn owners(prefs: &AppPreferences) -> Vec<(ExtensionId, String)> {
+    prefs.pages.iter()
+        .filter(|page| page.descriptor.contributions.iter()
+            .any(|entry| entry.kind == ContributionKind::Notification))
+        .map(|page| (page.descriptor.id.clone(), page.descriptor.name.clone()))
+        .collect()
+}
 
 pub(super) fn options(
     ui: &mut egui::Ui,
     prefs: &mut AppPreferences,
+    selected: Option<&ExtensionId>,
     number_drafts: &mut HashMap<(ExtensionId, String), String>,
 ) -> bool {
     // Snapshot the catalog so UI changes never mutate registration metadata.
@@ -28,14 +38,16 @@ pub(super) fn options(
         Some((page.descriptor.id.clone(), page.descriptor.name.clone(), shared, entries))
     }).collect();
     let mut changed = false;
-    for (owner, name, shared, entries) in groups {
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            let (marker, _) = ui.allocate_exact_size(egui::vec2(3.0, 16.0), Sense::hover());
-            ui.painter().rect_filled(marker, 2.0, accent_color(ui));
-            ui.label(egui::RichText::new(&name).text_style(egui::TextStyle::Heading).strong().color(TEXT));
-        });
-        ui.add_space(7.0);
+    let Some((owner, name, shared, entries)) = groups.into_iter()
+        .find(|(owner, _, _, _)| Some(owner) == selected)
+    else {
+        forms::empty(ui, "没有可配置的通知");
+        return false;
+    };
+    ui.add_space(10.0);
+    ui.label(egui::RichText::new(&name)
+        .text_style(egui::TextStyle::Heading).strong().color(TEXT));
+    ui.add_space(7.0);
         if let Some(page) = prefs.pages.iter_mut().find(|page| page.descriptor.id == owner) {
             for field in shared {
                 if let Some(default) = &field.default {
@@ -110,6 +122,5 @@ pub(super) fn options(
                     });
                 });
         }
-    }
     changed
 }

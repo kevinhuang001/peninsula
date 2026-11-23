@@ -245,9 +245,6 @@ impl DataSourceView {
         if let Some(error) = &source.last_error {
             ui.colored_label(egui::Color32::from_rgb(239, 132, 112), error);
         }
-        if let Some(status) = source.http_status {
-            ui.label(format!("HTTP 状态：{status}"));
-        }
         if self.status_source.as_deref() == Some(source.id.as_str()) && !self.status.is_empty() {
             ui.colored_label(ui.visuals().warn_fg_color, &self.status);
         }

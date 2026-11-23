@@ -206,7 +206,7 @@ fn every_menu_keeps_its_bordered_navigation_and_content_panels() {
         let output = frame(&ctx, &mut view, &mut prefs, vec![]);
         let panels = Panels::new(
             bounds(),
-            matches!(section, Section::Extensions | Section::Capsule | Section::Components),
+            matches!(section, Section::Extensions | Section::Capsule | Section::Components | Section::Notifications),
         );
         for rect in [Some(panels.navigation), panels.plugins, Some(panels.form)]
             .into_iter()
@@ -229,9 +229,10 @@ fn settings_height_grows_with_content_before_host_applies_the_screen_limit() {
     view.section = Section::Capsule;
     view.capsule_section = CapsuleSection::CapsuleSwitch;
     let capsule = view.extra_height(&ctx, &prefs);
-    assert!(extensions > general);
-    assert!(capsule > general);
-    assert!(general < 300.0);
+    assert!(extensions >= general);
+    assert!(capsule >= general);
+    assert!(general >= 8.0 * 40.0 + 49.0);
+    assert!(general < 600.0);
 }
 
 #[test]
@@ -341,6 +342,25 @@ fn capsule_switches_and_order_live_in_capsule_not_components() {
 }
 
 #[test]
+fn notification_owner_navigation_keeps_only_selected_extension_in_form() {
+    let ctx = egui::Context::default();
+    let mut prefs = AppPreferences::default();
+    let mut view = SettingsView {
+        section: Section::Notifications,
+        notification_selected: Some(ExtensionId::builtin("builtin.calendar")),
+        ..Default::default()
+    };
+    let output = frame(&ctx, &mut view, &mut prefs, vec![]);
+    let panels = Panels::new(bounds(), true);
+    assert!(panels.plugins.unwrap().contains(text_rect(&output, "日历与时间").center()));
+    assert!(panels.form.contains(text_rect(&output, "节日提醒").center()));
+    assert!(notifications::owners(&prefs).iter()
+        .all(|(id, _)| prefs.pages.iter().any(|p|
+            p.descriptor.id == *id && p.descriptor.contributions.iter()
+                .any(|item| item.kind == ContributionKind::Notification))));
+}
+
+#[test]
 fn notifications_menu_is_preserved() {
     let ctx = egui::Context::default();
     let mut prefs = AppPreferences::default();
@@ -350,6 +370,7 @@ fn notifications_menu_is_preserved() {
     };
     let output = frame(&ctx, &mut view, &mut prefs, vec![]);
     assert!(text_rect(&output, "通知").width() > 0.0);
+    assert!(text_rect(&output, "关于").width() > 0.0);
 }
 
 #[test]
@@ -467,7 +488,8 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
         },
         |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                notifications::options(ui, &mut prefs, &mut HashMap::new());
+                let owner = ExtensionId::builtin("builtin.market");
+                notifications::options(ui, &mut prefs, Some(&owner), &mut HashMap::new());
             });
         },
     );
@@ -522,7 +544,8 @@ fn market_notification_settings_show_one_shared_interval_and_asset_rules() {
         },
         |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                notifications::options(ui, &mut prefs, &mut HashMap::new());
+                let owner = ExtensionId::builtin("builtin.market");
+                notifications::options(ui, &mut prefs, Some(&owner), &mut HashMap::new());
             });
         },
     );
@@ -584,7 +607,8 @@ fn notification_page_has_a_bounded_content_width() {
         ..Default::default()
     }, |ctx| {
         let view = SettingsView { section: Section::Notifications, ..Default::default() };
-        assert!(view.width(ctx, &prefs) < 550.0);
+        assert!(view.width(ctx, &prefs) < 700.0);
+        assert!(view.width(ctx, &prefs) > 550.0);
     });
 }
 
@@ -601,7 +625,8 @@ fn notification_renderer_is_generic_for_calendar_contributions() {
         },
         |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                notifications::options(ui, &mut prefs, &mut HashMap::new());
+                let owner = ExtensionId::builtin("builtin.calendar");
+                notifications::options(ui, &mut prefs, Some(&owner), &mut HashMap::new());
             });
         },
     );

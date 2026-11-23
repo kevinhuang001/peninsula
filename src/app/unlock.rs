@@ -18,7 +18,7 @@ pub(super) struct UnlockView {
     task: Option<Receiver<Result<(), SecretsError>>>,
     focused_once: bool,
     last_edit: Option<Instant>,
-    failed: Option<(Instant, &'static str)>,
+    failed: Option<Instant>,
     success_at: Option<Instant>,
 }
 
@@ -121,19 +121,18 @@ impl IslandApp {
         let Some(receiver) = &self.unlock.task else {
             return;
         };
-        let message = match receiver.try_recv() {
+        let failed = match receiver.try_recv() {
             Ok(Ok(())) => {
                 self.unlock.password.clear();
                 self.unlock.success_at = Some(now);
-                None
+                false
             }
-            Ok(Err(SecretsError::InvalidPassword)) => Some("密码错误或验证数据已损坏"),
-            Ok(Err(_)) | Err(TryRecvError::Disconnected) => Some("无法读取或验证安全存储"),
+            Ok(Err(_)) | Err(TryRecvError::Disconnected) => true,
             Err(TryRecvError::Empty) => return,
         };
         self.unlock.task = None;
-        self.unlock.failed = message.map(|message| (now, message));
-        if message.is_some() {
+        self.unlock.failed = failed.then_some(now);
+        if failed {
             self.unlock.focused_once = false;
         }
         context.request_repaint();
@@ -153,7 +152,7 @@ impl IslandApp {
                     let (base, _) =
                         ui.allocate_exact_size(egui::vec2(WIDTH, height), egui::Sense::hover());
                     let mut rect = base;
-                    if let Some((start, _)) = state.failed {
+                    if let Some(start) = state.failed {
                         let elapsed = now.saturating_duration_since(start);
                         let duration = MascotMotion::Error.duration();
                         if elapsed >= duration {
@@ -200,20 +199,17 @@ impl IslandApp {
                         state.failed = None;
                         state.last_edit = Some(now);
                     }
-                    if let Some((_, message)) = state.failed {
-                        let color = egui::Color32::from_rgb(228, 118, 125);
+                    if state.failed.is_some() {
+                        // No text beyond the capsule: red border, shake and Mascot
+                        // expression are enough to convey failed verification.
                         ui.painter().rect_stroke(
                             input_rect.expand(1.5),
                             6.0,
-                            egui::Stroke::new(2.0_f32, color),
+                            egui::Stroke::new(
+                                2.0_f32,
+                                egui::Color32::from_rgb(228, 118, 125),
+                            ),
                             egui::StrokeKind::Inside,
-                        );
-                        ui.painter().text(
-                            input_rect.center_bottom() + egui::vec2(0.0, 2.0),
-                            egui::Align2::CENTER_TOP,
-                            message,
-                            egui::FontId::proportional(10.0),
-                            color,
                         );
                     }
                     let confirm = egui::Rect::from_center_size(
@@ -311,7 +307,7 @@ mod tests {
             view.mascot_state(true, now + TYPING_TIMEOUT),
             UnlockMascotState::Attentive
         );
-        view.failed = Some((now, "error"));
+        view.failed = Some(now);
         assert_eq!(view.mascot_state(true, now), UnlockMascotState::Failed);
         let (_sender, receiver) = mpsc::channel();
         view.task = Some(receiver);

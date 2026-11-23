@@ -162,6 +162,21 @@ pub(super) fn switch_row(ui: &mut egui::Ui, value: &mut bool, label: &str) -> bo
     response.clicked()
 }
 
+/// Shared-width Core layout for source runtime controls.
+pub(super) fn runtime_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    control: impl FnOnce(&mut egui::Ui),
+) {
+    form_surface(ui).show(ui, |ui| {
+        ui.set_width((ui.available_width() - 24.0).max(1.0).min(CARD_CONTENT_WIDTH));
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(label).strong());
+            ui.with_layout(Layout::right_to_left(Align::Center), control);
+        });
+    });
+}
+
 pub(super) fn info_card(ui: &mut egui::Ui, label: &str, value: &str, value_size: f32) {
     form_surface(ui).show(ui, |ui| {
         let (rect, _) = ui.allocate_exact_size(

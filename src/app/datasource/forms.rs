@@ -174,46 +174,32 @@ impl DataSourceView {
         preferences: &mut super::super::settings::AppPreferences,
     ) {
         section_title(ui, "运行设置", "");
-        egui::Grid::new(("datasource-runtime-settings", &source.id))
-            .num_columns(1)
-            .spacing([12.0, 8.0])
-            .show(ui, |ui| {
-                self.duration_setting(
-                    ui,
-                    source,
-                    manager,
-                    "refresh",
-                    "自动刷新间隔",
-                    source.refresh_interval_ms,
-                    Duration::from_secs(30),
-                    Duration::from_secs(24 * 60 * 60),
-                );
-                ui.end_row();
-                if let Ok(id) = crate::extension::ExtensionId::new(
-                    format!("datasource/{}/notification", source.id),
-                ) {
-                    if let Some(crate::extension::SettingValue::Duration(ms)) =
-                        preferences.contribution_values.get_mut(&id)
-                            .and_then(|values| values.get_mut("cooldown"))
-                    {
-                        form_surface(ui).show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label("最短提醒间隔");
-                                let mut minutes = (*ms).div_ceil(60_000).clamp(1, 43_200);
-                                if ui.add(
-                                    egui::DragValue::new(&mut minutes)
-                                        .range(1..=43_200)
-                                        .suffix(" 分钟"),
-                                ).changed() {
-                                    *ms = minutes * 60_000;
-                                    self.preferences_dirty = true;
-                                }
-                            });
-                        });
-                        ui.end_row();
+        self.duration_setting(
+            ui, source, manager, "refresh", "自动刷新间隔",
+            source.refresh_interval_ms, Duration::from_secs(30),
+            Duration::from_secs(24 * 60 * 60),
+        );
+        if let Ok(id) = crate::extension::ExtensionId::new(
+            format!("datasource/{}/notification", source.id),
+        ) {
+            if let Some(crate::extension::SettingValue::Duration(ms)) =
+                preferences.contribution_values.get_mut(&id)
+                    .and_then(|values| values.get_mut("cooldown"))
+            {
+                ui.add_space(8.0);
+                runtime_row(ui, "最短提醒间隔", |ui| {
+                    let mut minutes = (*ms).div_ceil(60_000).clamp(1, 43_200);
+                    if ui.add(
+                        egui::DragValue::new(&mut minutes)
+                            .range(1..=43_200)
+                            .suffix(" 分钟"),
+                    ).changed() {
+                        *ms = minutes * 60_000;
+                        self.preferences_dirty = true;
                     }
-                }
-            });
+                });
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -234,11 +220,9 @@ impl DataSourceView {
             .entry(draft_key.clone())
             .or_insert_with(|| current_ms.div_ceil(60_000).to_string());
         let mut changed = false;
-        form_surface(ui).show(ui, |ui| {
-            ui.set_width((ui.available_width() - 24.0).max(1.0).min(CARD_CONTENT_WIDTH));
+        runtime_row(ui, label, |ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(label).strong());
-                ui.add_space((ui.available_width() - 120.0).max(0.0));
+                ui.label("分钟");
                 changed = ui
                     .add_sized(
                         [72.0, 26.0],
@@ -247,7 +231,6 @@ impl DataSourceView {
                             .horizontal_align(Align::RIGHT),
                     )
                     .changed();
-                ui.label("分钟");
             });
         });
         if changed {

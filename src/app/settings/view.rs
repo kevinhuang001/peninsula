@@ -20,7 +20,7 @@ const NAV_BACKGROUND: Color32 = Color32::from_rgb(23, 25, 30);
 const SIDEBAR_WIDTH: f32 = 104.0;
 const PLUGIN_WIDTH: f32 = 134.0;
 const EXTENSION_FORM_WIDTH: f32 = 360.0;
-const NOTIFICATION_FORM_WIDTH: f32 = 352.0;
+const NOTIFICATION_FORM_WIDTH: f32 = 330.0;
 const EXTENSION_FORM_HEIGHT: f32 = 380.0;
 const CAPSULE_FONT_PRESETS: [(&str, f32); 4] = [
     ("较小", 9.0),
@@ -85,6 +85,7 @@ impl ComponentSection {
 pub struct SettingsView {
     section: Section,
     selected: Option<ExtensionId>,
+    notification_selected: Option<ExtensionId>,
     capsule_section: CapsuleSection,
     component_section: ComponentSection,
     quiet_dialog: Option<QuietDialog>,
@@ -166,7 +167,7 @@ impl SettingsView {
     pub const WIDTH: f32 = 680.0;
 
     pub fn width(&self, context: &egui::Context, prefs: &AppPreferences) -> f32 {
-        let extra_column = matches!(self.section, Section::Extensions | Section::Capsule | Section::Components);
+        let extra_column = matches!(self.section, Section::Extensions | Section::Capsule | Section::Components | Section::Notifications);
         let chrome = 24.0
             + SIDEBAR_WIDTH
             + COLUMN_GAP
@@ -227,13 +228,10 @@ impl SettingsView {
     }
 
     pub fn extra_height(&self, context: &egui::Context, prefs: &AppPreferences) -> f32 {
-        if self.section == Section::Extensions {
-            return EXTENSION_FORM_HEIGHT + 21.0;
-        }
         let width = self.width(context, prefs);
         let panels = Panels::new(
             Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 10_000.0)),
-            matches!(self.section, Section::Extensions | Section::Capsule | Section::Components),
+            matches!(self.section, Section::Extensions | Section::Capsule | Section::Components | Section::Notifications),
         );
         let mut measure = egui::Ui::new(
             context.clone(),
@@ -252,6 +250,8 @@ impl SettingsView {
                 .or_else(|| prefs.pages.first().map(|p| p.descriptor.id.clone())),
             capsule_section: self.capsule_section,
             component_section: self.component_section,
+            notification_selected: self.notification_selected.clone()
+                .or_else(|| notifications::owners(prefs).first().map(|(id, _)| id.clone())),
             quiet_dialog: None,
             searches: self.searches.clone(),
             secret_keys: self.secret_keys.clone(),
@@ -271,10 +271,15 @@ impl SettingsView {
                 },
             )
         };
-        // Menu rows allocate 32pt each; a 1pt gutter plus the usual inset
-        // is enough even after Components becomes a first-level item.
-        let navigation_height = Section::ALL.len() as f32 * 33.0 + 10.0;
-        content_height.max(navigation_height) + 21.0
+        // A menu item takes 32pt + 4pt explicit space + 4pt row spacing.
+        // Account for the 41pt title area, 8pt footer and 10pt content inset.
+        let navigation_height = Section::ALL.len() as f32 * (32.0 + 4.0 + 4.0) + 10.0;
+        let content_height = if self.section == Section::Extensions {
+            content_height.max(EXTENSION_FORM_HEIGHT)
+        } else {
+            content_height
+        };
+        content_height.max(navigation_height) + 41.0 + 8.0 + 2.0 * PANEL_INSET
     }
 
     fn content(&mut self, ui: &mut egui::Ui, prefs: &mut AppPreferences) -> bool {
@@ -284,7 +289,7 @@ impl SettingsView {
             Section::Components => component_options(ui, prefs, self.component_section),
             Section::Extensions => self.extension_form(ui, prefs),
             Section::Notifications => {
-                notifications::options(ui, prefs, &mut self.number_drafts)
+                notifications::options(ui, prefs, self.notification_selected.as_ref(), &mut self.number_drafts)
             },
             Section::Secrets => self.secrets(ui),
             Section::About => {
@@ -314,13 +319,14 @@ impl SettingsView {
         self.navigation(&mut surface, nav_rect);
         let panels = Panels::new(
             capsule,
-            matches!(self.section, Section::Extensions | Section::Capsule | Section::Components),
+            matches!(self.section, Section::Extensions | Section::Capsule | Section::Components | Section::Notifications),
         );
         if let Some(plugins) = panels.plugins {
             panel(&surface, plugins, NAV_BACKGROUND);
             match self.section {
                 Section::Capsule => self.capsule_navigation(&mut surface, plugins),
                 Section::Components => self.component_navigation(&mut surface, plugins),
+                Section::Notifications => self.notification_navigation(&mut surface, plugins, prefs),
                 _ => self.plugins(&mut surface, plugins, prefs),
             }
         }
@@ -339,6 +345,7 @@ impl SettingsView {
                 "settings-form-scroll",
                 self.section,
                 self.selected.clone(),
+                self.notification_selected.clone(),
                 self.capsule_section,
                 self.component_section,
             ))
@@ -359,17 +366,23 @@ impl SettingsView {
 
     fn navigation(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let mut navigation = child(ui, rect.shrink(5.0), "settings-navigation");
-        for section in Section::ALL {
-            if menu_row(
-                &mut navigation,
-                ("section", section),
-                section.label(),
-                self.section == section,
-                None,
-            ) {
-                self.section = section;
-            }
-        }
+        egui::ScrollArea::vertical()
+            .id_salt("settings-main-navigation")
+            .auto_shrink([false; 2])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .show(&mut navigation, |ui| {
+                for section in Section::ALL {
+                    if menu_row(
+                        ui,
+                        ("section", section),
+                        section.label(),
+                        self.section == section,
+                        None,
+                    ) {
+                        self.section = section;
+                    }
+                }
+            });
     }
 
     fn secrets(&mut self, ui: &mut egui::Ui) -> bool {
@@ -830,6 +843,31 @@ impl SettingsView {
                         None,
                     ) {
                         self.component_section = section;
+                    }
+                }
+            });
+    }
+
+    fn notification_navigation(&mut self, ui: &mut egui::Ui, rect: Rect, prefs: &AppPreferences) {
+        let owners = notifications::owners(prefs);
+        if !owners.iter().any(|(id, _)| Some(id) == self.notification_selected.as_ref()) {
+            self.notification_selected = owners.first().map(|(id, _)| id.clone());
+        }
+        let mut list = child(ui, rect.shrink(5.0), "notification-navigation");
+        egui::ScrollArea::vertical()
+            .id_salt("notification-owners")
+            .auto_shrink([false; 2])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .show(&mut list, |ui| {
+                for (id, title) in owners {
+                    if menu_row(
+                        ui,
+                        ("notification-owner", &id),
+                        &title,
+                        self.notification_selected.as_ref() == Some(&id),
+                        None,
+                    ) {
+                        self.notification_selected = Some(id);
                     }
                 }
             });
