@@ -1245,24 +1245,30 @@ impl DataSourceManager {
         notification_id: &str,
         alerted_at_ms: u64,
     ) -> Result<(), String> {
-        let Some(source) = self.sources.get_mut(id) else {
-            return Ok(());
-        };
-        if source
-            .state
-            .pending_alert
-            .as_ref()
-            .is_none_or(|pending| pending.notification_id != notification_id)
-        {
-            return Ok(());
+        let Some(source) = self.sources.get_mut(id) else { return Ok(()); };
+        if let Some(metric) = metric_from_notification(notification_id) {
+            let Some(state) = source.state.metrics.get_mut(metric) else { return Ok(()); };
+            if state.pending_alert.as_ref()
+                .is_none_or(|pending| pending.notification_id != notification_id)
+            {
+                return Ok(());
+            }
+            state.last_alert_ms = Some(state.last_alert_ms.map_or(
+                alerted_at_ms, |previous| previous.max(alerted_at_ms),
+            ));
+            state.pending_delta = 0.0;
+            state.pending_alert = None;
+        } else {
+            if source.state.pending_alert.as_ref()
+                .is_none_or(|pending| pending.notification_id != notification_id)
+            {
+                return Ok(());
+            }
+            source.state.last_alert_ms = Some(source.state.last_alert_ms.map_or(
+                alerted_at_ms, |previous| previous.max(alerted_at_ms),
+            ));
+            source.state.pending_alert = None;
         }
-        source.state.last_alert_ms = Some(
-            source
-                .state
-                .last_alert_ms
-                .map_or(alerted_at_ms, |previous| previous.max(alerted_at_ms)),
-        );
-        source.state.pending_alert = None;
         self.save_state()
     }
 
@@ -1273,30 +1279,42 @@ impl DataSourceManager {
         alerted_at_ms: u64,
     ) -> Result<(), String> {
         let source = self.sources.get_mut(id).ok_or("数据源不存在")?;
-        let previous = source.state.pending_alert.clone();
-        source.state.pending_alert = Some(PendingAlertMarker {
-            notification_id: notification_id.to_owned(),
-            alerted_at_ms,
-        });
-        if let Err(error) = self.save_state() {
-            if let Some(source) = self.sources.get_mut(id) {
-                source.state.pending_alert = previous;
+        let marker = PendingAlertMarker { notification_id: notification_id.to_owned(), alerted_at_ms };
+        if let Some(metric) = metric_from_notification(notification_id) {
+            let state = source.state.metrics.get_mut(metric).ok_or("指标不存在")?;
+            let previous = state.pending_alert.replace(marker);
+            if let Err(error) = self.save_state() {
+                if let Some(source) = self.sources.get_mut(id) {
+                    if let Some(state) = source.state.metrics.get_mut(metric) {
+                        state.pending_alert = previous;
+                    }
+                }
+                return Err(error);
             }
-            return Err(error);
+        } else {
+            let previous = source.state.pending_alert.replace(marker);
+            if let Err(error) = self.save_state() {
+                if let Some(source) = self.sources.get_mut(id) {
+                    source.state.pending_alert = previous;
+                }
+                return Err(error);
+            }
         }
         Ok(())
     }
 
     pub fn cancel_pending_alert(&mut self, id: &str, notification_id: &str) {
         if let Some(source) = self.sources.get_mut(id) {
-            if source
-                .state
-                .pending_alert
-                .as_ref()
-                .is_some_and(|pending| pending.notification_id == notification_id)
-            {
-                source.state.pending_alert = None;
-                let _ = self.save_state();
+            let pending = if let Some(metric) = metric_from_notification(notification_id) {
+                source.state.metrics.get_mut(metric).map(|state| &mut state.pending_alert)
+            } else {
+                Some(&mut source.state.pending_alert)
+            };
+            if let Some(pending) = pending {
+                if pending.as_ref().is_some_and(|item| item.notification_id == notification_id) {
+                    *pending = None;
+                    let _ = self.save_state();
+                }
             }
         }
     }
@@ -1307,27 +1325,32 @@ impl DataSourceManager {
     ) -> Result<(), String> {
         let mut changed = false;
         for (id, source) in &mut self.sources {
-            let Some(pending) = source.state.pending_alert.take() else {
-                continue;
-            };
-            let key = format!("datasource.{id}:{}", pending.notification_id);
-            if accepted.contains_key(&key) {
-                source.state.last_alert_ms = Some(
-                    source
-                        .state
-                        .last_alert_ms
-                        .map_or(pending.alerted_at_ms, |last| {
-                            last.max(pending.alerted_at_ms)
-                        }),
-                );
+            if let Some(pending) = source.state.pending_alert.take() {
+                let key = format!("datasource.{id}:{}", pending.notification_id);
+                if accepted.contains_key(&key) {
+                    source.state.last_alert_ms = Some(source.state.last_alert_ms.map_or(
+                        pending.alerted_at_ms, |last| last.max(pending.alerted_at_ms),
+                    ));
+                }
+                changed = true;
             }
-            changed = true;
+            for state in source.state.metrics.values_mut() {
+                if let Some(pending) = state.pending_alert.take() {
+                    let key = format!("datasource.{id}:{}", pending.notification_id);
+                    if accepted.contains_key(&key) {
+                        state.last_alert_ms = Some(state.last_alert_ms.map_or(
+                            pending.alerted_at_ms, |last| last.max(pending.alerted_at_ms),
+                        ));
+                        state.pending_delta = 0.0;
+                    }
+                    changed = true;
+                }
+            }
         }
-        if changed {
-            self.save_state()?;
-        }
+        if changed { self.save_state()?; }
         Ok(())
     }
+
 }
 
 impl Drop for DataSourceManager {
@@ -1339,6 +1362,12 @@ impl Drop for DataSourceManager {
         }
         self.request_tasks.shutdown();
     }
+}
+
+fn metric_from_notification(notification_id: &str) -> Option<&str> {
+    let remainder = notification_id.strip_prefix("metric:")?;
+    let (metric, suffix) = remainder.split_once(':')?;
+    (!metric.is_empty() && suffix.starts_with("alert-")).then_some(metric)
 }
 
 fn new_config(
@@ -2091,6 +2120,93 @@ fn evaluate_alert(source: &ManagedSource, now_ms: u64) -> Option<PendingAlert> {
             created_at: UNIX_EPOCH + Duration::from_millis(now_ms),
         },
     })
+}
+
+fn metric_delta_text(delta: f64) -> String {
+    if delta.fract() == 0.0 && delta.abs() < i64::MAX as f64 {
+        format!("{}", delta as i64)
+    } else {
+        format!("{delta}")
+    }
+}
+
+fn evaluate_metric_alert(source: &ManagedSource, metric_id: &str, now_ms: u64) -> Option<PendingAlert> {
+    let alert = source.definition.metric_alert(metric_id)?;
+    let state = source.state.metrics.get(metric_id)?;
+    let runtime = source.metric_switches.get(metric_id)?;
+    if !runtime.alerts { return None; }
+    let value = state.value?;
+    if alert.mode == AlertMode::Change && state.previous.is_none() {
+        return None; // First fetch establishes the baseline; it is not a change.
+    }
+    let compared = if alert.mode == AlertMode::Change { state.pending_delta } else { value };
+    let threshold = alert_threshold(source, alert)?;
+    if !should_notify(
+        compared, threshold, alert.operator, state.last_alert_ms,
+        runtime.alert_interval_ms, now_ms,
+    ) {
+        return None;
+    }
+    let current = state.formatted.as_deref().unwrap_or("—");
+    let previous = state.previous.map_or_else(|| "—".to_owned(), metric_delta_text);
+    let delta = metric_delta_text(state.pending_delta);
+    let title = expand_metric_alert_template(&alert.title, current, &previous, &delta, &source.config.inputs);
+    let body = expand_metric_alert_template(&alert.message, current, &previous, &delta, &source.config.inputs);
+    Some(PendingAlert {
+        source_id: source.definition.id.clone(),
+        alerted_at_ms: now_ms,
+        notification: Notification {
+            source_id: metric_notification_id(&source.definition.id, metric_id).ok()?,
+            id: format!("metric:{metric_id}:alert-{now_ms}"),
+            title,
+            body,
+            icon: None,
+            priority: NotificationPriority::Normal,
+            actions: vec![],
+            created_at: UNIX_EPOCH + Duration::from_millis(now_ms),
+        },
+    })
+}
+
+fn metric_alert_diagnostic(source: &ManagedSource, metric_id: &str, now_ms: u64) -> String {
+    let Some(alert) = source.definition.metric_alert(metric_id) else {
+        return "未配置提醒".into();
+    };
+    let Some(runtime) = source.metric_switches.get(metric_id) else {
+        return "提醒已关闭".into();
+    };
+    if !runtime.alerts { return "提醒已关闭".into(); }
+    let Some(state) = source.state.metrics.get(metric_id) else {
+        return "等待首次采样".into();
+    };
+    if source.state.last_error.is_some() { return "最近请求失败".into(); }
+    let Some(value) = state.value else { return "等待首次采样".into(); };
+    if alert.mode == AlertMode::Change && state.previous.is_none() {
+        return "已记录基准值，等待变化".into();
+    }
+    let compared = if alert.mode == AlertMode::Change { state.pending_delta } else { value };
+    let Some(threshold) = alert_threshold(source, alert) else { return "阈值参数无效".into(); };
+    if !compare_alert(compared, threshold, alert.operator) {
+        return if alert.mode == AlertMode::Change { "当前无待提醒的变化".into() }
+        else { "当前数值未达到阈值".into() };
+    }
+    if let Some(last) = state.last_alert_ms {
+        let elapsed = now_ms.saturating_sub(last);
+        if elapsed < runtime.alert_interval_ms {
+            return format!("冷却剩余 {}", duration_text(runtime.alert_interval_ms - elapsed));
+        }
+    }
+    "满足通知条件".into()
+}
+
+fn expand_metric_alert_template(
+    template: &str, value: &str, previous: &str, delta: &str,
+    inputs: &BTreeMap<String, Value>,
+) -> String {
+    expand_alert_template(
+        &template.replace("${previous}", previous).replace("${delta}", delta),
+        value, inputs,
+    )
 }
 
 fn alert_threshold(source: &ManagedSource, alert: &schema::AlertDefinition) -> Option<f64> {
