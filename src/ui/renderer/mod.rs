@@ -161,6 +161,28 @@ pub fn natural_content_width(
     measure_natural_width(ctx, root, limit, icons, None)
 }
 
+/// True for any capsule with two or more stacked text rows. This is a
+/// structural rule shared by built-in network, data sources and extensions.
+pub fn is_multiline_capsule(node: &ViewNode) -> bool {
+    match &node.kind {
+        Node::Capsule(capsule) => match &capsule.content.kind {
+            Node::Column(_, rows) => rows.len() >= 2,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Use smaller type on all two-line capsules without changing the typography
+/// of one-line capsules. The cap keeps the chip legible and contained even
+/// when the application-level font scale is large.
+fn fitted_capsule_appearance(root: &ViewNode, mut appearance: CapsuleTextAppearance) -> CapsuleTextAppearance {
+    if is_multiline_capsule(root) {
+        appearance.size = (appearance.size * 0.86).min(12.5);
+    }
+    appearance
+}
+
 pub fn capsule_content_width(
     ctx: &egui::Context,
     root: &ViewNode,
@@ -173,10 +195,10 @@ pub fn capsule_content_width(
         root,
         limit,
         icons,
-        Some(CapsuleTextAppearance {
+        Some(fitted_capsule_appearance(root, CapsuleTextAppearance {
             size: text_size,
             color: None,
-        }),
+        })),
     )
 }
 
@@ -253,7 +275,10 @@ pub fn show_capsule_with_appearance(
     opacity: f32,
     appearance: CapsuleTextAppearance,
 ) -> Option<crate::extension::Action> {
-    show_capsule_in_clip(ui, rect, rect, id, node, icons, opacity, Some(appearance))
+    show_capsule_in_clip(
+        ui, rect, rect, id, node, icons, opacity,
+        Some(fitted_capsule_appearance(node, appearance)),
+    )
 }
 
 /// Paint a positioned Prompt layer while allowing motion across the capsule.
