@@ -22,7 +22,7 @@ impl DataSourceView {
             ui.set_width(form_width(ui));
             for (index, (key, schema)) in source.input_schema.iter().enumerate() {
                 let current = source.inputs.get(key).cloned()
-                .or_else(|| schema.default.clone()).unwrap_or(Value::Null);
+                    .or_else(|| schema.default.clone()).unwrap_or(Value::Null);
                 let draft_id = format!("{}::{key}", source.id);
                 let mut input_update = None;
                 let mut invalid_number = false;
@@ -112,13 +112,13 @@ impl DataSourceView {
                 }
                 if let Some(value) = input_update {
                     self.set_source_status(&source.id, manager.set_input(&source.id, key, value));
-            }
+                }
                 if invalid_number {
                     self.set_source_error(&source.id, format!("{} 的格式或范围无效。", schema.label));
-            }
+                }
                 if index + 1 < source.input_schema.len() {
                     ui.separator();
-            }
+                }
             }
         });
     }
