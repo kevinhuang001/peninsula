@@ -21,13 +21,13 @@ impl DataSourceView {
         form_surface(ui).show(ui, |ui| {
             ui.set_width(form_width(ui));
             for (index, (key, schema)) in source.input_schema.iter().enumerate() {
-            let current = source.inputs.get(key).cloned()
+                let current = source.inputs.get(key).cloned()
                 .or_else(|| schema.default.clone()).unwrap_or(Value::Null);
-            let draft_id = format!("{}::{key}", source.id);
-            let mut input_update = None;
-            let mut invalid_number = false;
-            let inner_width = ui.available_width().max(1.0);
-            let mut control = |ui: &mut egui::Ui| {
+                let draft_id = format!("{}::{key}", source.id);
+                let mut input_update = None;
+                let mut invalid_number = false;
+                let inner_width = ui.available_width().max(1.0);
+                let mut control = |ui: &mut egui::Ui| {
                     match schema.kind {
                         InputType::Boolean => {
                             let mut value = current.as_bool().unwrap_or(false);
@@ -110,16 +110,16 @@ impl DataSourceView {
                         egui::RichText::new(&schema.description).small().weak(),
                     ).truncate()).on_hover_text(&schema.description);
                 }
-            if let Some(value) = input_update {
-                self.set_source_status(&source.id, manager.set_input(&source.id, key, value));
+                if let Some(value) = input_update {
+                    self.set_source_status(&source.id, manager.set_input(&source.id, key, value));
             }
-            if invalid_number {
-                self.set_source_error(&source.id, format!("{} 的格式或范围无效。", schema.label));
+                if invalid_number {
+                    self.set_source_error(&source.id, format!("{} 的格式或范围无效。", schema.label));
             }
-            if index + 1 < source.input_schema.len() {
-                ui.separator();
+                if index + 1 < source.input_schema.len() {
+                    ui.separator();
             }
-        }
+            }
         });
     }
 
